@@ -1,0 +1,14 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - .dart_tool/**
+    - example/**
+
+linter:
+  rules:
+    - prefer_relative_imports
+    - unnecessary_breaks
+    - prefer_const_constructors
+    - public_member_api_docs

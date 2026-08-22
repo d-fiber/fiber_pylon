@@ -1,0 +1,27 @@
+name: publish
+
+# Nothing here is triggered by hand, and nothing here is triggered by a branch.
+# pub.dev only trusts a GitHub workflow that a tag push woke, so the CI names a
+# green main commit "pub-<version>" and that name is what lands here. The token
+# is asked for at the moment of publishing and expires with the run: no pub.dev
+# credential is ever stored in this repository.
+
+on:
+  push:
+    tags: ["pub-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    permissions:
+      # A job that names its own permissions replaces the whole set, so the read
+      # the checkout inside the called workflow needs has to be named here too.
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1

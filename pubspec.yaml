@@ -1,0 +1,19 @@
+name: fiber_pylon
+description: "Primitives to build a swappable REST SDK: one contract, interchangeable backends."
+version: 1.0.0
+repository: https://github.com/d-fiber/fiber_pylon
+
+environment:
+  sdk: ^3.11.0
+
+workspace:
+  - example
+
+dependencies:
+  http: ^1.6.0
+  http_parser: ^4.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^6.0.0
