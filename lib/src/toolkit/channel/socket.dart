@@ -36,6 +36,8 @@
 
 import 'dart:async';
 
+import 'package:equatable/equatable.dart';
+
 import '../reporter.dart';
 import 'channel.dart';
 
@@ -78,28 +80,34 @@ sealed class SocketFrame<E> {
 }
 
 /// A frame carrying something the caller subscribed for.
-final class SocketEvent<E> extends SocketFrame<E> {
+final class SocketEvent<E> extends SocketFrame<E> with Equatable {
   /// What arrived, in the project's own event type.
   final E event;
 
   /// Reports that [event] arrived.
   const SocketEvent(this.event);
+
+  @override
+  List<Object?> get props => [event];
 }
 
 /// A frame confirming that a subscription is in force.
-final class SocketJoined<E> extends SocketFrame<E> {
+final class SocketJoined<E> extends SocketFrame<E> with Equatable {
   /// The subscription the server confirmed.
   final String name;
 
   /// Reports that [name] is joined.
   const SocketJoined(this.name);
+
+  @override
+  List<Object?> get props => [name];
 }
 
 /// A frame refusing a subscription.
 ///
 /// Telling this apart from a confirmation is the difference between knowing a
 /// subscription failed and believing it worked while nothing ever arrives.
-final class SocketRejected<E> extends SocketFrame<E> {
+final class SocketRejected<E> extends SocketFrame<E> with Equatable {
   /// The subscription the server refused.
   final String name;
 
@@ -108,14 +116,20 @@ final class SocketRejected<E> extends SocketFrame<E> {
 
   /// Reports that [name] was refused.
   const SocketRejected(this.name, [this.reason]);
+
+  @override
+  List<Object?> get props => [name, reason];
 }
 
 /// A frame the channel has nothing to do with.
 ///
 /// Heartbeat replies, presence, protocol chatter. It still counts as traffic.
-final class SocketIgnored<E> extends SocketFrame<E> {
+final class SocketIgnored<E> extends SocketFrame<E> with Equatable {
   /// Reports a frame of no interest.
   const SocketIgnored();
+
+  @override
+  List<Object?> get props => const [];
 }
 
 /// What the frames of one server look like.

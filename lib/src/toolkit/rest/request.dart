@@ -36,6 +36,8 @@
 
 import 'dart:typed_data';
 
+import 'package:equatable/equatable.dart';
+
 /// The verb of a request.
 ///
 /// The five HTTP defines for a resource API. Unlike the rest of pylon this is a
@@ -59,7 +61,7 @@ enum RestMethod {
 }
 
 /// A file travelling in a multipart body.
-class RestUpload {
+class RestUpload extends Equatable {
   /// The form field this file is sent under.
   final String field;
 
@@ -81,6 +83,9 @@ class RestUpload {
     required this.filename,
     required this.contentType,
   });
+
+  @override
+  List<Object?> get props => [field, bytes, filename, contentType];
 }
 
 /// One call to the API, described without saying how it is performed.
@@ -89,7 +94,7 @@ class RestUpload {
 /// nothing about it depends on which server is at the other end: the same
 /// request against a different base URL is a different backend answering the
 /// same call.
-class RestRequest {
+class RestRequest extends Equatable {
   /// The verb.
   final RestMethod method;
 
@@ -177,4 +182,19 @@ class RestRequest {
 
   /// The verb and path, for a log line or a crash report breadcrumb.
   String get label => '${method.name.toUpperCase()} $path';
+
+  @override
+  List<Object?> get props => [
+    method,
+    path,
+    query,
+    headers,
+    body,
+    fields,
+    uploads,
+    authenticated,
+    dedupKey,
+    shareKey,
+    timeout,
+  ];
 }

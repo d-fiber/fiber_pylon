@@ -34,6 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 /// What happened to the credential held by a [CredentialManager].
 enum CredentialEvent {
   /// A credential was found in storage when the manager started.
@@ -57,7 +59,7 @@ enum CredentialEvent {
 ///
 /// `C` is whatever the project calls its credential. Pylon never looks inside
 /// it.
-class CredentialChange<C extends Object> {
+class CredentialChange<C extends Object> extends Equatable {
   /// What happened.
   final CredentialEvent event;
 
@@ -69,4 +71,7 @@ class CredentialChange<C extends Object> {
 
   @override
   String toString() => 'CredentialChange(${event.name})';
+
+  @override
+  List<Object?> get props => [event, credential];
 }

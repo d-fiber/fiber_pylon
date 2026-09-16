@@ -13,6 +13,8 @@ dependencies:
     sdk: flutter
   fiber_pylon:
     path: ../
+  http: ^1.6.0
+  equatable: ^3.0.0
 
 dev_dependencies:
   flutter_test:

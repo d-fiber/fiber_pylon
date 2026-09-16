@@ -34,6 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 /// Either a successful value ([OK]) or a typed error ([Failure]).
 ///
 /// `T` is the success payload and `E` the error, typically an enum the project
@@ -104,7 +106,7 @@ sealed class Result<T, E> {
 }
 
 /// The success variant of [Result].
-class OK<T, E> extends Result<T, E> {
+class OK<T, E> extends Result<T, E> with Equatable {
   /// The value the operation produced.
   final T data;
 
@@ -115,14 +117,11 @@ class OK<T, E> extends Result<T, E> {
   String toString() => 'OK($data)';
 
   @override
-  bool operator ==(Object other) => other is OK<T, E> && other.data == data;
-
-  @override
-  int get hashCode => Object.hash(OK, data);
+  List<Object?> get props => [data];
 }
 
 /// The failure variant of [Result].
-class Failure<T, E> extends Result<T, E> {
+class Failure<T, E> extends Result<T, E> with Equatable {
   /// The reason the operation failed.
   final E error;
 
@@ -133,9 +132,5 @@ class Failure<T, E> extends Result<T, E> {
   String toString() => 'Failure($error)';
 
   @override
-  bool operator ==(Object other) =>
-      other is Failure<T, E> && other.error == error;
-
-  @override
-  int get hashCode => Object.hash(Failure, error);
+  List<Object?> get props => [error];
 }

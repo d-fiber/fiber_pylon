@@ -34,8 +34,10 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 /// One value a backend cannot start without.
-class Requirement {
+class Requirement extends Equatable {
   /// What the value is called where it is set, so the message names something
   /// that can actually be searched for.
   final String name;
@@ -58,6 +60,9 @@ class Requirement {
 
   /// Whether a usable value was found.
   bool get isSatisfied => value != null && value!.isNotEmpty;
+
+  @override
+  List<Object?> get props => [name, value, purpose];
 }
 
 /// Thrown when a backend cannot start because values are missing.

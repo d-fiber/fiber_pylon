@@ -34,6 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 /// A failure, as it crosses the boundary between a backend and the contract
 /// built on top of it.
 ///
@@ -68,7 +70,7 @@
 /// above able to key on them. A REST adapter turns a status and a body into a
 /// signal, a Firebase adapter turns a platform exception into one, and neither
 /// has to agree with the other. What has to hold is each adapter against itself.
-class Fault<S extends Object> implements Exception {
+class Fault<S extends Object> extends Equatable implements Exception {
   /// What went wrong, in the adapter's own vocabulary.
   ///
   /// Usually a member of an enum the adapter declares. Pylon transports it,
@@ -94,4 +96,9 @@ class Fault<S extends Object> implements Exception {
 
   @override
   String toString() => 'Fault($signal)';
+
+  /// Compares [signal] and [details] only: [cause] and [stackTrace] are
+  /// debugging context, not part of what a fault reports going wrong.
+  @override
+  List<Object?> get props => [signal, details];
 }

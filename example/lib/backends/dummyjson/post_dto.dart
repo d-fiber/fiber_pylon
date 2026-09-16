@@ -34,6 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 import '../../contract/contract.dart';
 
 /// A post in the shape DummyJSON sends it.
@@ -41,7 +43,7 @@ import '../../contract/contract.dart';
 /// Note what is different from the other server: there is no author, there are
 /// tags nobody upstream asked for, and the envelope around a list is named
 /// `posts` rather than being the list itself. All of that dies here.
-class DummyPost {
+class DummyPost extends Equatable {
   /// The identifier, which arrives as a number.
   final int id;
 
@@ -83,4 +85,7 @@ class DummyPost {
     body: body,
     author: tags.isEmpty ? null : tags.join(', '),
   );
+
+  @override
+  List<Object?> get props => [id, title, body, tags];
 }

@@ -34,11 +34,13 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 /// The credential DummyJSON hands out.
 ///
 /// This type is the adapter's, not pylon's. Pylon is told where the expiry lives
 /// and nothing else about it.
-class DummySession {
+class DummySession extends Equatable {
   /// The token every authenticated call carries.
   final String accessToken;
 
@@ -67,4 +69,7 @@ class DummySession {
     refreshToken: json['refreshToken'] as String,
     expiresAt: DateTime.now().add(lifetime),
   );
+
+  @override
+  List<Object?> get props => [accessToken, refreshToken, expiresAt];
 }

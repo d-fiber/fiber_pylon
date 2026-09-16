@@ -36,6 +36,8 @@
 
 import 'dart:typed_data';
 
+import 'package:equatable/equatable.dart';
+
 /// What the server answered.
 ///
 /// Carries the status, the headers and the body, and interprets none of them.
@@ -46,7 +48,7 @@ import 'dart:typed_data';
 /// The body is not unwrapped either. An envelope like `{"data": ...}` belongs to
 /// one server's conventions, so an adapter reads `response.map['data']` itself
 /// rather than pylon deciding that every server has an envelope.
-class RestResponse {
+class RestResponse extends Equatable {
   /// The HTTP status the server answered with.
   final int status;
 
@@ -90,4 +92,7 @@ class RestResponse {
 
   @override
   String toString() => 'RestResponse($status)';
+
+  @override
+  List<Object?> get props => [status, headers, bytes, body];
 }

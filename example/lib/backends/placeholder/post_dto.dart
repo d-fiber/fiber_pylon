@@ -34,13 +34,15 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:equatable/equatable.dart';
+
 import '../../contract/contract.dart';
 
 /// A post in the shape JSONPlaceholder sends it.
 ///
 /// It lives beside the adapter and never crosses the barrier. What crosses is
 /// [Post], which is why the second backend can send something else entirely.
-class PlaceholderPost {
+class PlaceholderPost extends Equatable {
   /// The identifier, which arrives as a number.
   final int id;
 
@@ -73,4 +75,7 @@ class PlaceholderPost {
   /// This post as the contract knows a post.
   Post toContract() =>
       Post(id: '$id', title: title, body: body, author: 'user $userId');
+
+  @override
+  List<Object?> get props => [id, title, body, userId];
 }
