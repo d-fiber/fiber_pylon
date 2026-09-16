@@ -34,34 +34,29 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 import '../contract/contract.dart';
+import '../posts_sdk.dart';
 
-/// The screen, which holds a [PostPort] and has no way to learn what is behind
-/// it.
+/// The screen, which reads [PostsSdk.I] and has no way to learn which backend
+/// answers it.
 ///
-/// Everything it renders comes from the contract: a [Post], or one of the errors
-/// the contract declares. There is no status code here, no JSON, and no name of
-/// a server.
+/// Everything it renders comes from the contract: a [Post], or one of the
+/// errors the contract declares. There is no status code here, no JSON, and
+/// no name of a server.
 class PostsPage extends StatefulWidget {
-  /// The backend answering right now.
-  final ExampleBackend backend;
-
   /// Asks for another backend to be put in place.
   final ValueChanged<String> onSwitch;
 
   /// The names this app can switch between.
   final List<String> choices;
 
-  /// Shows the posts [backend] holds.
-  const PostsPage({
-    required this.backend,
-    required this.onSwitch,
-    required this.choices,
-    super.key,
-  });
+  /// Shows the posts [PostsSdk.I] holds.
+  const PostsPage({required this.onSwitch, required this.choices, super.key});
 
   @override
   State<PostsPage> createState() => _PostsPageState();
@@ -70,22 +65,30 @@ class PostsPage extends StatefulWidget {
 class _PostsPageState extends State<PostsPage> {
   ListPostsResult? _result;
   bool _loading = false;
+  Post? _lastLive;
+
+  /// Subscribed once in [initState], never from a `StreamBuilder` in
+  /// [build]: `build` runs on every unrelated rebuild too, and a
+  /// `StreamBuilder` hands back the same last event on each of them, which
+  /// would turn one arrival into a post re-added on every keystroke.
+  StreamSubscription<Post>? _liveSubscription;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _liveSubscription = PostsSdk.I.events?.newPosts().listen(_onLive);
   }
 
   @override
-  void didUpdateWidget(PostsPage previous) {
-    super.didUpdateWidget(previous);
-    if (previous.backend != widget.backend) _load();
+  void dispose() {
+    _liveSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final result = await widget.backend.posts.list();
+    final result = await PostsSdk.I.posts.list();
     if (!mounted) return;
     setState(() {
       _result = result;
@@ -108,16 +111,28 @@ class _PostsPageState extends State<PostsPage> {
     body: Column(
       children: [
         _Switcher(
-          current: widget.backend.name,
+          current: PostsSdk.I.name,
           choices: widget.choices,
           onSwitch: widget.onSwitch,
         ),
-        _Describe(backend: widget.backend),
+        _Describe(sdk: PostsSdk.I),
+        if (PostsSdk.I.events != null) _LiveBanner(last: _lastLive),
         const Divider(height: 1),
         Expanded(child: _body()),
       ],
     ),
   );
+
+  void _onLive(Post post) {
+    if (!mounted) return;
+    setState(() {
+      _lastLive = post;
+      final current = _result;
+      if (current case OK(:final data)) {
+        _result = OK([post, ...data]);
+      }
+    });
+  }
 
   Widget _body() {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -126,7 +141,7 @@ class _PostsPageState extends State<PostsPage> {
     if (result == null) return const SizedBox.shrink();
 
     return switch (result) {
-      OK(:final data) => _PostList(posts: data),
+      OK(:final data) => _PostList(posts: data, justArrived: _lastLive),
       Failure(:final error) => _Trouble(message: _say(error), onRetry: _load),
     };
   }
@@ -165,20 +180,20 @@ class _Switcher extends StatelessWidget {
 }
 
 class _Describe extends StatelessWidget {
-  final ExampleBackend backend;
+  final PostsSdk sdk;
 
-  const _Describe({required this.backend});
+  const _Describe({required this.sdk});
 
   @override
   Widget build(BuildContext context) {
-    final credentials = backend.credentials;
+    final credentials = sdk.credentials;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(backend.describe, style: Theme.of(context).textTheme.bodySmall),
+          Text(sdk.describe, style: Theme.of(context).textTheme.bodySmall),
           if (credentials != null) ...[
             const SizedBox(height: 6),
             _Credential(credentials: credentials),
@@ -229,10 +244,41 @@ class _Credential extends StatelessWidget {
   );
 }
 
+/// Shown only when [PostsSdk.events] is not `null`: one line naming [last],
+/// the post that arrived through [RealtimeTopic.events] rather than a call
+/// this screen made.
+class _LiveBanner extends StatelessWidget {
+  final Post? last;
+
+  const _LiveBanner({required this.last});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    color: Theme.of(context).colorScheme.secondaryContainer,
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Row(
+      children: [
+        const Icon(Icons.podcasts, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            last == null
+                ? 'Listening for live posts…'
+                : 'Just arrived: ${last!.title}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _PostList extends StatelessWidget {
   final List<Post> posts;
+  final Post? justArrived;
 
-  const _PostList({required this.posts});
+  const _PostList({required this.posts, this.justArrived});
 
   @override
   Widget build(BuildContext context) {
@@ -246,6 +292,9 @@ class _PostList extends StatelessWidget {
       itemBuilder: (context, index) {
         final post = posts[index];
         return ListTile(
+          tileColor: post.id == justArrived?.id
+              ? Theme.of(context).colorScheme.secondaryContainer
+              : null,
           title: Text(post.title),
           subtitle: Text(
             post.body,

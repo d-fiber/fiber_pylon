@@ -34,11 +34,14 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:async';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 import '../../contract/contract.dart';
 
-/// A backend that answers from a list held in memory.
+/// A backend that answers from a list held in memory, and pushes a new post
+/// on a timer instead of waiting for a real server to have one.
 ///
 /// It exists to prove the barrier holds. If the screen works against this, the
 /// screen depends on the contract and on nothing else, and no amount of reading
@@ -49,31 +52,74 @@ import '../../contract/contract.dart';
 class MemoryBackend implements ExampleBackend {
   final List<Post> _posts;
   final Duration _latency;
+  final Duration _publishEvery;
 
-  /// Answers [posts], after [latency] so that a loading state is visible.
+  final MemoryChannel<Post> _channel = MemoryChannel<Post>();
+  late final ChannelKeeper<Post> _keeper;
+  late final RealtimeNode<Post> _realtime;
+  Timer? _publisher;
+  int _nextId = 100;
+
+  /// Answers [posts], after [latency] so that a loading state is visible, and
+  /// simulates a new post arriving every [publishEvery].
   MemoryBackend({
     List<Post>? posts,
     Duration latency = const Duration(milliseconds: 300),
+    Duration publishEvery = const Duration(seconds: 6),
   }) : _posts = posts ?? _sample,
-       _latency = latency;
+       _latency = latency,
+       _publishEvery = publishEvery;
 
   @override
   String get name => 'memory';
 
   @override
-  String get describe => 'Three posts held in memory. No network at all.';
+  String get describe =>
+      'Three posts held in memory. No network at all, and a new one arrives '
+      'on its own every ${_publishEvery.inSeconds}s.';
 
   @override
   PostPort get posts => _MemoryPosts(_posts, _latency);
 
   @override
+  EventsPort get events => _MemoryEvents(_realtime);
+
+  @override
   CredentialManager<Object, Object>? get credentials => null;
 
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() async {
+    _keeper = ChannelKeeper<Post>(_channel);
+    _realtime = RealtimeNode<Post>.root(
+      keeper: _keeper,
+      name: (segments) => segments.join(':'),
+      belongsTo: (event, topic) => topic == 'posts',
+    );
+    await _keeper.start();
+
+    _publisher = Timer.periodic(_publishEvery, (_) => _publishOne());
+  }
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    _publisher?.cancel();
+    _publisher = null;
+    await _keeper.dispose();
+    await _channel.dispose();
+  }
+
+  void _publishOne() {
+    final post = Post(
+      id: '${_nextId++}',
+      title: 'A post arrived while you were looking',
+      body:
+          'Nothing asked for this: memory_backend.dart pushes it on a timer, '
+          'the same way a real server would push one over a socket.',
+      author: 'memory',
+    );
+    _posts.insert(0, post);
+    _channel.publish(post);
+  }
 }
 
 class _MemoryPosts implements PostPort {
@@ -96,6 +142,15 @@ class _MemoryPosts implements PostPort {
     }
     return const Failure(ReadPostError.notFound);
   }
+}
+
+class _MemoryEvents implements EventsPort {
+  final RealtimeNode<Post> _realtime;
+
+  const _MemoryEvents(this._realtime);
+
+  @override
+  Stream<Post> newPosts() => _realtime.node('posts').topic().events;
 }
 
 const List<Post> _sample = [
@@ -121,7 +176,7 @@ const List<Post> _sample = [
     id: '3',
     title: 'Unplug one, plug the other',
     body:
-        'This screen holds a PostPort. Which backend answers is a line in '
+        'This screen reads PostsSdk.I. Which backend answers is a line in '
         'main.dart, and the screen has no way to find out.',
     author: 'pylon',
   ),

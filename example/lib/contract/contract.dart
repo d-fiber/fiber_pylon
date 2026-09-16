@@ -36,5 +36,6 @@
 
 export 'backend.dart';
 export 'errors.dart';
+export 'events_port.dart';
 export 'post.dart';
 export 'post_port.dart';

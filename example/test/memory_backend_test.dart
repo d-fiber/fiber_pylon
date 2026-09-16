@@ -39,6 +39,7 @@ import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pylon_example/backends/memory/memory_backend.dart';
 import 'package:pylon_example/contract/contract.dart';
+import 'package:pylon_example/posts_sdk.dart';
 import 'package:pylon_example/ui/posts_page.dart';
 
 const _posts = [
@@ -46,37 +47,49 @@ const _posts = [
   Post(id: '2', title: 'Second', body: 'Two'),
 ];
 
-MemoryBackend backendHolding(List<Post> posts) =>
-    MemoryBackend(posts: posts, latency: Duration.zero);
+MemoryBackend Function() backendHolding(List<Post> posts) =>
+    () => MemoryBackend(
+      posts: List<Post>.of(posts),
+      latency: Duration.zero,
+      publishEvery: const Duration(days: 1),
+    );
 
-Future<void> showPosts(WidgetTester tester, ExampleBackend backend) async {
+Future<void> startWith(List<Post> posts) =>
+    PostsSdk.initialize(backend: backendHolding(posts));
+
+Future<void> showPosts(WidgetTester tester) async {
   await tester.pumpWidget(
     MaterialApp(
-      home: PostsPage(
-        backend: backend,
-        choices: const ['memory'],
-        onSwitch: (_) {},
-      ),
+      home: PostsPage(choices: const ['memory'], onSwitch: (_) {}),
     ),
   );
-  await tester.pumpAndSettle();
+  for (var i = 0; i < 5; i++) {
+    await tester.pump(const Duration(milliseconds: 1));
+  }
+}
+
+Future<void> unmountAndShutdownSdkViaRealAsyncZone(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.runAsync(PostsSdk.shutdown);
 }
 
 void main() {
+  tearDown(() => PostsSdk.shutdown());
+
   group('MemoryBackend', () {
     test('answers the posts it holds', () async {
-      final backend = backendHolding(_posts);
+      await startWith(_posts);
 
-      final result = await backend.posts.list();
+      final result = await PostsSdk.I.posts.list();
 
       expect(result, isA<OK<List<Post>, ListPostsError>>());
       expect(result.dataOrNull, hasLength(2));
     });
 
     test('answers notFound for an identifier it does not hold', () async {
-      final backend = backendHolding(_posts);
+      await startWith(_posts);
 
-      final result = await backend.posts.read('404');
+      final result = await PostsSdk.I.posts.read('404');
 
       expect(
         result,
@@ -84,31 +97,88 @@ void main() {
       );
     });
 
-    test('holds no credential, and says so', () {
-      expect(backendHolding(_posts).credentials, isNull);
+    test('holds no credential, and says so', () async {
+      await startWith(_posts);
+
+      expect(PostsSdk.I.credentials, isNull);
+    });
+
+    test('offers live events', () async {
+      await startWith(_posts);
+
+      expect(PostsSdk.I.events, isNotNull);
+    });
+
+    test('publishes a post it was not asked for, on its own', () async {
+      await PostsSdk.initialize(
+        backend: () => MemoryBackend(
+          posts: List<Post>.of(_posts),
+          latency: Duration.zero,
+          publishEvery: const Duration(milliseconds: 20),
+        ),
+      );
+
+      final first = await PostsSdk.I.events!.newPosts().first;
+
+      expect(first.title, isNotEmpty);
     });
   });
 
   group('PostsPage', () {
     testWidgets('renders what the port answered', (tester) async {
-      await showPosts(tester, backendHolding(_posts));
+      await startWith(_posts);
+      await showPosts(tester);
 
       expect(find.text('First'), findsOneWidget);
       expect(find.text('Second'), findsOneWidget);
+
+      await unmountAndShutdownSdkViaRealAsyncZone(tester);
     });
 
     testWidgets('says so when the backend holds nothing', (tester) async {
-      await showPosts(tester, backendHolding(const []));
+      await startWith(const []);
+      await showPosts(tester);
 
       expect(find.text('This backend holds no posts.'), findsOneWidget);
+
+      await unmountAndShutdownSdkViaRealAsyncZone(tester);
     });
 
     testWidgets('shows what the backend describes itself as', (tester) async {
-      final backend = backendHolding(_posts);
+      await startWith(_posts);
+      await showPosts(tester);
 
-      await showPosts(tester, backend);
+      expect(find.text(PostsSdk.I.describe), findsOneWidget);
 
-      expect(find.text(backend.describe), findsOneWidget);
+      await unmountAndShutdownSdkViaRealAsyncZone(tester);
+    });
+
+    testWidgets('shows a live post the moment it arrives', (tester) async {
+      await PostsSdk.initialize(
+        backend: () => MemoryBackend(
+          posts: List<Post>.of(_posts),
+          latency: Duration.zero,
+          publishEvery: const Duration(milliseconds: 50),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PostsPage(choices: const ['memory'], onSwitch: (_) {}),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(milliseconds: 1));
+
+      expect(find.textContaining('Listening for live posts'), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 60));
+
+      expect(
+        find.textContaining('Just arrived: A post arrived'),
+        findsOneWidget,
+      );
+
+      await unmountAndShutdownSdkViaRealAsyncZone(tester);
     });
   });
 }

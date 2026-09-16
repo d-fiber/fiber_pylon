@@ -34,45 +34,14 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'package:fiber_pylon/fiber_pylon.dart';
+import 'post.dart';
 
-import 'session.dart';
-import 'signals.dart';
-
-const _refreshMapper = FaultMapper<DummySignal, DummySignal>(
-  fallback: DummySignal.unaccounted,
-);
-
-/// The one method a backend writes to keep a credential alive.
+/// Live changes to the posts a backend holds.
 ///
-/// Everything around it, when to renew, how to collapse two attempts into one,
-/// when to retry and when to give up, is [CredentialManager] and is not written
-/// again here.
-class DummyRefresher implements CredentialRefresher<DummySession> {
-  final RestNode<DummySignal> _api;
-  final Duration _lifetime;
-
-  /// Renews through [api], asking for tokens that last [lifetime].
-  const DummyRefresher(this._api, this._lifetime);
-
-  @override
-  Future<DummySession> refresh(DummySession current) async {
-    final refreshed = await _api
-        .node('auth/refresh')
-        .url()
-        .post(
-          mapper: _refreshMapper,
-          authenticated: false,
-          body: {
-            'refreshToken': current.refreshToken,
-            'expiresInMins': _lifetime.inMinutes,
-          },
-          decode: (r) => DummySession.fromJson(r.map, lifetime: _lifetime),
-        );
-
-    return switch (refreshed) {
-      OK(:final data) => data,
-      Failure(:final error) => throw Fault<DummySignal>(error),
-    };
-  }
+/// Optional, unlike [PostPort]: a plain REST backend usually has nothing to
+/// push, and [ExampleBackend.events] answers `null` for one that cannot offer
+/// this rather than a stream that is technically real but never fires.
+abstract interface class EventsPort {
+  /// A new post, the moment one arrives.
+  Stream<Post> newPosts();
 }

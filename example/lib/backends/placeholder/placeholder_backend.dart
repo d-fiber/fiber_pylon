@@ -75,9 +75,11 @@ const _listPosts = FaultMapper<PlaceholderSignal, ListPostsError>(
 /// A backend over JSONPlaceholder.
 ///
 /// It carries no credential, which is why its guard is the plain one: only
-/// deduplication is left, and there is nothing to renew.
+/// deduplication is left, and there is nothing to renew. It cannot push
+/// either, so [events] answers `null`.
 class PlaceholderBackend implements ExampleBackend {
   late final RestClient<PlaceholderSignal> _client;
+  late final RestNode<PlaceholderSignal> _api;
 
   @override
   String get name => 'jsonplaceholder';
@@ -87,7 +89,10 @@ class PlaceholderBackend implements ExampleBackend {
       'jsonplaceholder.typicode.com, over HTTP. Posts arrive with numeric ids.';
 
   @override
-  PostPort get posts => _PlaceholderPosts(_client);
+  PostPort get posts => _PlaceholderPosts(_api.node('posts'));
+
+  @override
+  EventsPort? get events => null;
 
   @override
   CredentialManager<Object, Object>? get credentials => null;
@@ -102,6 +107,7 @@ class PlaceholderBackend implements ExampleBackend {
       ),
       timeout: const Duration(seconds: 10),
     );
+    _api = RestNode<PlaceholderSignal>.root(_client);
   }
 
   @override
@@ -109,33 +115,27 @@ class PlaceholderBackend implements ExampleBackend {
 }
 
 class _PlaceholderPosts implements PostPort {
-  final RestClient<PlaceholderSignal> _client;
+  final RestNode<PlaceholderSignal> _posts;
 
-  const _PlaceholderPosts(this._client);
+  const _PlaceholderPosts(this._posts);
 
   @override
-  Future<ListPostsResult> list() => _listPosts.guard(() async {
-    final response = await _client.send(
-      const RestRequest(
-        path: 'posts',
-        query: {'_limit': '10'},
-        shareKey: 'posts',
-      ),
-    );
-
-    return response.list
+  Future<ListPostsResult> list() => _posts.url().get(
+    query: const {'_limit': '10'},
+    mapper: _listPosts,
+    decode: (r) => r.list
         .cast<Map<String, dynamic>>()
         .map(PlaceholderPost.fromJson)
         .map((post) => post.toContract())
-        .toList();
-  });
+        .toList(),
+  );
 
   @override
-  Future<ReadPostResult> read(String id) => _readPost.guard(() async {
-    final response = await _client.send(
-      RestRequest(path: 'posts/$id', shareKey: 'posts/$id'),
-    );
-
-    return PlaceholderPost.fromJson(response.map).toContract();
-  });
+  Future<ReadPostResult> read(String id) => _posts
+      .value(id)
+      .url()
+      .get(
+        mapper: _readPost,
+        decode: (r) => PlaceholderPost.fromJson(r.map).toContract(),
+      );
 }

@@ -36,6 +36,7 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
+import 'events_port.dart';
 import 'post_port.dart';
 
 /// One implementation of everything this app needs.
@@ -48,6 +49,10 @@ abstract interface class ExampleBackend implements Sdk {
 
   /// Posts, however this backend gets them.
   PostPort get posts;
+
+  /// Live changes to the posts this backend holds, or `null` when this
+  /// backend has no way to push them.
+  EventsPort? get events;
 
   /// The credential this backend keeps alive, or `null` when it needs none.
   ///

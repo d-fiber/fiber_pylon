@@ -35,6 +35,7 @@
 // LICENSE file, the LICENSE file governs.
 
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:http/http.dart' as http;
 
 import '../../contract/contract.dart';
 import 'classifier.dart';
@@ -91,11 +92,15 @@ const _listPosts = FaultMapper<DummySignal, ListPostsError>(
 ///
 /// Worth comparing with the JSONPlaceholder one next door. Different server,
 /// different failure vocabulary, different body shapes, a credential where the
-/// other has none, and the same [PostPort] out the other end.
+/// other has none, and the same [PostPort] out the other end. Neither can
+/// push, so both answer `null` for [events].
 class DummyBackend implements ExampleBackend {
   late final CredentialManager<DummySession, DummySignal> _credentials;
   late final RestClient<DummySignal> _client;
-  late final RestClient<DummySignal> _plain;
+  late final RestClient<DummySignal> _plainClient;
+  late final RestNode<DummySignal> _api;
+  late final RestNode<DummySignal> _plainApi;
+  final http.Client _http = http.Client();
 
   @override
   String get name => 'dummyjson';
@@ -105,23 +110,28 @@ class DummyBackend implements ExampleBackend {
       'dummyjson.com, over HTTP, holding a token that expires in a minute.';
 
   @override
-  PostPort get posts => _DummyPosts(_client);
+  PostPort get posts => _DummyPosts(_api.node('posts'));
+
+  @override
+  EventsPort? get events => null;
 
   @override
   CredentialManager<Object, Object> get credentials => _credentials;
 
   @override
   Future<void> initialize() async {
-    _plain = RestClient<DummySignal>(
+    _plainClient = RestClient<DummySignal>(
       baseUrl: Uri.parse(_root),
       classifier: const DummyClassifier(),
       guard: CallGuard<DummySignal>(duplicateSignal: DummySignal.duplicated),
+      httpClient: _http,
       timeout: const Duration(seconds: 10),
     );
+    _plainApi = RestNode<DummySignal>.root(_plainClient);
 
     _credentials = CredentialManager<DummySession, DummySignal>(
       store: MemoryCredentialStore<DummySession>(),
-      refresher: DummyRefresher(_plain, _lifetime),
+      refresher: DummyRefresher(_plainApi, _lifetime),
       expiresAt: (session) => session.expiresAt,
       fatalSignals: const {DummySignal.denied},
       buffer: _buffer,
@@ -140,8 +150,10 @@ class DummyBackend implements ExampleBackend {
         if (session == null) return const {};
         return {'authorization': 'Bearer ${session.accessToken}'};
       },
+      httpClient: _http,
       timeout: const Duration(seconds: 10),
     );
+    _api = RestNode<DummySignal>.root(_client);
 
     await _credentials.start();
     await _signIn();
@@ -151,57 +163,60 @@ class DummyBackend implements ExampleBackend {
   Future<void> dispose() async {
     await _credentials.dispose();
     await _client.dispose();
-    await _plain.dispose();
+    await _plainClient.dispose();
+    _http.close();
   }
 
   Future<void> _signIn() async {
-    final response = await _plain.send(
-      RestRequest(
-        path: 'auth/login',
-        method: RestMethod.post,
-        authenticated: false,
-        body: {
-          'username': _demoUser,
-          'password': _demoPassword,
-          'expiresInMins': _lifetime.inMinutes,
-        },
-      ),
-    );
+    final session = await _plainApi
+        .node('auth/login')
+        .url()
+        .post(
+          mapper: _signInMapper,
+          authenticated: false,
+          body: {
+            'username': _demoUser,
+            'password': _demoPassword,
+            'expiresInMins': _lifetime.inMinutes,
+          },
+          decode: (r) => DummySession.fromJson(r.map, lifetime: _lifetime),
+        );
 
-    await _credentials.grant(
-      DummySession.fromJson(response.map, lifetime: _lifetime),
-    );
+    switch (session) {
+      case OK(:final data):
+        await _credentials.grant(data);
+      case Failure(:final error):
+        throw StateError('DummyJSON refused the demo sign-in: $error');
+    }
   }
 }
 
-class _DummyPosts implements PostPort {
-  final RestClient<DummySignal> _client;
+const _signInMapper = FaultMapper<DummySignal, DummySignal>(
+  fallback: DummySignal.unaccounted,
+);
 
-  const _DummyPosts(this._client);
+class _DummyPosts implements PostPort {
+  final RestNode<DummySignal> _posts;
+
+  const _DummyPosts(this._posts);
 
   @override
-  Future<ListPostsResult> list() => _listPosts.guard(() async {
-    final response = await _client.send(
-      const RestRequest(
-        path: 'posts',
-        query: {'limit': '10'},
-        shareKey: 'posts',
-      ),
-    );
-
-    return (response.map['posts'] as List<Object?>)
+  Future<ListPostsResult> list() => _posts.url().get(
+    query: const {'limit': '10'},
+    mapper: _listPosts,
+    decode: (r) => (r.map['posts'] as List<Object?>)
         .cast<Map<String, dynamic>>()
         .map(DummyPost.fromJson)
         .map((post) => post.toContract())
-        .toList();
-  });
+        .toList(),
+  );
 
   @override
-  Future<ReadPostResult> read(String id) => _readPost.guard(() async {
-    final response = await _client.send(
-      RestRequest(path: 'posts/$id', shareKey: 'posts/$id'),
-    );
-
-    return DummyPost.fromJson(response.map).toContract();
-  });
+  Future<ReadPostResult> read(String id) => _posts
+      .value(id)
+      .url()
+      .get(
+        mapper: _readPost,
+        decode: (r) => DummyPost.fromJson(r.map).toContract(),
+      );
 }
