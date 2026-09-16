@@ -50,12 +50,14 @@
 ///
 /// ## The two halves
 ///
-/// **The barrier**, which the contract sees: [Result] and its two variants,
-/// [Fault], [FaultMapper], [Sdk], [Singleton], [Config]. This is what a
-/// service layer touches, and it does not change when the backend does.
+/// **The barrier**, which a port touches: [RestNode] and [RestEndpoint] for a
+/// REST call, [RealtimeNode] and [RealtimeTopic] for a live one, [Result] and
+/// its two variants, [Fault], [FaultMapper], [Sdk], [Singleton], [Config]. This
+/// is what a service layer sees, and it does not change when the backend does.
 ///
-/// **The toolkit**, which only adapters see: [RestClient] and what it needs,
-/// [CredentialManager], [CallGuard], [SocketChannel], [ChannelKeeper],
+/// **The toolkit**, which only an [Sdk] implementation sees, wiring a
+/// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
+/// needs, [CredentialManager], [CallGuard], [SocketChannel], [ChannelKeeper],
 /// [HealthMonitor], [Preference], [KeyValueStore], [Observable], [Reporter],
 /// [Backoff]. Each is a mechanism every backend would otherwise rewrite, and
 /// rewrite worse the second time.
@@ -63,6 +65,33 @@
 /// `package:fiber_pylon/fiber_pylon_io.dart` carries the one piece that needs `dart:io`, a
 /// [SocketLink] over a WebSocket. It is separate so that importing pylon does
 /// not stop a project from compiling for the web.
+///
+/// ## Composing a call
+///
+/// A port never builds a [RestRequest] or a path string by hand. It composes a
+/// [RestNode], rooted once on the [Sdk] implementation's own [RestClient]:
+///
+/// ```dart
+/// final api = RestNode<RestSignal>.root(client).node('v1');
+/// final brand = api.node('brand');
+///
+/// Future<Result<Brand, ReadBrandError>> read(String id) => brand
+///     .value(id)
+///     .url()
+///     .get(mapper: _mapper, decode: Brand.fromResponse);
+/// ```
+///
+/// [RestNode.node] takes a literal this SDK's own author writes once, and
+/// [RestNode.value] takes a value that came from somewhere else — a caller, a
+/// deep link, a server. The two are never interchangeable: a literal may carry
+/// several segments separated by `/`, because nothing external ever reaches
+/// it, while a value is always exactly one opaque, percent-encoded segment,
+/// whatever it contains. Only [RestNode.url] closes the chain into a
+/// [RestEndpoint] that can actually carry a verb; composing never talks to the
+/// network. [RealtimeNode] and [RealtimeTopic] do the same for a live
+/// connection, with [RealtimeTopic.events] joining on the first listener and
+/// leaving on the last, shared across every caller that composes the same
+/// name.
 ///
 /// ## The one thing pylon does assume
 ///
@@ -98,14 +127,19 @@
 ///
 /// No token format, no notion of a session, no list of error kinds, no envelope
 /// around a response body, no rule about which status means what, no environment
-/// reading, no code generation. Every one of those belongs to one server rather
-/// than to REST, and a wall that took a side would stop being a wall.
+/// reading, no code generation, no automatic retry, no request cancellation, no
+/// response cache, no offline queue. Every one of those belongs to one server,
+/// one project, or one call site rather than to REST, and a wall that took a
+/// side would stop being a wall.
 library;
 
 export 'src/barrier/config.dart';
 export 'src/barrier/fault.dart';
 export 'src/barrier/fault_mapper.dart';
+export 'src/barrier/realtime/node.dart';
 export 'src/barrier/result.dart';
+export 'src/barrier/rest/call_key.dart';
+export 'src/barrier/rest/node.dart';
 export 'src/barrier/sdk.dart';
 export 'src/barrier/singleton.dart';
 export 'src/toolkit/call_guard.dart';

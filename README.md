@@ -14,11 +14,13 @@ be right most of the time.
 
 ## The two halves
 
-**The barrier**, which your contract sees: `Result`, `Fault`, `FaultMapper`, `Sdk`,
-`Singleton`, `Config`. This is what a service layer touches, and it does not change when
-the backend does.
+**The barrier**, which a port touches: `RestNode` and `RestEndpoint` for a REST call,
+`RealtimeNode` and `RealtimeTopic` for a live one, `Result`, `Fault`, `FaultMapper`, `Sdk`,
+`Singleton`, `Config`. This is what a service layer sees, and it does not change when the
+backend does.
 
-**The toolkit**, which only adapters see: `RestClient`, `CredentialManager`, `CallGuard`,
+**The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
+`RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
 `SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `Preference`, `KeyValueStore`,
 `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise
 rewrite, and rewrite worse the second time.
@@ -26,6 +28,51 @@ rewrite, and rewrite worse the second time.
 `package:fiber_pylon/fiber_pylon_io.dart` carries the one piece that needs `dart:io`, a `SocketLink`
 over a WebSocket. It is separate so that importing pylon does not stop a project from
 compiling for the web.
+
+## Composing a call
+
+A port never builds a `RestRequest` or a path string by hand. It composes a `RestNode`,
+rooted once on the `Sdk` implementation's own `RestClient`:
+
+```dart
+final api = RestNode<AdminSignal>.root(client).node('v1');
+final brand = api.node('brand');
+
+Future<Result<Brand, ReadBrandError>> read(String id) => brand
+    .value(id)
+    .url()
+    .get(mapper: readBrand, decode: Brand.fromResponse);
+```
+
+`node` takes a literal this SDK's own author writes once, such as `'brand'`, and `value`
+takes a value that came from somewhere else — a caller, a deep link, a server. The two are
+never interchangeable: a literal may carry several segments separated by `/`, because
+nothing external ever reaches it, while a value is always exactly one opaque,
+percent-encoded segment, whatever it contains. Interpolating an external value straight
+into a path string, the shape it is easiest to reach for, lets it change which resource a
+call actually reaches, or even escape the branch it was meant to stay under.
+
+Only `url` closes the chain into a `RestEndpoint` that can carry a verb; composing never
+talks to the network. `RealtimeNode` and `RealtimeTopic` do the same for a live connection:
+
+```dart
+final realtime = RealtimeNode<RealtimeEvent>.root(
+  keeper: keeper,
+  name: (segments) => segments.join(':'),
+  belongsTo: (event, topic) => event.topic == topic,
+);
+
+Stream<BrandChanged> watch(String id) => realtime
+    .node('brand')
+    .value(id)
+    .topic()
+    .events
+    .map(BrandChanged.fromEvent);
+```
+
+`RealtimeTopic.events` joins on the first listener and leaves on the last, shared across
+every caller that composes the same name: two screens watching the same brand at once make
+one join on the wire, and the topic is left only once both have stopped listening.
 
 ## The one thing pylon assumes
 
@@ -197,6 +244,15 @@ client.send(RestRequest(
 A shared key is released as soon as the call settles, so this coalesces what overlaps in
 time and caches nothing.
 
+A `RestEndpoint` derives both by default (`CallKey.derived()`, the default for every verb):
+a read's share key folds in its path, its sorted query and whether it is authenticated; a
+mutation's deduplication key folds in the same plus a canonicalised JSON body, so two
+creations with different content never block each other while a double submission of the
+same one does. `RestRequest` refuses a call carrying both a share key and a deduplication
+key at once, so a call whose real semantics differ from its verb — a paginated read exposed
+as a `POST` because of a filter body too complex for a query string — says so explicitly
+with `CallKey.share(...)` rather than fighting that constraint by hand.
+
 ## Realtime
 
 `SocketChannel` carries the policy, `SocketProtocol` carries the frames. The split is the
@@ -240,6 +296,13 @@ No token format, no notion of a session, no list of error kinds, no envelope aro
 response body, no rule about which status means what, no frame format, no environment
 reading, no code generation. Every one of those belongs to one server rather than to REST,
 and a wall that took a side would stop being a wall.
+
+No automatic retry, no request cancellation, no response cache, no offline queue either.
+Each would either duplicate a tool the Dart ecosystem already publishes
+(`package:async`'s `CancelableOperation` covers cancellation), or answer a question this
+cannot: whether a given call is safe to repeat, how long an answer stays valid, or what
+"offline" should mean for one particular resource. Those belong one layer up, next to the
+call that actually needs them.
 
 ## Verifying
 
