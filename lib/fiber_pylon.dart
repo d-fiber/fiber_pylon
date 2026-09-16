@@ -51,7 +51,7 @@
 /// ## The two halves
 ///
 /// **The barrier**, which the contract sees: [Result] and its two variants,
-/// [Fault], [FaultMapper], [Backend], [SdkHandle], [Config]. This is what a
+/// [Fault], [FaultMapper], [Sdk], [Singleton], [Config]. This is what a
 /// service layer touches, and it does not change when the backend does.
 ///
 /// **The toolkit**, which only adapters see: [RestClient] and what it needs,
@@ -102,27 +102,27 @@
 /// than to REST, and a wall that took a side would stop being a wall.
 library;
 
-export 'src/backend/backend.dart';
-export 'src/backend/config.dart';
-export 'src/backend/handle.dart';
-export 'src/call/guard.dart';
-export 'src/channel/backoff.dart';
-export 'src/channel/channel.dart';
-export 'src/channel/keeper.dart';
-export 'src/channel/socket.dart';
-export 'src/credential/credential.dart';
-export 'src/credential/manager.dart';
-export 'src/credential/refresher.dart';
-export 'src/credential/store.dart';
-export 'src/fault/fault.dart';
-export 'src/fault/mapper.dart';
-export 'src/health/monitor.dart';
-export 'src/reactive/observable.dart';
-export 'src/report/reporter.dart';
-export 'src/rest/classifier.dart';
-export 'src/rest/client.dart';
-export 'src/rest/request.dart';
-export 'src/rest/response.dart';
-export 'src/result/result.dart';
-export 'src/storage/preference.dart';
-export 'src/storage/store.dart';
+export 'src/barrier/config.dart';
+export 'src/barrier/fault.dart';
+export 'src/barrier/fault_mapper.dart';
+export 'src/barrier/result.dart';
+export 'src/barrier/sdk.dart';
+export 'src/barrier/singleton.dart';
+export 'src/toolkit/call_guard.dart';
+export 'src/toolkit/channel/backoff.dart';
+export 'src/toolkit/channel/channel.dart';
+export 'src/toolkit/channel/keeper.dart';
+export 'src/toolkit/channel/socket.dart';
+export 'src/toolkit/credential/credential.dart';
+export 'src/toolkit/credential/manager.dart';
+export 'src/toolkit/credential/refresher.dart';
+export 'src/toolkit/credential/store.dart';
+export 'src/toolkit/health_monitor.dart';
+export 'src/toolkit/observable.dart';
+export 'src/toolkit/reporter.dart';
+export 'src/toolkit/rest/classifier.dart';
+export 'src/toolkit/rest/client.dart';
+export 'src/toolkit/rest/request.dart';
+export 'src/toolkit/rest/response.dart';
+export 'src/toolkit/storage/key_value_store.dart';
+export 'src/toolkit/storage/preference.dart';

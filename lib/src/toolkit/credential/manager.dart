@@ -36,8 +36,8 @@
 
 import 'dart:async';
 
-import '../fault/fault.dart';
-import '../report/reporter.dart';
+import '../../barrier/fault.dart';
+import '../reporter.dart';
 import 'credential.dart';
 import 'refresher.dart';
 import 'store.dart';

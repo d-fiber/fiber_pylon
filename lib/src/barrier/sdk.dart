@@ -36,14 +36,14 @@
 
 /// The plug.
 ///
-/// A backend is one implementation of everything a project's contract needs. It
+/// An [Sdk] is one implementation of everything a project's contract needs. It
 /// declares no operations here, because the operations are the project's and
 /// pylon must not know a single one of them: the project writes its own
-/// interface listing the ports it has, and requires implementations of it to be
-/// backends so they get a lifetime.
+/// interface listing the ports it has, and requires implementations of it to
+/// also implement [Sdk], so they get a lifetime.
 ///
 /// ```dart
-/// abstract interface class MySdkBackend implements Backend {
+/// abstract interface class MySdkBackend implements Sdk {
 ///   BrandPort get brand;
 ///   StorePort get store;
 /// }
@@ -52,16 +52,16 @@
 /// That is the whole trick. What crosses the boundary is the project's own
 /// interface; what pylon adds is the two moments every implementation has, the
 /// one where it wires itself up and the one where it lets go.
-abstract interface class Backend {
-  /// What this backend is, for logs and for error messages.
+abstract interface class Sdk {
+  /// What this implementation talks to, for logs and for error messages.
   ///
   /// Short and stable: `rest`, `firebase`, `memory`. It ends up in the message a
   /// developer reads when something is not wired the way they thought.
   String get name;
 
-  /// Wires this backend up and makes it usable.
+  /// Wires this implementation up and makes it usable.
   ///
-  /// Everything a backend needs and cannot obtain lazily happens here: opening
+  /// Everything it needs and cannot obtain lazily happens here: opening
   /// connections, restoring a credential, starting timers. Calling it twice must
   /// be harmless, because a host that recovers from a failed start will call it
   /// again.
@@ -69,7 +69,7 @@ abstract interface class Backend {
 
   /// Releases everything [initialize] took.
   ///
-  /// Must be safe to call on a backend that was never initialised, and safe to
-  /// call twice, since it runs on paths that are already going wrong.
+  /// Must be safe to call on an implementation that was never initialised, and
+  /// safe to call twice, since it runs on paths that are already going wrong.
   Future<void> dispose();
 }

@@ -34,15 +34,17 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-/// Holds the one instance an SDK hands out, and says so when there is none yet.
+/// Holds the one instance a facade hands out, and says so when there is none
+/// yet.
 ///
-/// Every SDK ends up with the same static getter and the same forgotten call to
-/// `initialize`. What makes that painful is not the getter, it is the error: a
-/// null dereference three frames deep says nothing about what was forgotten.
+/// Every project-level facade ends up with the same static getter and the same
+/// forgotten call to `initialize`. What makes that painful is not the getter,
+/// it is the error: a null dereference three frames deep says nothing about
+/// what was forgotten.
 ///
 /// ```dart
 /// class MySdk {
-///   static final _handle = SdkHandle<MySdk>('MySdk');
+///   static final _handle = Singleton<MySdk>('MySdk');
 ///
 ///   static MySdk get I => _handle.instance;
 ///
@@ -54,14 +56,14 @@
 ///   }
 /// }
 /// ```
-class SdkHandle<T extends Object> {
-  /// What the SDK is called, as it appears in the error message.
+class Singleton<T extends Object> {
+  /// What the held instance is called, as it appears in the error message.
   final String name;
 
   T? _instance;
 
-  /// Holds the instance of the SDK called [name].
-  SdkHandle(this.name);
+  /// Holds the instance called [name].
+  Singleton(this.name);
 
   /// Whether an instance has been assigned.
   bool get isSet => _instance != null;

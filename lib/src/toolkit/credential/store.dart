@@ -34,9 +34,9 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../report/reporter.dart';
+import '../reporter.dart';
+import '../storage/key_value_store.dart';
 import '../storage/preference.dart';
-import '../storage/store.dart';
 
 /// Where the credential survives a restart.
 ///

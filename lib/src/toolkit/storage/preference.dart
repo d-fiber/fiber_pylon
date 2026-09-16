@@ -36,9 +36,9 @@
 
 import 'dart:async';
 
-import '../reactive/observable.dart';
-import '../report/reporter.dart';
-import 'store.dart';
+import '../observable.dart';
+import '../reporter.dart';
+import 'key_value_store.dart';
 
 /// One typed, watchable entry of a [KeyValueStore].
 ///

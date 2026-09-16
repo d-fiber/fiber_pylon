@@ -34,9 +34,9 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../report/reporter.dart';
-import '../result/result.dart';
+import '../toolkit/reporter.dart';
 import 'fault.dart';
+import 'result.dart';
 
 /// Turns a [Fault] into the error type one operation declares.
 ///

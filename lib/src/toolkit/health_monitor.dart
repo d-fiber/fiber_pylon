@@ -36,8 +36,8 @@
 
 import 'dart:async';
 
-import '../reactive/observable.dart';
-import '../report/reporter.dart';
+import 'observable.dart';
+import 'reporter.dart';
 
 /// A yes-or-no condition that is both asked about and reported on.
 ///

@@ -36,8 +36,8 @@
 
 import 'dart:async';
 
-import '../reactive/observable.dart';
-import '../report/reporter.dart';
+import '../observable.dart';
+import '../reporter.dart';
 import 'backoff.dart';
 import 'channel.dart';
 

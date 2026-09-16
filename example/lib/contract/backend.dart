@@ -40,9 +40,9 @@ import 'post_port.dart';
 
 /// One implementation of everything this app needs.
 ///
-/// The project declares this, not pylon: pylon supplies [Backend], which is the
+/// The project declares this, not pylon: pylon supplies [Sdk], which is the
 /// lifetime, and the ports are the project's own.
-abstract interface class ExampleBackend implements Backend {
+abstract interface class ExampleBackend implements Sdk {
   /// A one-line description of what this backend talks to, for the screen.
   String get describe;
 

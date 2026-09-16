@@ -163,9 +163,9 @@ void main() {
     });
   });
 
-  group('SdkHandle', () {
+  group('Singleton', () {
     test('names what was not initialized', () {
-      final handle = SdkHandle<String>('MySdk');
+      final handle = Singleton<String>('MySdk');
 
       expect(
         () => handle.instance,
@@ -180,13 +180,13 @@ void main() {
     });
 
     test('refuses to hold two instances at once', () {
-      final handle = SdkHandle<String>('MySdk')..assign('first');
+      final handle = Singleton<String>('MySdk')..assign('first');
 
       expect(() => handle.assign('second'), throwsStateError);
     });
 
     test('accepts another instance once released', () {
-      final handle = SdkHandle<String>('MySdk')
+      final handle = Singleton<String>('MySdk')
         ..assign('first')
         ..release()
         ..assign('second');

@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../fault/fault.dart';
+import '../../barrier/fault.dart';
 
 /// The one thing a backend supplies for pylon to keep a credential alive.
 ///

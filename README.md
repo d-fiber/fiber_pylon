@@ -14,8 +14,8 @@ be right most of the time.
 
 ## The two halves
 
-**The barrier**, which your contract sees: `Result`, `Fault`, `FaultMapper`, `Backend`,
-`SdkHandle`, `Config`. This is what a service layer touches, and it does not change when
+**The barrier**, which your contract sees: `Result`, `Fault`, `FaultMapper`, `Sdk`,
+`Singleton`, `Config`. This is what a service layer touches, and it does not change when
 the backend does.
 
 **The toolkit**, which only adapters see: `RestClient`, `CredentialManager`, `CallGuard`,

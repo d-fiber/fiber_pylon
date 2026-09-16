@@ -28,20 +28,17 @@ pylon is developed in. Nothing in `lib/` depends on Flutter.
 ## Where your work goes
 
 ```
-lib/fiber_pylon.dart    the barrel, and the only thing a consumer imports
-lib/fiber_pylon_io.dart the one piece that needs dart:io, kept apart on purpose
-lib/src/backend/        Backend, Config, SdkHandle
-lib/src/call/           CallGuard
-lib/src/channel/        Channel, ChannelKeeper, SocketChannel, Backoff
-lib/src/credential/     CredentialManager and what it needs
-lib/src/fault/          Fault, FaultMapper
-lib/src/health/         HealthMonitor
-lib/src/reactive/       Observable
-lib/src/report/         Reporter
-lib/src/rest/           RestClient, RestRequest, RestResponse, RestClassifier
-lib/src/result/         Result
-lib/src/storage/        KeyValueStore, Preference
-test/                   one file per subject, named after it
+lib/fiber_pylon.dart          the barrel, and the only thing a consumer imports
+lib/fiber_pylon_io.dart       the one piece that needs dart:io, kept apart on purpose
+lib/src/barrier/               what a port touches: Result, Fault, FaultMapper, Sdk,
+                                Singleton, Config, RestNode, RestEndpoint, CallKey,
+                                RealtimeNode, RealtimeTopic
+lib/src/toolkit/               what only an Sdk implementation touches: CallGuard,
+                                HealthMonitor, Observable, Reporter, RestClient and
+                                what it needs, ChannelKeeper, SocketChannel, Backoff,
+                                CredentialManager and what it needs, KeyValueStore,
+                                Preference
+test/                          one file per subject, named after it
 ```
 
 A new public member is exported from `lib/fiber_pylon.dart` or it does not exist. A new file

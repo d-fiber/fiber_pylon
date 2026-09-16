@@ -1,6 +1,6 @@
 name: fiber_pylon
 description: "Primitives to build a swappable REST SDK: one contract, interchangeable backends."
-version: 1.0.0
+version: 2.0.0
 repository: https://github.com/d-fiber/fiber_pylon
 
 environment:
