@@ -146,6 +146,7 @@ export 'src/toolkit/call_guard.dart';
 export 'src/toolkit/channel/backoff.dart';
 export 'src/toolkit/channel/channel.dart';
 export 'src/toolkit/channel/keeper.dart';
+export 'src/toolkit/channel/memory.dart';
 export 'src/toolkit/channel/socket.dart';
 export 'src/toolkit/credential/credential.dart';
 export 'src/toolkit/credential/manager.dart';
