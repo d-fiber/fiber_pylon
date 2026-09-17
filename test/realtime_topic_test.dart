@@ -88,15 +88,24 @@ RealtimeNode<_Event> _realtime(ChannelKeeper<_Event> keeper) =>
       belongsTo: (event, topic) => event.topic == topic,
     );
 
+RealtimeNode<_Event> _brand(ChannelKeeper<_Event> keeper) =>
+    _realtime(keeper).path((p) => p.segment('brand').parameter('id'));
+
 void main() {
-  group('RealtimeNode.value', () {
+  group('RealtimeNode.parameters', () {
     test('rejects a value strictly equal to "." or ".."', () async {
       final channel = _RecordingChannel();
       final keeper = ChannelKeeper<_Event>(channel);
-      final root = _realtime(keeper).node('brand');
+      final root = _brand(keeper);
 
-      expect(() => root.value('..'), throwsArgumentError);
-      expect(() => root.value('.'), throwsArgumentError);
+      expect(
+        () => root.parameters((p) => p.parameter('id', '..')),
+        throwsArgumentError,
+      );
+      expect(
+        () => root.parameters((p) => p.parameter('id', '.')),
+        throwsArgumentError,
+      );
 
       await keeper.dispose();
     });
@@ -104,9 +113,11 @@ void main() {
     test('never lets an external value change the joined topic name', () {
       final channel = _RecordingChannel();
       final keeper = ChannelKeeper<_Event>(channel);
-      final root = _realtime(keeper).node('brand');
+      final root = _brand(keeper);
 
-      final topic = root.value('42:admin').topic();
+      final topic = root
+          .parameters((p) => p.parameter('id', '42:admin'))
+          .topic();
       expect(topic.name, 'brand:42%3Aadmin');
     });
   });
@@ -118,18 +129,18 @@ void main() {
       await keeper.start();
       await _flush();
 
-      final realtime = _realtime(keeper).node('brand');
+      final realtime = _brand(keeper);
       final received1 = <String>[];
       final received2 = <String>[];
 
       final sub1 = realtime
-          .value('42')
+          .parameters((p) => p.parameter('id', '42'))
           .topic()
           .events
           .listen((e) => received1.add(e.payload));
       await _flush();
       final sub2 = realtime
-          .value('42')
+          .parameters((p) => p.parameter('id', '42'))
           .topic()
           .events
           .listen((e) => received2.add(e.payload));
@@ -156,10 +167,18 @@ void main() {
         await keeper.start();
         await _flush();
 
-        final realtime = _realtime(keeper).node('brand');
-        final sub1 = realtime.value('42').topic().events.listen((_) {});
+        final realtime = _brand(keeper);
+        final sub1 = realtime
+            .parameters((p) => p.parameter('id', '42'))
+            .topic()
+            .events
+            .listen((_) {});
         await _flush();
-        final sub2 = realtime.value('42').topic().events.listen((_) {});
+        final sub2 = realtime
+            .parameters((p) => p.parameter('id', '42'))
+            .topic()
+            .events
+            .listen((_) {});
         await _flush();
 
         await sub1.cancel();
@@ -184,14 +203,22 @@ void main() {
       await keeper.start();
       await _flush();
 
-      final realtime = _realtime(keeper).node('brand');
-      final firstSub = realtime.value('42').topic().events.listen((_) {});
+      final realtime = _brand(keeper);
+      final firstSub = realtime
+          .parameters((p) => p.parameter('id', '42'))
+          .topic()
+          .events
+          .listen((_) {});
       await _flush();
       await firstSub.cancel();
       await _flush();
       expect(channel.leaveCalls, ['brand:42']);
 
-      final secondSub = realtime.value('42').topic().events.listen((_) {});
+      final secondSub = realtime
+          .parameters((p) => p.parameter('id', '42'))
+          .topic()
+          .events
+          .listen((_) {});
       await _flush();
 
       expect(channel.joinCalls, ['brand:42', 'brand:42']);
@@ -206,10 +233,10 @@ void main() {
       await keeper.start();
       await _flush();
 
-      final realtime = _realtime(keeper).node('brand');
+      final realtime = _brand(keeper);
       final received = <String>[];
       final sub = realtime
-          .value('42')
+          .parameters((p) => p.parameter('id', '42'))
           .topic()
           .events
           .listen((e) => received.add(e.payload));

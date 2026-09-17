@@ -41,17 +41,16 @@ import '../segment.dart';
 
 /// One segment of a realtime topic tree, rooted at a live connection.
 ///
-/// The same two growing gestures as [RestNode] carry over here, because
-/// composing a topic name is the same problem as composing a path: [node] for
-/// text this SDK's author writes, [value] for anything that comes from
-/// outside it. [topic] is the only gesture that differs from HTTP, because
-/// what it closes the chain into differs: a [RestEndpoint] carries verbs, a
-/// [RealtimeTopic] carries a subscription.
+/// [path] never talks to the connection, it only remembers one more branch.
+/// Any node can become a subscribable [RealtimeTopic] directly through
+/// [topic], because a node built by [path] is always a complete address —
+/// there is no partly-composed state left to protect against, as long as
+/// every parameter it carries has been resolved by [parameters] first.
 final class RealtimeNode<E> {
   RealtimeNode._(this._registry, this._segments, this._name, this._belongsTo);
 
   final _TopicRegistry<E> _registry;
-  final List<String> _segments;
+  final List<_PathPart> _segments;
   final String Function(List<String> segments) _name;
   final bool Function(E event, String topic) _belongsTo;
 
@@ -70,36 +69,138 @@ final class RealtimeNode<E> {
     required bool Function(E event, String topic) belongsTo,
   }) => RealtimeNode._(_TopicRegistry(keeper), const [], name, belongsTo);
 
-  /// The branch [literal] below this one. See [RestNode.node].
-  RealtimeNode<E> node(String literal) => RealtimeNode._(
-    _registry,
-    [..._segments, ...literalSegments(literal)],
-    _name,
-    _belongsTo,
-  );
-
-  /// The branch below this one at the opaque segment [value] becomes. See
-  /// [RestNode.value].
-  RealtimeNode<E> value(Object value) => RealtimeNode._(
-    _registry,
-    [..._segments, opaqueSegment(value)],
-    _name,
-    _belongsTo,
-  );
-
-  /// The topic at [literal], relative to this branch, ready to be listened
-  /// to.
+  /// The resolved segments this node addresses.
   ///
-  /// [literal] follows the same rule as [node]'s argument, and defaults to
-  /// empty to name this branch's own topic. Two calls that compose the same
-  /// segments from the same root share one [RealtimeTopic], and therefore one
-  /// join on the wire.
-  RealtimeTopic<E> topic([String literal = '']) {
-    final segments = literal.isEmpty
-        ? _segments
-        : [..._segments, ...literalSegments(literal)];
-    return RealtimeTopic._(_registry, _name(segments), _belongsTo);
+  /// Throws a [StateError] while a parameter [path] left unresolved remains,
+  /// since that is not an address yet, only the shape of one.
+  List<String> get _resolvedSegments {
+    final unresolved = _segments.whereType<_Parameter>();
+    if (unresolved.isNotEmpty) {
+      throw StateError(
+        'unresolved ${unresolved.map((p) => p.name).join(', ')}: call '
+        'parameters() first',
+      );
+    }
+    return _segments.cast<_Literal>().map((s) => s.value).toList();
   }
+
+  /// The branch [build] describes below this one.
+  ///
+  /// [build] receives an empty [RealtimePath] and returns the one it
+  /// composed, through [RealtimePath.segment] for text this SDK's own author
+  /// writes once, such as `'brand'`, and [RealtimePath.parameter] for a value
+  /// [parameters] resolves later, at the point a caller actually has it:
+  ///
+  /// ```dart
+  /// final brand = topics.path((p) => p.segment('brand').parameter('id'));
+  /// ```
+  ///
+  /// [RealtimePath.parameter] is the only place an identifier or any value
+  /// that did not originate in this SDK's own source belongs — never
+  /// interpolated into a [RealtimePath.segment] directly, which would let it
+  /// inject extra segments unnoticed.
+  RealtimeNode<E> path(RealtimePath Function(RealtimePath) build) =>
+      RealtimeNode._(
+        _registry,
+        [..._segments, ...build(const RealtimePath._([]))._parts],
+        _name,
+        _belongsTo,
+      );
+
+  /// Resolves every parameter [path] left behind, replacing each with the
+  /// single, opaque, percent-encoded segment [build] supplied for it.
+  ///
+  /// [build] receives an empty [RealtimeParameters] and returns the one it
+  /// composed, through [RealtimeParameters.parameter] once per placeholder.
+  ///
+  /// Throws an [ArgumentError] naming what is missing when a parameter has
+  /// nothing supplied for it, and one naming what is unused when [build]
+  /// supplies a name no parameter asked for — a call is only ready once the
+  /// two match exactly.
+  RealtimeNode<E> parameters(
+    RealtimeParameters Function(RealtimeParameters) build,
+  ) {
+    final values = build(const RealtimeParameters._({}))._values;
+    final used = <String>{};
+    final resolved = _segments.map((part) {
+      if (part is! _Parameter) return part;
+      final value = values[part.name];
+      if (value == null) {
+        throw ArgumentError('missing a value for parameter "${part.name}"');
+      }
+      used.add(part.name);
+      return _Literal(opaqueSegment(value));
+    }).toList();
+
+    final unused = values.keys.toSet().difference(used);
+    if (unused.isNotEmpty) {
+      throw ArgumentError(
+        'parameters for $unused were given but nothing needs them',
+      );
+    }
+    return RealtimeNode._(_registry, resolved, _name, _belongsTo);
+  }
+
+  /// The topic this node addresses, ready to be listened to.
+  ///
+  /// Two calls that compose the same segments from the same root share one
+  /// [RealtimeTopic], and therefore one join on the wire.
+  RealtimeTopic<E> topic() =>
+      RealtimeTopic._(_registry, _name(_resolvedSegments), _belongsTo);
+}
+
+/// One branch of segments composed inside [RealtimeNode.path].
+final class RealtimePath {
+  const RealtimePath._(this._parts);
+
+  final List<_PathPart> _parts;
+
+  /// Appends [literal] to this branch.
+  ///
+  /// [literal] is text this SDK's own author writes once while wiring a
+  /// backend, such as `'brand'`. It may carry several segments separated by
+  /// `/`, because nothing external ever reaches this parameter.
+  RealtimePath segment(String literal) => RealtimePath._([
+    ..._parts,
+    ...literalSegments(literal).map(_Literal.new),
+  ]);
+
+  /// Appends a parameter named [name], resolved later by
+  /// [RealtimeNode.parameters].
+  RealtimePath parameter(String name) =>
+      RealtimePath._([..._parts, _Parameter(name)]);
+}
+
+/// The values [RealtimeNode.parameters] resolves a branch's placeholders
+/// with.
+final class RealtimeParameters {
+  const RealtimeParameters._(this._values);
+
+  final Map<String, Object> _values;
+
+  /// Supplies [value] for the parameter [RealtimePath.parameter] named
+  /// [name].
+  RealtimeParameters parameter(String name, Object value) =>
+      RealtimeParameters._({..._values, name: value});
+}
+
+/// One piece of a [RealtimeNode]'s address, either fixed text or a value
+/// [RealtimeNode.parameters] has not resolved yet.
+sealed class _PathPart {}
+
+/// A piece of text this SDK's own author wrote, through [RealtimePath.segment].
+final class _Literal extends _PathPart {
+  _Literal(this.value);
+
+  final String value;
+}
+
+/// A placeholder [RealtimeNode.parameters] resolves, named through
+/// [RealtimePath.parameter].
+final class _Parameter extends _PathPart {
+  _Parameter(this.name);
+
+  final String name;
 }
 
 /// One joinable topic, shared across every [RealtimeNode.topic] call that

@@ -30,9 +30,10 @@ pylon is developed in. Nothing in `lib/` depends on Flutter.
 ```
 lib/fiber_pylon.dart          the barrel, and the only thing a consumer imports
 lib/fiber_pylon_io.dart       the one piece that needs dart:io, kept apart on purpose
-lib/src/barrier/               what a port touches: Result, Fault, FaultMapper, Sdk,
-                                Singleton, Config, RestNode, RestEndpoint, CallKey,
-                                RealtimeNode, RealtimeTopic
+lib/src/barrier/               what a port touches: Result, Fault, FaultResolver, Sdk,
+                                Singleton, Configuration, RestNode, RestPath,
+                                RestParameters, RestCall, RealtimeNode, RealtimePath,
+                                RealtimeParameters, RealtimeTopic
 lib/src/toolkit/               what only an Sdk implementation touches: CallGuard,
                                 HealthMonitor, Observable, Reporter, RestClient and
                                 what it needs, ChannelKeeper, SocketChannel, Backoff,

@@ -150,7 +150,8 @@ class _MemoryEvents implements EventsPort {
   const _MemoryEvents(this._realtime);
 
   @override
-  Stream<Post> newPosts() => _realtime.node('posts').topic().events;
+  Stream<Post> newPosts() =>
+      _realtime.path((p) => p.segment('posts')).topic().events;
 }
 
 const List<Post> _sample = [
