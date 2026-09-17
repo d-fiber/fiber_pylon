@@ -44,32 +44,32 @@ import 'signals.dart';
 /// Where JSONPlaceholder lives.
 const _root = 'https://jsonplaceholder.typicode.com/';
 
-/// The table that turns this adapter's signals into the error [PostPort.read]
-/// declares.
+/// The resolver that turns this adapter's signals into the error
+/// [PostPort.read] declares.
 ///
 /// It sits beside the adapter because it translates one server's vocabulary.
 /// The DummyJSON adapter has its own, and the contract knows about neither.
-const _readPost = FaultMapper<PlaceholderSignal, ReadPostError>(
-  signals: {
-    PlaceholderSignal.missing: ReadPostError.notFound,
-    PlaceholderSignal.refused: ReadPostError.refused,
-    PlaceholderSignal.throttled: ReadPostError.tooFast,
-    PlaceholderSignal.noRoute: ReadPostError.offline,
-    PlaceholderSignal.slow: ReadPostError.offline,
-    PlaceholderSignal.duplicate: ReadPostError.unknown,
+final _readPost = FaultResolver<PlaceholderSignal, ReadPostError>(
+  (signal) => switch (signal) {
+    PlaceholderSignal.missing => ReadPostError.notFound,
+    PlaceholderSignal.refused => ReadPostError.refused,
+    PlaceholderSignal.throttled => ReadPostError.tooFast,
+    PlaceholderSignal.noRoute => ReadPostError.offline,
+    PlaceholderSignal.slow => ReadPostError.offline,
+    PlaceholderSignal.duplicate => ReadPostError.unknown,
+    _ => ReadPostError.unknown,
   },
-  fallback: ReadPostError.unknown,
 );
 
-const _listPosts = FaultMapper<PlaceholderSignal, ListPostsError>(
-  signals: {
-    PlaceholderSignal.refused: ListPostsError.refused,
-    PlaceholderSignal.throttled: ListPostsError.tooFast,
-    PlaceholderSignal.noRoute: ListPostsError.offline,
-    PlaceholderSignal.slow: ListPostsError.offline,
-    PlaceholderSignal.duplicate: ListPostsError.unknown,
+final _listPosts = FaultResolver<PlaceholderSignal, ListPostsError>(
+  (signal) => switch (signal) {
+    PlaceholderSignal.refused => ListPostsError.refused,
+    PlaceholderSignal.throttled => ListPostsError.tooFast,
+    PlaceholderSignal.noRoute => ListPostsError.offline,
+    PlaceholderSignal.slow => ListPostsError.offline,
+    PlaceholderSignal.duplicate => ListPostsError.unknown,
+    _ => ListPostsError.unknown,
   },
-  fallback: ListPostsError.unknown,
 );
 
 /// A backend over JSONPlaceholder.
@@ -89,7 +89,7 @@ class PlaceholderBackend implements ExampleBackend {
       'jsonplaceholder.typicode.com, over HTTP. Posts arrive with numeric ids.';
 
   @override
-  PostPort get posts => _PlaceholderPosts(_api.node('posts'));
+  PostPort get posts => _PlaceholderPosts(_api.path((p) => p.segment('posts')));
 
   @override
   EventsPort? get events => null;
@@ -107,7 +107,7 @@ class PlaceholderBackend implements ExampleBackend {
       ),
       timeout: const Duration(seconds: 10),
     );
-    _api = RestNode<PlaceholderSignal>.root(_client);
+    _api = RestNode<PlaceholderSignal>(_client);
   }
 
   @override
@@ -120,22 +120,33 @@ class _PlaceholderPosts implements PostPort {
   const _PlaceholderPosts(this._posts);
 
   @override
-  Future<ListPostsResult> list() => _posts.url().get(
-    query: const {'_limit': '10'},
-    mapper: _listPosts,
-    decode: (r) => r.list
-        .cast<Map<String, dynamic>>()
-        .map(PlaceholderPost.fromJson)
-        .map((post) => post.toContract())
-        .toList(),
-  );
+  Future<ListPostsResult> list() async {
+    try {
+      final request = _posts.get()
+        ..queryParameters((p) => p.parameter('_limit', '10'));
+      final response = await request.send();
+      final posts = response.list
+          .cast<Map<String, dynamic>>()
+          .map(PlaceholderPost.fromJson)
+          .map((post) => post.toContract())
+          .toList();
+      return OK(posts);
+    } on Fault<PlaceholderSignal> catch (fault) {
+      return Failure(_listPosts.call(fault));
+    }
+  }
 
   @override
-  Future<ReadPostResult> read(String id) => _posts
-      .value(id)
-      .url()
-      .get(
-        mapper: _readPost,
-        decode: (r) => PlaceholderPost.fromJson(r.map).toContract(),
-      );
+  Future<ReadPostResult> read(String id) async {
+    try {
+      final response = await _posts
+          .path((p) => p.parameter('id'))
+          .parameters((p) => p.parameter('id', id))
+          .get()
+          .send();
+      return OK(PlaceholderPost.fromJson(response.map).toContract());
+    } on Fault<PlaceholderSignal> catch (fault) {
+      return Failure(_readPost.call(fault));
+    }
+  }
 }

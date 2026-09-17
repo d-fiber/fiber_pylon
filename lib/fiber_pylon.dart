@@ -50,10 +50,12 @@
 ///
 /// ## The two halves
 ///
-/// **The barrier**, which a port touches: [RestNode] and [RestEndpoint] for a
-/// REST call, [RealtimeNode] and [RealtimeTopic] for a live one, [Result] and
-/// its two variants, [Fault], [FaultMapper], [Sdk], [Singleton], [Config]. This
-/// is what a service layer sees, and it does not change when the backend does.
+/// **The barrier**, which a port touches: [RestNode], [RestPath],
+/// [RestParameters] and [RestCall] for a REST call, [RealtimeNode],
+/// [RealtimePath], [RealtimeParameters] and [RealtimeTopic] for a live one,
+/// [Result] and its two variants, [Fault], [FaultResolver], [Sdk],
+/// [Singleton], [Configuration]. This is what a service layer sees, and it
+/// does not change when the backend does.
 ///
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
@@ -72,26 +74,39 @@
 /// [RestNode], rooted once on the [Sdk] implementation's own [RestClient]:
 ///
 /// ```dart
-/// final api = RestNode<RestSignal>.root(client).node('v1');
-/// final brand = api.node('brand');
+/// final api = RestNode<RestSignal>(client).path((p) => p.segment('v1'));
+/// final brand = api.path((p) => p.segment('brand'));
 ///
-/// Future<Result<Brand, ReadBrandError>> read(String id) => brand
-///     .value(id)
-///     .url()
-///     .get(mapper: _mapper, decode: Brand.fromResponse);
+/// Future<Result<Brand, ReadBrandError>> read(String id) async {
+///   try {
+///     final response = await brand
+///         .path((p) => p.parameter('id'))
+///         .parameters((p) => p.parameter('id', id))
+///         .get()
+///         .send();
+///     return OK(Brand.fromResponse(response));
+///   } on Fault<RestSignal> catch (fault) {
+///     return Failure(readBrand.call(fault));
+///   }
+/// }
 /// ```
 ///
-/// [RestNode.node] takes a literal this SDK's own author writes once, and
-/// [RestNode.value] takes a value that came from somewhere else — a caller, a
-/// deep link, a server. The two are never interchangeable: a literal may carry
-/// several segments separated by `/`, because nothing external ever reaches
-/// it, while a value is always exactly one opaque, percent-encoded segment,
-/// whatever it contains. Only [RestNode.url] closes the chain into a
-/// [RestEndpoint] that can actually carry a verb; composing never talks to the
-/// network. [RealtimeNode] and [RealtimeTopic] do the same for a live
-/// connection, with [RealtimeTopic.events] joining on the first listener and
-/// leaving on the last, shared across every caller that composes the same
-/// name.
+/// [RestNode.path] receives an empty [RestPath] and returns the one it
+/// composed, through [RestPath.segment] for text this SDK's own author
+/// writes once, such as `'brand'` or `'brand/reviews'`, and may carry
+/// several segments separated by `/` because nothing external ever reaches
+/// it. [RestPath.parameter] names a placeholder instead, resolved later by
+/// [RestNode.parameters] through [RestParameters.parameter], once a caller
+/// actually has the value — a caller, a deep link, a server. Each one becomes
+/// exactly one opaque, percent-encoded segment, and [RestNode.parameters]
+/// refuses to resolve if what it is given does not match the placeholders
+/// exactly. Any node can carry a verb
+/// directly; a node still carrying an unresolved parameter throws the moment
+/// a verb is called on it. [RealtimeNode] mirrors the same [RealtimeNode.path]
+/// and [RealtimeNode.parameters] for a live connection, closing into a
+/// [RealtimeTopic] instead of a verb, with [RealtimeTopic.events] joining on
+/// the first listener and leaving on the last, shared across every caller
+/// that composes the same name.
 ///
 /// ## The one thing pylon does assume
 ///
@@ -112,13 +127,13 @@
 /// enum RestSignal { unauthorized, forbidden, vpnRequired, nameEmpty, noRoute }
 /// ```
 ///
-/// A [FaultMapper] then turns that signal into the error one operation declares,
-/// through a table the project wrote, with both sides typed and checked by the
-/// compiler. Where pylon needs to act on a failure, it is handed a set of
-/// signals rather than left to interpret one: [CredentialManager] is told which
-/// signals mean the credential is dead, [CallGuard] which are worth renewing
-/// for, and even the refusal [CallGuard] issues for a duplicate call is named by
-/// the project.
+/// A [FaultResolver] then turns that signal into the error one operation
+/// declares, through a switch the project wrote, with both sides typed and
+/// checked by the compiler. Where pylon needs to act on a failure, it is
+/// handed a set of signals rather than left to interpret one:
+/// [CredentialManager] is told which signals mean the credential is dead,
+/// [CallGuard] which are worth renewing for, and even the refusal [CallGuard]
+/// issues for a duplicate call is named by the project.
 ///
 /// That is the whole discipline. Any list of failure kinds pylon offered would
 /// be a guess about the projects it has not met.
@@ -135,10 +150,8 @@ library;
 
 export 'src/barrier/configuration.dart';
 export 'src/barrier/fault.dart';
-export 'src/barrier/fault_mapper.dart';
 export 'src/barrier/realtime/node.dart';
 export 'src/barrier/result.dart';
-export 'src/barrier/rest/call_key.dart';
 export 'src/barrier/rest/node.dart';
 export 'src/barrier/sdk.dart';
 export 'src/barrier/singleton.dart';

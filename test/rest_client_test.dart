@@ -128,7 +128,7 @@ void main() {
       await client.dispose();
     });
 
-    test('merges a query written in the path with the query map', () async {
+    test('merges a query written in the path with queryParameters', () async {
       late Uri seen;
       final client = clientAnswering((request) async {
         seen = request.url;
@@ -138,7 +138,7 @@ void main() {
       await client.send(
         const RestRequest(
           path: 'brand/pagination?offset=20',
-          query: {'status': 'draft'},
+          queryParameters: {'status': 'draft'},
         ),
       );
 
@@ -340,7 +340,7 @@ void main() {
           path: 'brand',
           method: RestMethod.post,
           fields: const {'name': 'Acme'},
-          uploads: [
+          files: [
             RestUpload(
               field: 'logo',
               bytes: Uint8List.fromList([1, 2, 3]),

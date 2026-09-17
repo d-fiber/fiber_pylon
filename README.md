@@ -14,10 +14,11 @@ be right most of the time.
 
 ## The two halves
 
-**The barrier**, which a port touches: `RestNode` and `RestEndpoint` for a REST call,
-`RealtimeNode` and `RealtimeTopic` for a live one, `Result`, `Fault`, `FaultMapper`, `Sdk`,
-`Singleton`, `Config`. This is what a service layer sees, and it does not change when the
-backend does.
+**The barrier**, which a port touches: `RestNode`, `RestPath`, `RestParameters` and
+`RestCall` for a REST call, `RealtimeNode`, `RealtimePath`, `RealtimeParameters` and
+`RealtimeTopic` for a live one, `Result`, `Fault`, `FaultResolver`, `Sdk`, `Singleton`,
+`Configuration`. This is what a service layer sees, and it does not change when the backend
+does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
@@ -35,25 +36,40 @@ A port never builds a `RestRequest` or a path string by hand. It composes a `Res
 rooted once on the `Sdk` implementation's own `RestClient`:
 
 ```dart
-final api = RestNode<AdminSignal>.root(client).node('v1');
-final brand = api.node('brand');
+final api = RestNode<AdminSignal>(client).path((p) => p.segment('v1'));
+final brand = api.path((p) => p.segment('brand'));
 
-Future<Result<Brand, ReadBrandError>> read(String id) => brand
-    .value(id)
-    .url()
-    .get(mapper: readBrand, decode: Brand.fromResponse);
+Future<Result<Brand, ReadBrandError>> read(String id) async {
+  try {
+    final response = await brand
+        .path((p) => p.parameter('id'))
+        .parameters((p) => p.parameter('id', id))
+        .get()
+        .send();
+    return OK(Brand.fromResponse(response));
+  } on Fault<AdminSignal> catch (fault) {
+    return Failure(readBrand.call(fault));
+  }
+}
 ```
 
-`node` takes a literal this SDK's own author writes once, such as `'brand'`, and `value`
-takes a value that came from somewhere else — a caller, a deep link, a server. The two are
-never interchangeable: a literal may carry several segments separated by `/`, because
-nothing external ever reaches it, while a value is always exactly one opaque,
-percent-encoded segment, whatever it contains. Interpolating an external value straight
-into a path string, the shape it is easiest to reach for, lets it change which resource a
-call actually reaches, or even escape the branch it was meant to stay under.
+`path` receives an empty `RestPath` and returns the one it composed, through
+`RestPath.segment` for text this SDK's own author writes once, such as `'brand'` or
+`'brand/reviews'`, and may carry several segments separated by `/`, because nothing
+external ever reaches it. `RestPath.parameter` names a placeholder instead, resolved later
+by `parameters`, through `RestParameters.parameter`, once a caller actually has the value —
+a caller, a deep link, a server. Each one becomes exactly one opaque, percent-encoded
+segment, and `parameters` refuses to resolve if what it is given does not match the
+placeholders exactly. Interpolating an
+external value straight into a path string, the shape it is easiest to reach for, lets it
+change which resource a call actually reaches, or even escape the branch it was meant to
+stay under; a parameter, which is never a raw string a caller could shape, closes that off
+at compile time rather than by convention.
 
-Only `url` closes the chain into a `RestEndpoint` that can carry a verb; composing never
-talks to the network. `RealtimeNode` and `RealtimeTopic` do the same for a live connection:
+Any node can carry a verb directly; there is no separate step that closes composing before a
+call can go out. A node still carrying an unresolved parameter throws the moment a verb is
+called on it, rather than sending a path with a placeholder still in it. `RealtimeNode`
+mirrors the same `path` and `parameters`, closing into a `RealtimeTopic` instead of a verb:
 
 ```dart
 final realtime = RealtimeNode<RealtimeEvent>.root(
@@ -61,10 +77,10 @@ final realtime = RealtimeNode<RealtimeEvent>.root(
   name: (segments) => segments.join(':'),
   belongsTo: (event, topic) => event.topic == topic,
 );
+final brand = realtime.path((p) => p.segment('brand').parameter('id'));
 
-Stream<BrandChanged> watch(String id) => realtime
-    .node('brand')
-    .value(id)
+Stream<BrandChanged> watch(String id) => brand
+    .parameters((p) => p.parameter('id', id))
     .topic()
     .events
     .map(BrandChanged.fromEvent);
@@ -101,27 +117,32 @@ Pylon offers no list of failure kinds, because any list would be a guess about t
 it has not met. `unauthorized` does not mean the same thing everywhere, and in a system
 with no authentication it means nothing at all.
 
-A `FaultMapper` turns that signal into the error one operation declares. Both sides of the
-table are typed, so a member that does not exist does not compile and a rename is caught
+A `FaultResolver` turns that signal into the error one operation declares. Both sides of the
+switch are typed, so a member that does not exist does not compile and a rename is caught
 rather than discovered at runtime.
 
 ```dart
-const createBrand = FaultMapper<AdminSignal, CreateBrandError>(
-  signals: {
-    AdminSignal.unauthorized: CreateBrandError.unauthorized,
-    AdminSignal.forbidden: CreateBrandError.notPermitted,
-    AdminSignal.vpnRequired: CreateBrandError.vpnRequired,
-    AdminSignal.tooManyRequests: CreateBrandError.tooManyRequests,
-    AdminSignal.noRoute: CreateBrandError.networkError,
-    AdminSignal.nameEmpty: CreateBrandError.nameEmpty,
+final createBrand = FaultResolver<AdminSignal, CreateBrandError>(
+  (signal) => switch (signal) {
+    AdminSignal.unauthorized => CreateBrandError.unauthorized,
+    AdminSignal.forbidden => CreateBrandError.notPermitted,
+    AdminSignal.vpnRequired => CreateBrandError.vpnRequired,
+    AdminSignal.tooManyRequests => CreateBrandError.tooManyRequests,
+    AdminSignal.noRoute => CreateBrandError.networkError,
+    AdminSignal.nameEmpty => CreateBrandError.nameEmpty,
+    _ => CreateBrandError.unknown,
   },
-  fallback: CreateBrandError.unknown,
 );
 ```
 
-The table belongs next to the adapter, not to the contract, because it is the translation
-of one server's vocabulary. Swapping servers means writing new tables beside the new
+The resolver belongs next to the adapter, not to the contract, because it is the translation
+of one server's vocabulary. Swapping servers means writing new resolvers beside the new
 adapter; the contract, and everything above it, does not move.
+
+A port calls it itself, from its own `catch`, as `read` does above: `RestNode` never sees the
+resolver and never decides which failures a port distinguishes. A raw exception, or a
+`Fault` carrying another adapter's signal, is a bug and is left to propagate rather than
+quietly becoming `readBrand.fallback` — nothing here decides that for the caller either.
 
 Wherever pylon has to act on a failure it is handed a set of signals rather than left to
 interpret one. `CredentialManager` is told which signals mean the credential is dead,
@@ -244,14 +265,13 @@ client.send(RestRequest(
 A shared key is released as soon as the call settles, so this coalesces what overlaps in
 time and caches nothing.
 
-A `RestEndpoint` derives both by default (`CallKey.derived()`, the default for every verb):
-a read's share key folds in its path, its sorted query and whether it is authenticated; a
-mutation's deduplication key folds in the same plus a canonicalised JSON body, so two
-creations with different content never block each other while a double submission of the
-same one does. `RestRequest` refuses a call carrying both a share key and a deduplication
-key at once, so a call whose real semantics differ from its verb — a paginated read exposed
-as a `POST` because of a filter body too complex for a query string — says so explicitly
-with `CallKey.share(...)` rather than fighting that constraint by hand.
+A `RestCall`, composed through a `RestNode`, always derives one of the two, for every verb,
+with no way to opt out. The key folds in the path, the sorted query parameters, the sorted
+headers, whether it is authenticated, the canonicalised JSON body, the form fields and the
+files — whichever of those a given call actually set, since every verb accepts all of them.
+Two creations with different content never block each other, while a double submission of
+the same one always does, however many times it is fired. A `RestNode.get` or `RestNode.head`
+call shares that key; every other verb refuses a second call under it instead of sending it.
 
 ## Realtime
 

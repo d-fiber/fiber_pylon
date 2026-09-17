@@ -39,272 +39,458 @@ import 'dart:convert';
 import '../../toolkit/rest/client.dart';
 import '../../toolkit/rest/request.dart';
 import '../../toolkit/rest/response.dart';
-import '../fault_mapper.dart';
-import '../result.dart';
 import '../segment.dart';
-import 'call_key.dart';
 
-/// One segment of a REST resource tree, rooted at a [RestClient]'s base URL.
+/// One address in a REST resource tree, rooted at a [RestClient]'s base URL.
 ///
-/// Composing never talks to the network: [node] and [value] only remember one
-/// more segment, and neither closes the chain. Only [url] does, into a
-/// [RestEndpoint], the sole place a verb can be sent from — an address that is
-/// still being composed can therefore never be sent as one by mistake.
+/// [path] never talks to the network, it only remembers one more branch. Any
+/// node can also carry a verb directly, because a node built by [path] is
+/// always a complete address — there is no partly-composed state left to
+/// protect against, as long as every parameter it carries has been resolved
+/// by [parameters] first.
 final class RestNode<S extends Object> {
-  RestNode._(this._client, this._segments);
+  /// The root of [client]'s resource tree.
+  RestNode(RestClient<S> client) : this._(client, const [], const {}, true);
+
+  RestNode._(this._client, this._segments, this._headers, this._authenticated);
 
   final RestClient<S> _client;
-  final List<String> _segments;
+  final List<_PathPart> _segments;
+  final Map<String, String> _headers;
+  final bool _authenticated;
 
-  /// The root of [client]'s resource tree.
-  factory RestNode.root(RestClient<S> client) => RestNode._(client, const []);
-
-  /// The branch [literal] below this one.
+  /// The resolved path this node addresses, relative to the client's base
+  /// URL.
   ///
-  /// [literal] is text this SDK's author writes once while wiring a port,
-  /// such as `'brand'` or `'v1/store'`. It may carry several segments
-  /// separated by `/`, because nothing external ever reaches this parameter —
-  /// a value that came from a caller, a deep link, or the server belongs in
-  /// [value], never here.
-  RestNode<S> node(String literal) =>
-      RestNode._(_client, [..._segments, ...literalSegments(literal)]);
+  /// Throws a [StateError] while a parameter [path] left unresolved remains,
+  /// since that is not an address yet, only the shape of one.
+  String get resolvedPath {
+    final unresolved = _segments.whereType<_Parameter>();
+    if (unresolved.isNotEmpty) {
+      throw StateError(
+        'unresolved ${unresolved.map((p) => p.name).join(', ')}: call '
+        'parameters() first',
+      );
+    }
+    return _segments.cast<_Literal>().map((s) => s.value).join('/');
+  }
 
-  /// The branch below this one, at the single, opaque segment [value]
-  /// becomes.
+  /// The branch [build] describes below this one.
   ///
-  /// Unlike [node], [value] is never split on `/`: whatever it contains
-  /// becomes exactly one percent-encoded path segment. This is the only place
-  /// an identifier, a search term, or any value that did not originate in
-  /// this SDK's own source belongs. Does not close the chain: a value can be
-  /// followed by more [node], more [value], or [url].
-  RestNode<S> value(Object value) =>
-      RestNode._(_client, [..._segments, opaqueSegment(value)]);
-
-  /// Closes this branch into the endpoint at [literal], relative to it.
+  /// [build] receives an empty [RestPath] and returns the one it composed,
+  /// through [RestPath.segment] for text this SDK's own author writes once,
+  /// such as `'brand'` or `'v1/store'`, and [RestPath.parameter] for a value
+  /// [parameters] resolves later, at the point a caller actually has it:
   ///
-  /// [literal] follows the same rule as [node]'s argument, and defaults to
-  /// empty to call this branch's own resource.
-  RestEndpoint<S> url([String literal = '']) => RestEndpoint._(
+  /// ```dart
+  /// final review = store.path((p) => p.segment('review').parameter('id'));
+  /// ```
+  ///
+  /// [RestPath.parameter] is the only place an identifier, a search term, or
+  /// any value that did not originate in this SDK's own source belongs —
+  /// never interpolated into a [RestPath.segment] directly, which would let
+  /// it inject extra segments unnoticed.
+  RestNode<S> path(RestPath Function(RestPath) build) => RestNode._(
     _client,
-    [..._segments, ...literalSegments(literal)].join('/'),
+    [..._segments, ...build(const RestPath._([]))._parts],
+    _headers,
+    _authenticated,
+  );
+
+  /// Resolves every parameter [path] left behind, replacing each with the
+  /// single, opaque, percent-encoded segment [build] supplied for it.
+  ///
+  /// [build] receives an empty [RestParameters] and returns the one it
+  /// composed, through [RestParameters.parameter] once per placeholder:
+  ///
+  /// ```dart
+  /// final review = store.parameters((p) => p.parameter('id', id));
+  /// ```
+  ///
+  /// Throws an [ArgumentError] naming what is missing when a parameter has
+  /// nothing supplied for it, and one naming what is unused when [build]
+  /// supplies a name no parameter asked for — a call is only ready once the
+  /// two match exactly.
+  RestNode<S> parameters(RestParameters Function(RestParameters) build) {
+    final values = build(const RestParameters._({}))._values;
+    final used = <String>{};
+    final resolved = _segments.map((part) {
+      if (part is! _Parameter) return part;
+      final value = values[part.name];
+      if (value == null) {
+        throw ArgumentError('missing a value for parameter "${part.name}"');
+      }
+      used.add(part.name);
+      return _Literal(opaqueSegment(value));
+    }).toList();
+
+    final unused = values.keys.toSet().difference(used);
+    if (unused.isNotEmpty) {
+      throw ArgumentError(
+        'parameters for $unused were given but nothing needs them',
+      );
+    }
+    return RestNode._(_client, resolved, _headers, _authenticated);
+  }
+
+  /// Sets headers every call built from this node carries, merged over
+  /// whatever the `RestClient` this node's chain is rooted on attaches to
+  /// every call.
+  ///
+  /// Last word wins: a header set here overrides one of the same name the
+  /// client would otherwise attach, and a header set further down a chain
+  /// overrides one a node higher up already carried. [build] receives
+  /// whatever headers this node already carries and returns the one it
+  /// composed, through [RestCallHeaders.add] once per header:
+  ///
+  /// ```dart
+  /// final store = api.path((p) => p.segment('store')).headers(
+  ///   (h) => h.add('x-app-key', appKey),
+  /// );
+  /// ```
+  RestNode<S> headers(RestCallHeaders Function(RestCallHeaders) build) =>
+      RestNode._(
+        _client,
+        _segments,
+        build(RestCallHeaders._(_headers))._values,
+        _authenticated,
+      );
+
+  /// Marks every call built from this node as not carrying the credential.
+  ///
+  /// Before every call [get], [post] and the other verbs build, `CallGuard`
+  /// would otherwise refresh the credential if it is stale, and retry once
+  /// more after renewing it if the server refuses the call for it. Call this
+  /// on the one or two nodes that must not go through that: the endpoint
+  /// that signs in, and the one a `CredentialManager`'s own refresher calls
+  /// to renew the credential — that one deadlocks waiting on itself if it is
+  /// left authenticated, since renewing is exactly what it is in the middle
+  /// of doing.
+  ///
+  /// ```dart
+  /// final refresh = api.path((p) => p.segment('auth/refresh')).unauthenticated();
+  /// ```
+  RestNode<S> unauthenticated() =>
+      RestNode._(_client, _segments, _headers, false);
+
+  /// Reads this resource. See [RestCall] for what it can carry.
+  RestCall<S> get() => RestCall._(
+    _client,
+    resolvedPath,
+    RestMethod.get,
+    _headers,
+    _authenticated,
+  );
+
+  /// Reads this resource's headers, without its body. See [RestCall] for
+  /// what it can carry.
+  RestCall<S> head() => RestCall._(
+    _client,
+    resolvedPath,
+    RestMethod.head,
+    _headers,
+    _authenticated,
+  );
+
+  /// Creates this resource, or submits something that is not a replacement.
+  /// See [RestCall] for what it can carry.
+  RestCall<S> post() => RestCall._(
+    _client,
+    resolvedPath,
+    RestMethod.post,
+    _headers,
+    _authenticated,
+  );
+
+  /// Replaces this resource whole. See [RestCall] for what it can carry.
+  RestCall<S> put() => RestCall._(
+    _client,
+    resolvedPath,
+    RestMethod.put,
+    _headers,
+    _authenticated,
+  );
+
+  /// Changes part of this resource. See [RestCall] for what it can carry.
+  RestCall<S> patch() => RestCall._(
+    _client,
+    resolvedPath,
+    RestMethod.patch,
+    _headers,
+    _authenticated,
+  );
+
+  /// Removes this resource. See [RestCall] for what it can carry.
+  RestCall<S> delete() => RestCall._(
+    _client,
+    resolvedPath,
+    RestMethod.delete,
+    _headers,
+    _authenticated,
   );
 }
 
-/// A concrete address in a REST resource tree, ready to carry a verb.
+/// One branch of segments composed inside [RestNode.path].
+final class RestPath {
+  const RestPath._(this._parts);
+
+  final List<_PathPart> _parts;
+
+  /// Appends [literal] to this branch.
+  ///
+  /// [literal] is text this SDK's own author writes once while wiring a
+  /// port, such as `'brand'` or `'v1/store'`. It may carry several segments
+  /// separated by `/`, because nothing external ever reaches this parameter.
+  RestPath segment(String literal) =>
+      RestPath._([..._parts, ...literalSegments(literal).map(_Literal.new)]);
+
+  /// Appends a parameter named [name], resolved later by [RestNode.parameters].
+  RestPath parameter(String name) => RestPath._([..._parts, _Parameter(name)]);
+}
+
+/// The values [RestNode.parameters] resolves a branch's placeholders with.
+final class RestParameters {
+  const RestParameters._(this._values);
+
+  final Map<String, Object> _values;
+
+  /// Supplies [value] for the parameter [RestPath.parameter] named [name].
+  RestParameters parameter(String name, Object value) =>
+      RestParameters._({..._values, name: value});
+}
+
+/// One piece of a [RestNode]'s address, either fixed text or a value
+/// [RestNode.parameters] has not resolved yet.
+sealed class _PathPart {}
+
+/// A piece of text this SDK's own author wrote, through [RestPath.segment].
+final class _Literal extends _PathPart {
+  _Literal(this.value);
+
+  final String value;
+}
+
+/// A placeholder [RestNode.parameters] resolves, named through
+/// [RestPath.parameter].
+final class _Parameter extends _PathPart {
+  _Parameter(this.name);
+
+  final String name;
+}
+
+/// A REST call being composed, before it is sent.
 ///
-/// Built only by [RestNode.url]. Every verb takes a [FaultMapper] and a
-/// [decode], and answers a [Result] directly, rather than the raw
-/// [RestResponse] each port would otherwise have to unwrap through its own
-/// copy of [FaultMapper.guard].
-final class RestEndpoint<S extends Object> {
-  RestEndpoint._(this._client, this._path);
+/// Built only by [RestNode.get], [RestNode.head], [RestNode.post],
+/// [RestNode.put], [RestNode.patch] or [RestNode.delete], which is also
+/// where it gets the headers [RestNode.headers] set and whether
+/// [RestNode.unauthenticated] was called. Every verb accepts every one of
+/// [body], [multipart], [queryParameters] and [timeout]: pylon does not
+/// guess which combination a server actually needs, and refuses none of
+/// them, including a body on a GET or a query parameter on a DELETE.
+/// Configure it by cascading whichever it needs, then call [send]:
+///
+/// ```dart
+/// final request = node.get()
+///   ..queryParameters((p) => p.parameter('limit', '10'))
+///   ..timeout(const Duration(seconds: 5));
+/// final response = await request.send();
+/// ```
+final class RestCall<S extends Object> {
+  RestCall._(
+    this._client,
+    this._path,
+    this._method,
+    this._headers,
+    this._authenticated,
+  );
 
   final RestClient<S> _client;
   final String _path;
+  final RestMethod _method;
+  final Map<String, String> _headers;
+  final bool _authenticated;
 
-  /// The resolved path this endpoint calls, relative to the client's base
-  /// URL, for a caller that needs to name its own key rather than rely on the
-  /// one [CallKey.derived] computes.
-  String get path => _path;
+  Map<String, dynamic>? _body;
+  Map<String, String> _fields = const {};
+  List<RestUpload> _files = const [];
+  Map<String, String> _queryParameters = const {};
+  Duration? _timeout;
 
-  /// Reads this resource, decoded by [decode] and mapped through [mapper].
+  /// Sets the JSON body. Ignored once [multipart] carries a field or a file,
+  /// since a call cannot be both.
   ///
-  /// [key] defaults to [CallKey.derived], which coalesces two calls that
-  /// resolve to the same path, the same (sorted) [query] and the same
-  /// [authenticated] flag into one network call answering the same [Result].
-  /// A call whose real semantics differ from a plain read passes [key]
-  /// explicitly.
-  Future<Result<T, E>> get<T, E extends Object>({
-    required FaultMapper<S, E> mapper,
-    required T Function(RestResponse response) decode,
-    Map<String, String> query = const {},
-    bool authenticated = true,
-    CallKey key = const CallKey.derived(),
-    Duration? timeout,
-  }) => mapper.guard(() async {
-    final resolved = key.resolve(
-      deriveShare: () => _readShareKey(query, authenticated),
-      deriveDedup: () => null,
-    );
-    final response = await _client.send(
-      RestRequest(
-        path: _path,
-        query: query,
-        authenticated: authenticated,
-        shareKey: resolved.shareKey,
-        dedupKey: resolved.dedupKey,
-        timeout: timeout,
-      ),
-    );
-    return decode(response);
-  });
-
-  /// Creates this resource, or submits something that is not a replacement.
+  /// [build] receives whatever fields this call already carries and returns
+  /// the one it composed, through [RestBody.value] once per field. Last word
+  /// wins, so calling this more than once merges rather than starts over:
   ///
-  /// [key] defaults to [CallKey.derived], which refuses a second call sharing
-  /// the same path, [query], [authenticated] flag and, for a plain JSON
-  /// [body] (neither [fields] nor [uploads]), the same body, while this one
-  /// is in flight. A multipart call never derives a key: it requires an
-  /// explicit [key] to be protected at all.
-  Future<Result<T, E>> post<T, E extends Object>({
-    required FaultMapper<S, E> mapper,
-    required T Function(RestResponse response) decode,
-    Object? body,
-    Map<String, String> fields = const {},
-    List<RestUpload> uploads = const [],
-    Map<String, String> query = const {},
-    bool authenticated = true,
-    CallKey key = const CallKey.derived(),
-    Duration? timeout,
-  }) => _mutate(
-    RestMethod.post,
-    mapper: mapper,
-    decode: decode,
-    body: body,
-    fields: fields,
-    uploads: uploads,
-    query: query,
-    authenticated: authenticated,
-    key: key,
-    timeout: timeout,
-  );
+  /// ```dart
+  /// call.body((b) => b.value('title', title).value('draft', true));
+  /// ```
+  void body(RestBody Function(RestBody) build) =>
+      _body = build(RestBody._(_body ?? const {}))._values;
 
-  /// Replaces this resource whole. See [post] for the shared parameters.
-  Future<Result<T, E>> put<T, E extends Object>({
-    required FaultMapper<S, E> mapper,
-    required T Function(RestResponse response) decode,
-    Object? body,
-    Map<String, String> fields = const {},
-    List<RestUpload> uploads = const [],
-    Map<String, String> query = const {},
-    bool authenticated = true,
-    CallKey key = const CallKey.derived(),
-    Duration? timeout,
-  }) => _mutate(
-    RestMethod.put,
-    mapper: mapper,
-    decode: decode,
-    body: body,
-    fields: fields,
-    uploads: uploads,
-    query: query,
-    authenticated: authenticated,
-    key: key,
-    timeout: timeout,
-  );
-
-  /// Changes part of this resource. See [post] for the shared parameters.
-  Future<Result<T, E>> patch<T, E extends Object>({
-    required FaultMapper<S, E> mapper,
-    required T Function(RestResponse response) decode,
-    Object? body,
-    Map<String, String> fields = const {},
-    List<RestUpload> uploads = const [],
-    Map<String, String> query = const {},
-    bool authenticated = true,
-    CallKey key = const CallKey.derived(),
-    Duration? timeout,
-  }) => _mutate(
-    RestMethod.patch,
-    mapper: mapper,
-    decode: decode,
-    body: body,
-    fields: fields,
-    uploads: uploads,
-    query: query,
-    authenticated: authenticated,
-    key: key,
-    timeout: timeout,
-  );
-
-  /// Removes this resource. See [post] for the shared parameters.
-  Future<Result<T, E>> delete<T, E extends Object>({
-    required FaultMapper<S, E> mapper,
-    required T Function(RestResponse response) decode,
-    Map<String, String> query = const {},
-    bool authenticated = true,
-    CallKey key = const CallKey.derived(),
-    Duration? timeout,
-  }) => _mutate(
-    RestMethod.delete,
-    mapper: mapper,
-    decode: decode,
-    query: query,
-    authenticated: authenticated,
-    key: key,
-    timeout: timeout,
-  );
-
-  Future<Result<T, E>> _mutate<T, E extends Object>(
-    RestMethod method, {
-    required FaultMapper<S, E> mapper,
-    required T Function(RestResponse response) decode,
-    Object? body,
-    Map<String, String> fields = const {},
-    List<RestUpload> uploads = const [],
-    required Map<String, String> query,
-    required bool authenticated,
-    required CallKey key,
-    required Duration? timeout,
-  }) => mapper.guard(() async {
-    final resolved = key.resolve(
-      deriveShare: () => null,
-      deriveDedup: () => _mutationDedupKey(
-        method,
-        query,
-        fields,
-        uploads,
-        body,
-        authenticated,
-      ),
-    );
-    final response = await _client.send(
-      RestRequest(
-        path: _path,
-        method: method,
-        body: body,
-        fields: fields,
-        uploads: uploads,
-        query: query,
-        authenticated: authenticated,
-        shareKey: resolved.shareKey,
-        dedupKey: resolved.dedupKey,
-        timeout: timeout,
-      ),
-    );
-    return decode(response);
-  });
-
-  String _readShareKey(Map<String, String> query, bool authenticated) =>
-      'GET $authenticated $_path?${_sortedQuery(query)}';
-
-  String? _mutationDedupKey(
-    RestMethod method,
-    Map<String, String> query,
-    Map<String, String> fields,
-    List<RestUpload> uploads,
-    Object? body,
-    bool authenticated,
-  ) {
-    if (fields.isNotEmpty || uploads.isNotEmpty) return null;
-    final encodedBody = body == null ? '' : jsonEncode(_canonical(body));
-    return '${method.name.toUpperCase()} $authenticated $_path'
-        '?${_sortedQuery(query)}#$encodedBody';
+  /// Sets the plain text fields and files sent as one multipart body,
+  /// instead of [body], because a server that accepts a file upload usually
+  /// wants a few short values next to it, such as a caption, without asking
+  /// for a second call.
+  ///
+  /// [build] receives whatever fields and files this call already carries
+  /// and returns the one it composed, through [RestMultipart.field] once per
+  /// field and [RestMultipart.file] once per file. Fields merge last word
+  /// wins, and files accumulate, so calling this more than once adds to what
+  /// is already there rather than starting over:
+  ///
+  /// ```dart
+  /// call.multipart((m) => m.field('caption', caption).file(upload));
+  /// ```
+  void multipart(RestMultipart Function(RestMultipart) build) {
+    final composed = build(RestMultipart._(_fields, _files));
+    _fields = composed._fields;
+    _files = composed._files;
   }
 
-  String _sortedQuery(Map<String, String> query) {
-    final keys = query.keys.toList()..sort();
-    return keys.map((key) => '$key=${query[key]}').join('&');
-  }
+  /// Sets the query parameters, merged over anything already in the path.
+  ///
+  /// [build] receives whatever parameters this call already carries and
+  /// returns the one it composed, through [RestQueryParameters.parameter]
+  /// once per parameter. Last word wins, so calling this more than once
+  /// merges rather than starts over.
+  void queryParameters(
+    RestQueryParameters Function(RestQueryParameters) build,
+  ) =>
+      _queryParameters = build(RestQueryParameters._(_queryParameters))._values;
 
-  /// [body] in a form where two logically equal payloads always encode to the
-  /// same string, regardless of the order their fields were built in.
-  Object? _canonical(Object? body) => switch (body) {
-    Map<dynamic, dynamic> map => Map.fromEntries(
-      (map.entries.toList()..sort((a, b) => '${a.key}'.compareTo('${b.key}')))
-          .map((entry) => MapEntry('${entry.key}', _canonical(entry.value))),
-    ),
-    List<dynamic> list => list.map(_canonical).toList(),
-    _ => body,
-  };
+  /// Sets how long to wait for an answer.
+  void timeout(Duration value) => _timeout = value;
+
+  /// Sends this call.
+  ///
+  /// A read (built by [RestNode.get] or [RestNode.head]) joins
+  /// whatever is already configured the same way and still in flight, and
+  /// answers it the same response, however many are sent. Every other verb
+  /// refuses a second call configured the same way while this one is in
+  /// flight, rather than sending it. Either way, what makes two calls "the
+  /// same" is the path, the sorted [queryParameters], the sorted headers and
+  /// the [RestNode.unauthenticated] status the node this call was built from
+  /// carries, [body] and [multipart] together — two otherwise identical
+  /// calls asking for a different `Accept-Language` are not the same call.
+  Future<RestResponse> send() {
+    final key = _key(
+      _path,
+      _method,
+      _queryParameters,
+      _headers,
+      _fields,
+      _files,
+      _body,
+      _authenticated,
+    );
+    final shares = _method == RestMethod.get || _method == RestMethod.head;
+    return _client.send(
+      RestRequest(
+        path: _path,
+        method: _method,
+        body: _body,
+        fields: _fields,
+        files: _files,
+        queryParameters: _queryParameters,
+        headers: _headers,
+        authenticated: _authenticated,
+        shareKey: shares ? key : null,
+        dedupKey: shares ? null : key,
+        timeout: _timeout,
+      ),
+    );
+  }
 }
+
+/// The fields [RestCall.body] sends as JSON.
+final class RestBody {
+  const RestBody._(this._values);
+
+  final Map<String, dynamic> _values;
+
+  /// Supplies [value] for the JSON field named [key].
+  RestBody value(String key, Object? value) =>
+      RestBody._({..._values, key: value});
+}
+
+/// The plain text fields and files [RestCall.multipart] sends as one
+/// multipart body.
+final class RestMultipart {
+  const RestMultipart._(this._fields, this._files);
+
+  final Map<String, String> _fields;
+  final List<RestUpload> _files;
+
+  /// Supplies [value] for the field named [key].
+  RestMultipart field(String key, String value) =>
+      RestMultipart._({..._fields, key: value}, _files);
+
+  /// Adds [upload] to the files this call sends.
+  RestMultipart file(RestUpload upload) =>
+      RestMultipart._(_fields, [..._files, upload]);
+}
+
+/// The query parameters [RestCall.queryParameters] sends.
+final class RestQueryParameters {
+  const RestQueryParameters._(this._values);
+
+  final Map<String, String> _values;
+
+  /// Supplies [value] for the query parameter named [name].
+  RestQueryParameters parameter(String name, String value) =>
+      RestQueryParameters._({..._values, name: value});
+}
+
+/// The headers [RestNode.headers] sets.
+final class RestCallHeaders {
+  const RestCallHeaders._(this._values);
+
+  final Map<String, String> _values;
+
+  /// Supplies [value] for the header named [name].
+  RestCallHeaders add(String name, String value) =>
+      RestCallHeaders._({..._values, name: value});
+}
+
+String _key(
+  String path,
+  RestMethod method,
+  Map<String, String> queryParameters,
+  Map<String, String> headers,
+  Map<String, String> fields,
+  List<RestUpload> files,
+  Map<String, dynamic>? body,
+  bool authenticated,
+) {
+  final encodedBody = body == null ? '' : jsonEncode(_canonical(body));
+  final encodedFields = _sortedQueryParameters(fields);
+  final encodedHeaders = _sortedQueryParameters(headers);
+  final encodedFiles = files
+      .map(
+        (file) =>
+            '${file.field}:${file.filename}:${file.contentType}:'
+            '${file.bytes.length}:${Object.hashAll(file.bytes)}',
+      )
+      .join('&');
+  return '${method.name.toUpperCase()} $authenticated $path'
+      '?${_sortedQueryParameters(queryParameters)}'
+      '#$encodedBody|$encodedFields|$encodedFiles|$encodedHeaders';
+}
+
+String _sortedQueryParameters(Map<String, String> queryParameters) {
+  final keys = queryParameters.keys.toList()..sort();
+  return keys.map((key) => '$key=${queryParameters[key]}').join('&');
+}
+
+/// [body] in a form where two logically equal payloads always encode to the
+/// same string, regardless of the order their fields were built in.
+Object? _canonical(Object? body) => switch (body) {
+  Map<dynamic, dynamic> map => Map.fromEntries(
+    (map.entries.toList()..sort((a, b) => '${a.key}'.compareTo('${b.key}')))
+        .map((entry) => MapEntry('${entry.key}', _canonical(entry.value))),
+  ),
+  List<dynamic> list => list.map(_canonical).toList(),
+  _ => body,
+};

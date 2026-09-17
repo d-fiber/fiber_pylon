@@ -102,3 +102,60 @@ class Fault<S extends Object> extends Equatable implements Exception {
   @override
   List<Object?> get props => [signal, details];
 }
+
+/// Turns a [Fault] into the error type one operation declares.
+///
+/// This is the second half of the boundary. A [Fault] carries a failure across
+/// it under the adapter's own signal; a resolver turns that signal into the
+/// closed set of reasons a given operation is allowed to fail for. The same
+/// contract therefore accepts a REST adapter and a Firebase one without either
+/// knowing the other exists.
+///
+/// Both sides of the switch are typed, so a member that does not exist does not
+/// compile and a rename is caught rather than discovered at runtime:
+///
+/// ```dart
+/// final createBrand = FaultResolver<RestSignal, CreateBrandError>(
+///   (signal) => switch (signal) {
+///     RestSignal.unauthorized => CreateBrandError.unauthorized,
+///     RestSignal.forbidden => CreateBrandError.notPermitted,
+///     RestSignal.vpnRequired => CreateBrandError.vpnRequired,
+///     RestSignal.tooManyRequests => CreateBrandError.tooManyRequests,
+///     RestSignal.noRoute => CreateBrandError.networkError,
+///     RestSignal.nameEmpty => CreateBrandError.nameEmpty,
+///     RestSignal.nameTooLong => CreateBrandError.nameTooLong,
+///     _ => CreateBrandError.unknown,
+///   },
+/// );
+/// ```
+///
+/// **Nothing here is inferred.** The resolver reads neither side's member
+/// names, recognises no spelling, and has no opinion about what a failure
+/// means. It runs the switch a project wrote and answers whatever the `_` case
+/// decided, for a signal the switch does not otherwise name.
+///
+/// A resolver belongs next to the adapter, not to the contract, because it is
+/// the translation of one backend's vocabulary. Swapping backends means
+/// writing new resolvers beside the new adapter; the contract, and everything
+/// above it, does not move.
+class FaultResolver<S extends Object, E> {
+  final E Function(S? signal) _resolve;
+
+  /// Declares how a signal becomes this operation's own error.
+  ///
+  /// [resolve] is written as a `switch`, partial on purpose: an operation
+  /// names the failures it actually distinguishes and ends with a `_` case for
+  /// the rest, which covers both the failure nobody thought of and the one an
+  /// adapter starts sending after a change. That same `_` case also answers
+  /// [fallback].
+  const FaultResolver(this._resolve);
+
+  /// The error [fault] corresponds to.
+  E call(Fault<S> fault) => resolve(fault.signal);
+
+  /// The error [signal] corresponds to.
+  E resolve(S signal) => _resolve(signal);
+
+  /// The error every unlisted signal resolves to.
+  E get fallback => _resolve(null);
+}

@@ -40,12 +40,16 @@ import 'package:equatable/equatable.dart';
 
 /// The verb of a request.
 ///
-/// The five HTTP defines for a resource API. Unlike the rest of pylon this is a
+/// The HTTP defines for a resource API. Unlike the rest of pylon this is a
 /// closed list, and it can be: these are a protocol's own words, not a guess
 /// about what a project might mean.
 enum RestMethod {
   /// Reads a resource without changing anything.
   get,
+
+  /// Reads a resource's headers without its body, otherwise exactly like
+  /// [get].
+  head,
 
   /// Creates a resource, or submits something that is not a replacement.
   post,
@@ -101,11 +105,12 @@ class RestRequest extends Equatable {
   /// Where the resource lives, relative to the client's base URL.
   ///
   /// Leading slashes are ignored, and a query string written here is merged with
-  /// [query], so both `brand/$id` and `brand/pagination?offset=0` work.
+  /// [queryParameters], so both `brand/$id` and `brand/pagination?offset=0`
+  /// work.
   final String path;
 
   /// Query parameters, merged over anything already in [path].
-  final Map<String, String> query;
+  final Map<String, String> queryParameters;
 
   /// Headers for this call, merged over whatever the client attaches to every
   /// call.
@@ -115,18 +120,25 @@ class RestRequest extends Equatable {
 
   /// The JSON body, or `null` for a call that sends none.
   ///
-  /// Encoded with `jsonEncode`, so anything it accepts works here. Ignored when
-  /// [uploads] or [fields] are present, since a call cannot be both.
-  final Object? body;
+  /// `RestClient` encodes it with `jsonEncode`, so a caller never encodes it
+  /// itself. Ignored when [files] or [fields] are present, since a call
+  /// cannot be both.
+  final Map<String, dynamic>? body;
 
-  /// Text fields of a multipart body.
+  /// Plain text values of a multipart call, sent alongside [files] rather
+  /// than as JSON.
+  ///
+  /// A server that accepts a file upload usually wants a few short values
+  /// next to it, such as the caption or the album a photo belongs to,
+  /// without asking for a second call. `fields` is where those go; `body`
+  /// stays unused for a call that carries any.
   final Map<String, String> fields;
 
   /// Files of a multipart body.
   ///
   /// Their presence, or that of [fields], is what makes this a multipart call
   /// rather than a JSON one.
-  final List<RestUpload> uploads;
+  final List<RestUpload> files;
 
   /// Whether this call carries the credential.
   ///
@@ -163,11 +175,11 @@ class RestRequest extends Equatable {
   const RestRequest({
     required this.path,
     this.method = RestMethod.get,
-    this.query = const {},
+    this.queryParameters = const {},
     this.headers = const {},
     this.body,
     this.fields = const {},
-    this.uploads = const [],
+    this.files = const [],
     this.authenticated = true,
     this.dedupKey,
     this.shareKey,
@@ -178,7 +190,7 @@ class RestRequest extends Equatable {
        );
 
   /// Whether this call is sent as a multipart body.
-  bool get isMultipart => uploads.isNotEmpty || fields.isNotEmpty;
+  bool get isMultipart => files.isNotEmpty || fields.isNotEmpty;
 
   /// The verb and path, for a log line or a crash report breadcrumb.
   String get label => '${method.name.toUpperCase()} $path';
@@ -187,11 +199,11 @@ class RestRequest extends Equatable {
   List<Object?> get props => [
     method,
     path,
-    query,
+    queryParameters,
     headers,
     body,
     fields,
-    uploads,
+    files,
     authenticated,
     dedupKey,
     shareKey,

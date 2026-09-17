@@ -80,9 +80,9 @@ class RestResponse extends Equatable {
   /// The decoded body as a JSON object.
   ///
   /// Throws a [TypeError] when the body was something else, which a port's
-  /// `FaultMapper.guard` turns into its fallback error and reports. That is the
-  /// wanted outcome: a server answering a shape nobody expected is a fact worth
-  /// seeing, not one to paper over.
+  /// `FaultResolver.guard` turns into its fallback error and reports. That is
+  /// the wanted outcome: a server answering a shape nobody expected is a fact
+  /// worth seeing, not one to paper over.
   Map<String, dynamic> get map => body as Map<String, dynamic>;
 
   /// The decoded body as a JSON array.

@@ -46,8 +46,6 @@ enum HouseSignal {
   teapot,
 }
 
-enum ForeignSignal { somethingElse }
-
 enum CreateThing {
   unauthorized,
   notPermitted,
@@ -57,19 +55,19 @@ enum CreateThing {
   unknown,
 }
 
-const createThing = FaultMapper<HouseSignal, CreateThing>(
-  signals: {
-    HouseSignal.unauthorized: CreateThing.unauthorized,
-    HouseSignal.forbidden: CreateThing.notPermitted,
-    HouseSignal.vpnRequired: CreateThing.vpnRequired,
-    HouseSignal.nameEmpty: CreateThing.nameEmpty,
-    HouseSignal.noRoute: CreateThing.networkError,
+final createThing = FaultResolver<HouseSignal, CreateThing>(
+  (signal) => switch (signal) {
+    HouseSignal.unauthorized => CreateThing.unauthorized,
+    HouseSignal.forbidden => CreateThing.notPermitted,
+    HouseSignal.vpnRequired => CreateThing.vpnRequired,
+    HouseSignal.nameEmpty => CreateThing.nameEmpty,
+    HouseSignal.noRoute => CreateThing.networkError,
+    _ => CreateThing.unknown,
   },
-  fallback: CreateThing.unknown,
 );
 
 void main() {
-  group('FaultMapper', () {
+  group('FaultResolver', () {
     test('resolves a listed signal to the declared error', () {
       expect(
         createThing(const Fault(HouseSignal.forbidden)),
@@ -96,37 +94,8 @@ void main() {
       expect(createThing.resolve(HouseSignal.nameEmpty), CreateThing.nameEmpty);
     });
 
-    test('guard returns the value of an operation that succeeds', () async {
-      final result = await createThing.guard(() async => 42);
-
-      expect(result, const OK<int, CreateThing>(42));
-    });
-
-    test('guard maps a thrown fault through the table', () async {
-      final result = await createThing.guard<int>(
-        () async => throw const Fault(HouseSignal.noRoute),
-      );
-
-      expect(result, const Failure<int, CreateThing>(CreateThing.networkError));
-    });
-
-    test(
-      'guard turns an exception that is not a fault into the fallback',
-      () async {
-        final result = await createThing.guard<int>(
-          () async => throw const FormatException('leaked'),
-        );
-
-        expect(result, const Failure<int, CreateThing>(CreateThing.unknown));
-      },
-    );
-
-    test('guard turns another vocabulary of fault into the fallback', () async {
-      final result = await createThing.guard<int>(
-        () async => throw const Fault(ForeignSignal.somethingElse),
-      );
-
-      expect(result, const Failure<int, CreateThing>(CreateThing.unknown));
+    test('fallback answers the same as an unlisted signal', () {
+      expect(createThing.fallback, CreateThing.unknown);
     });
   });
 }

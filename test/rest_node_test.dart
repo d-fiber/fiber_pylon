@@ -34,6 +34,9 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -41,11 +44,15 @@ import 'package:http/testing.dart';
 
 enum _Signal { notFound, duplicateCall, unknown }
 
-RestClient<_Signal> _client({required http.Client http}) => RestClient<_Signal>(
+RestClient<_Signal> _client({
+  required http.Client http,
+  RestHeaders? headers,
+}) => RestClient<_Signal>(
   baseUrl: Uri.parse('https://api.example.test/v1/'),
   classifier: const _Classifier(),
   guard: CallGuard<_Signal>(duplicateSignal: _Signal.duplicateCall),
   httpClient: http,
+  headers: headers,
 );
 
 class _Classifier implements RestClassifier<_Signal> {
@@ -59,57 +66,55 @@ class _Classifier implements RestClassifier<_Signal> {
   _Signal ofTransport(Object error, StackTrace stackTrace) => _Signal.unknown;
 }
 
-const _mapper = FaultMapper<_Signal, String>(
-  signals: {_Signal.notFound: 'not-found'},
-  fallback: 'unknown',
-);
-
 http.Response _jsonResponseWithContentType(String body, {int status = 200}) =>
     http.Response(body, status, headers: {'content-type': 'application/json'});
 
 void main() {
-  group('RestNode.node', () {
+  group('RestNode.path with a literal', () {
     test('composes several literal segments separated by /', () {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final endpoint = RestNode<_Signal>.root(
+      final node = RestNode<_Signal>(
         client,
-      ).node('v1/store').node('status').url();
-      expect(endpoint.path, 'v1/store/status');
+      ).path((p) => p.segment('v1/store')).path((p) => p.segment('status'));
+      expect(node.resolvedPath, 'v1/store/status');
     });
 
     test('rejects a literal segment equal to "." or ".."', () {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final root = RestNode<_Signal>.root(client);
+      final root = RestNode<_Signal>(client);
 
-      expect(() => root.node('..'), throwsArgumentError);
-      expect(() => root.node('store/..'), throwsArgumentError);
-      expect(() => root.node('.'), throwsArgumentError);
+      expect(() => root.path((p) => p.segment('..')), throwsArgumentError);
+      expect(
+        () => root.path((p) => p.segment('store/..')),
+        throwsArgumentError,
+      );
+      expect(() => root.path((p) => p.segment('.')), throwsArgumentError);
     });
   });
 
-  group('RestNode.value', () {
+  group('RestNode.parameters', () {
     test('never splits an external value on /', () {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final endpoint = RestNode<_Signal>.root(
-        client,
-      ).node('store').value('a/b').url();
-      expect(endpoint.path, 'store/a%2Fb');
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('store').parameter('id'))
+          .parameters((p) => p.parameter('id', 'a/b'));
+      expect(node.resolvedPath, 'store/a%2Fb');
     });
 
     test('encodes a value that tries to inject a query string', () {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final endpoint = RestNode<_Signal>.root(
-        client,
-      ).node('store').value('7?admin=true').url();
-      expect(endpoint.path, 'store/7%3Fadmin%3Dtrue');
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('store').parameter('id'))
+          .parameters((p) => p.parameter('id', '7?admin=true'));
+      expect(node.resolvedPath, 'store/7%3Fadmin%3Dtrue');
     });
 
     test('a resolved call never escapes the node it was composed under, '
@@ -121,11 +126,11 @@ void main() {
           return http.Response('{}', 200);
         }),
       );
-      final endpoint = RestNode<_Signal>.root(
-        client,
-      ).node('store').value('../../admin/secret').url();
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('store').parameter('id'))
+          .parameters((p) => p.parameter('id', '../../admin/secret'));
 
-      await endpoint.get(mapper: _mapper, decode: (r) => r.body);
+      await node.get().send();
 
       expect(requested, isNotNull);
       expect(requested!.path, startsWith('/v1/store/'));
@@ -136,10 +141,18 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final root = RestNode<_Signal>.root(client).node('store');
+      final store = RestNode<_Signal>(
+        client,
+      ).path((p) => p.segment('store').parameter('id'));
 
-      expect(() => root.value('..'), throwsArgumentError);
-      expect(() => root.value('.'), throwsArgumentError);
+      expect(
+        () => store.parameters((p) => p.parameter('id', '..')),
+        throwsArgumentError,
+      );
+      expect(
+        () => store.parameters((p) => p.parameter('id', '.')),
+        throwsArgumentError,
+      );
     });
 
     test('a numeric value next to the rejected "." and ".." keeps the '
@@ -152,17 +165,175 @@ void main() {
           return http.Response('{}', 200);
         }),
       );
-      final endpoint = RestNode<_Signal>.root(
-        client,
-      ).node('store').value('7').url();
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('store').parameter('id'))
+          .parameters((p) => p.parameter('id', '7'));
 
-      await endpoint.get(mapper: _mapper, decode: (r) => r.body);
+      await node.get().send();
 
       expect(requested!.path, '/v1/store/7');
     });
+
+    test('resolves several placeholders composed across separate path calls '
+        'in one values call', () {
+      final client = _client(
+        http: MockClient((_) async => http.Response('', 200)),
+      );
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('city').parameter('id').segment('review'))
+          .path((p) => p.parameter('reviewId'))
+          .parameters(
+            (p) => p.parameter('id', '7').parameter('reviewId', '42'),
+          );
+
+      expect(node.resolvedPath, 'city/7/review/42');
+    });
+
+    test('throws naming the placeholder a call left unresolved', () {
+      final client = _client(
+        http: MockClient((_) async => http.Response('', 200)),
+      );
+      final store = RestNode<_Signal>(
+        client,
+      ).path((p) => p.segment('store').parameter('id'));
+
+      expect(() => store.parameters((p) => p), throwsArgumentError);
+    });
+
+    test('throws naming a value nothing in the path asked for', () {
+      final client = _client(
+        http: MockClient((_) async => http.Response('', 200)),
+      );
+      final store = RestNode<_Signal>(
+        client,
+      ).path((p) => p.segment('store').parameter('id'));
+
+      expect(
+        () => store.parameters(
+          (p) => p.parameter('id', '7').parameter('extra', 'unused'),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('sending a call whose placeholder was never resolved throws', () {
+      final client = _client(
+        http: MockClient((_) async => http.Response('', 200)),
+      );
+      final store = RestNode<_Signal>(
+        client,
+      ).path((p) => p.segment('store').parameter('id'));
+
+      expect(store.get, throwsStateError);
+    });
   });
 
-  group('RestEndpoint.get sharing', () {
+  group('RestNode.headers', () {
+    test('sends a header set on the node', () async {
+      Map<String, String>? seen;
+      final client = _client(
+        http: MockClient((request) async {
+          seen = request.headers;
+          return http.Response('', 200);
+        }),
+      );
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('store'))
+          .headers((h) => h.add('x-app-key', 'demo'));
+
+      await node.get().send();
+
+      expect(seen!['x-app-key'], 'demo');
+    });
+
+    test('overrides a header of the same name the client attaches to every '
+        'call', () async {
+      Map<String, String>? seen;
+      final client = _client(
+        http: MockClient((request) async {
+          seen = request.headers;
+          return http.Response('', 200);
+        }),
+        headers: (request) async => {'x-app-key': 'from-client'},
+      );
+      final node = RestNode<_Signal>(client)
+          .path((p) => p.segment('store'))
+          .headers((h) => h.add('x-app-key', 'from-node'));
+
+      await node.get().send();
+
+      expect(seen!['x-app-key'], 'from-node');
+    });
+
+    test('a header set further down a chain overrides one a node higher up '
+        'already carried', () async {
+      Map<String, String>? seen;
+      final client = _client(
+        http: MockClient((request) async {
+          seen = request.headers;
+          return http.Response('', 200);
+        }),
+      );
+      final api = RestNode<_Signal>(
+        client,
+      ).headers((h) => h.add('x-app-key', 'root'));
+      final store = api
+          .path((p) => p.segment('store'))
+          .headers((h) => h.add('x-app-key', 'store'));
+
+      await store.get().send();
+
+      expect(seen!['x-app-key'], 'store');
+    });
+
+    test('two otherwise identical GETs asking for different headers do not '
+        'coalesce', () async {
+      var calls = 0;
+      final client = _client(
+        http: MockClient((request) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return _jsonResponseWithContentType('{}');
+        }),
+      );
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+
+      final first = node
+          .headers((h) => h.add('accept-language', 'fr'))
+          .get()
+          .send();
+      final second = node
+          .headers((h) => h.add('accept-language', 'en'))
+          .get()
+          .send();
+      await Future.wait([first, second]);
+
+      expect(calls, 2);
+    });
+  });
+
+  group('RestNode.unauthenticated', () {
+    test('two otherwise identical GETs, one authenticated and one not, do '
+        'not coalesce', () async {
+      var calls = 0;
+      final client = _client(
+        http: MockClient((request) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return _jsonResponseWithContentType('{}');
+        }),
+      );
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+
+      final first = node.get().send();
+      final second = node.unauthenticated().get().send();
+      await Future.wait([first, second]);
+
+      expect(calls, 2);
+    });
+  });
+
+  group('RestNode.get sharing', () {
     test('two concurrent reads at the same path and query coalesce into one '
         'HTTP call', () async {
       var calls = 0;
@@ -173,10 +344,10 @@ void main() {
           return _jsonResponseWithContentType('{"page":1}');
         }),
       );
-      final endpoint = RestNode<_Signal>.root(client).node('store').url();
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
 
-      final first = endpoint.get(mapper: _mapper, decode: (r) => r.map);
-      final second = endpoint.get(mapper: _mapper, decode: (r) => r.map);
+      final first = node.get().send();
+      final second = node.get().send();
       final results = await Future.wait([first, second]);
 
       expect(calls, 1);
@@ -195,28 +366,48 @@ void main() {
           return _jsonResponseWithContentType('{"cursor":"$cursor"}');
         }),
       );
-      final endpoint = RestNode<_Signal>.root(
+      final node = RestNode<_Signal>(
         client,
-      ).node('store').node('sync').url();
+      ).path((p) => p.segment('store')).path((p) => p.segment('sync'));
 
-      final first = endpoint.get(
-        query: {'cursor': 'a'},
-        mapper: _mapper,
-        decode: (r) => r.map['cursor'],
-      );
-      final second = endpoint.get(
-        query: {'cursor': 'b'},
-        mapper: _mapper,
-        decode: (r) => r.map['cursor'],
-      );
+      final first =
+          (node.get()..queryParameters((p) => p.parameter('cursor', 'a')))
+              .send();
+      final second =
+          (node.get()..queryParameters((p) => p.parameter('cursor', 'b')))
+              .send();
       final results = await Future.wait([first, second]);
 
       expect(calls, 2);
-      expect(results.map((r) => r.dataOrNull), ['a', 'b']);
+      expect(results.map((r) => r.map['cursor']), ['a', 'b']);
     });
   });
 
-  group('RestEndpoint mutation deduplication', () {
+  group('RestNode.head sharing', () {
+    test('sends the HEAD method, and two concurrent calls coalesce into one '
+        'HTTP call', () async {
+      var calls = 0;
+      String? method;
+      final client = _client(
+        http: MockClient((request) async {
+          calls++;
+          method = request.method;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return http.Response('', 200);
+        }),
+      );
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+
+      final first = node.head().send();
+      final second = node.head().send();
+      await Future.wait([first, second]);
+
+      expect(calls, 1);
+      expect(method, 'HEAD');
+    });
+  });
+
+  group('RestNode mutation deduplication', () {
     test('a second POST with an identical body, fired while the first is in '
         'flight, is refused rather than sent', () async {
       var calls = 0;
@@ -227,22 +418,16 @@ void main() {
           return _jsonResponseWithContentType('{"id":"1"}');
         }),
       );
-      final endpoint = RestNode<_Signal>.root(client).node('store').url();
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
 
-      final first = endpoint.post(
-        body: {'title': 'Acme'},
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final second = endpoint.post(
-        body: {'title': 'Acme'},
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final results = await Future.wait([first, second]);
+      final first = (node.post()..body((b) => b.value('title', 'Acme'))).send();
+      final second = (node.post()..body((b) => b.value('title', 'Acme')))
+          .send();
+
+      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await first;
 
       expect(calls, 1);
-      expect(results[1].isFailure, isTrue);
     });
 
     test('two POSTs with different bodies on the same path both go through — '
@@ -255,23 +440,14 @@ void main() {
           return _jsonResponseWithContentType('{"id":"$calls"}');
         }),
       );
-      final endpoint = RestNode<_Signal>.root(client).node('store').url();
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
 
-      final first = endpoint.post(
-        body: {'title': 'Acme'},
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final second = endpoint.post(
-        body: {'title': 'Other'},
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final results = await Future.wait([first, second]);
+      final first = (node.post()..body((b) => b.value('title', 'Acme'))).send();
+      final second = (node.post()..body((b) => b.value('title', 'Other')))
+          .send();
+      await Future.wait([first, second]);
 
       expect(calls, 2);
-      expect(results[0].isOk, isTrue);
-      expect(results[1].isOk, isTrue);
     });
 
     test('two bodies with the same fields in a different insertion order '
@@ -284,57 +460,140 @@ void main() {
           return _jsonResponseWithContentType('{}');
         }),
       );
-      final endpoint = RestNode<_Signal>.root(client).node('store').url();
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
 
-      final first = endpoint.post(
-        body: {'title': 'Acme', 'draft': true},
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final second = endpoint.post(
-        body: {'draft': true, 'title': 'Acme'},
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final results = await Future.wait([first, second]);
+      final first =
+          (node.post()
+                ..body((b) => b.value('title', 'Acme').value('draft', true)))
+              .send();
+      final second =
+          (node.post()
+                ..body((b) => b.value('draft', true).value('title', 'Acme')))
+              .send();
+
+      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await first;
 
       expect(calls, 1);
-      expect(results[1].isFailure, isTrue);
     });
   });
 
-  group('CallKey.share on a mutating verb', () {
-    test('a POST whose real semantics are a shared read coalesces under an '
-        'explicit share key — the brand/sync case found during the design '
-        'debate', () async {
+  group('RestNode mutation deduplication with a multipart body', () {
+    test('a second POST carrying the same field and file, fired while the '
+        'first is in flight, is refused rather than sent', () async {
       var calls = 0;
       final client = _client(
         http: MockClient((request) async {
           calls++;
           await Future<void>.delayed(const Duration(milliseconds: 20));
-          return _jsonResponseWithContentType('{"page":1}');
+          return _jsonResponseWithContentType('{"id":"1"}');
         }),
       );
-      final endpoint = RestNode<_Signal>.root(
-        client,
-      ).node('store').node('sync').url();
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final upload = RestUpload(
+        field: 'logo',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        filename: 'logo.png',
+        contentType: 'image/png',
+      );
 
-      final first = endpoint.post(
-        body: {'cursor': 'a'},
-        key: const CallKey.share('store/sync/a'),
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final second = endpoint.post(
-        body: {'cursor': 'a'},
-        key: const CallKey.share('store/sync/a'),
-        mapper: _mapper,
-        decode: (r) => r.map,
-      );
-      final results = await Future.wait([first, second]);
+      final first =
+          (node.post()..multipart((m) => m.field('title', 'Acme').file(upload)))
+              .send();
+      final second =
+          (node.post()..multipart((m) => m.field('title', 'Acme').file(upload)))
+              .send();
+
+      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await first;
 
       expect(calls, 1);
-      expect(results[0], results[1]);
+    });
+  });
+
+  group('RestCall setters merge across repeated calls', () {
+    test('calling body more than once merges rather than replaces', () async {
+      String? sentBody;
+      final client = _client(
+        http: MockClient((request) async {
+          sentBody = request.body;
+          return _jsonResponseWithContentType('{}');
+        }),
+      );
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+
+      await (node.post()
+            ..body((b) => b.value('title', 'Acme'))
+            ..body((b) => b.value('draft', true)))
+          .send();
+
+      expect(jsonDecode(sentBody!), {'title': 'Acme', 'draft': true});
+    });
+
+    test('calling queryParameters more than once merges rather than '
+        'replaces', () async {
+      Uri? requested;
+      final client = _client(
+        http: MockClient((request) async {
+          requested = request.url;
+          return http.Response('', 200);
+        }),
+      );
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+
+      await (node.get()
+            ..queryParameters((p) => p.parameter('limit', '10'))
+            ..queryParameters((p) => p.parameter('offset', '0')))
+          .send();
+
+      expect(requested!.queryParameters, {'limit': '10', 'offset': '0'});
+    });
+
+    test('calling multipart more than once merges fields and accumulates '
+        'files, proven by colliding with an equivalent single call', () async {
+      var calls = 0;
+      final client = _client(
+        http: MockClient((request) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return _jsonResponseWithContentType('{"id":"1"}');
+        }),
+      );
+      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final logo = RestUpload(
+        field: 'logo',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        filename: 'logo.png',
+        contentType: 'image/png',
+      );
+      final banner = RestUpload(
+        field: 'banner',
+        bytes: Uint8List.fromList([4, 5, 6]),
+        filename: 'banner.png',
+        contentType: 'image/png',
+      );
+
+      final first =
+          (node.post()..multipart(
+                (m) => m
+                    .field('title', 'Acme')
+                    .field('draft', 'true')
+                    .file(logo)
+                    .file(banner),
+              ))
+              .send();
+      final second =
+          (node.post()
+                ..multipart((m) => m.field('title', 'Acme'))
+                ..multipart((m) => m.field('draft', 'true'))
+                ..multipart((m) => m.file(logo))
+                ..multipart((m) => m.file(banner)))
+              .send();
+
+      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await first;
+
+      expect(calls, 1);
     });
   });
 }

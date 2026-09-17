@@ -136,7 +136,7 @@ class RestClient<S extends Object> {
   /// Throws a [Fault] carrying the signal the classifier gave, for a response it
   /// called a failure and for a call that never reached the server. It throws
   /// nothing else, which is what lets a port wrap this in a single
-  /// `FaultMapper.guard`.
+  /// `FaultResolver.guard`.
   ///
   /// A request carrying a [RestRequest.shareKey] joins whatever is already in
   /// flight under that key instead of going out again, and one carrying a
@@ -214,7 +214,7 @@ class RestClient<S extends Object> {
       ...await _headersFor(request),
     });
     message.fields.addAll(request.fields);
-    for (final upload in request.uploads) {
+    for (final upload in request.files) {
       message.files.add(
         http.MultipartFile.fromBytes(
           upload.field,
@@ -249,11 +249,14 @@ class RestClient<S extends Object> {
       ..._baseUrl.pathSegments.where((segment) => segment.isNotEmpty),
       ...asked.pathSegments.where((segment) => segment.isNotEmpty),
     ];
-    final query = <String, String>{...asked.queryParameters, ...request.query};
+    final queryParameters = <String, String>{
+      ...asked.queryParameters,
+      ...request.queryParameters,
+    };
 
     return _baseUrl.replace(
       pathSegments: segments,
-      queryParameters: query.isEmpty ? null : query,
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
     );
   }
 
