@@ -39,9 +39,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
-import '../../barrier/fault.dart';
-import '../call_guard.dart';
-import '../reporter.dart';
+import '../common/fault.dart';
+import '../common/reporter.dart';
+import 'call_guard.dart';
 import 'classifier.dart';
 import 'request.dart';
 import 'response.dart';

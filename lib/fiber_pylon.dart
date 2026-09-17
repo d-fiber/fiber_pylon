@@ -62,7 +62,7 @@
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
 /// needs, [CredentialManager], [CallGuard], [SocketChannel], [ChannelKeeper],
-/// [HealthMonitor], [Preferences], [Observable], [Reporter], [Backoff]. Each
+/// [HealthMonitor], [ValkeryStorage], [Observable], [Reporter], [Backoff]. Each
 /// is a mechanism every backend would otherwise rewrite, and rewrite worse
 /// the second time.
 ///
@@ -150,28 +150,35 @@
 /// side would stop being a wall.
 library;
 
-export 'src/barrier/configuration.dart';
-export 'src/barrier/fault.dart';
-export 'src/barrier/realtime.dart';
-export 'src/barrier/result.dart';
-export 'src/barrier/rest.dart';
-export 'src/barrier/sdk.dart';
-export 'src/barrier/singleton.dart';
-export 'src/toolkit/call_guard.dart';
-export 'src/toolkit/channel/backoff.dart';
-export 'src/toolkit/channel/channel.dart';
-export 'src/toolkit/channel/keeper.dart';
-export 'src/toolkit/channel/memory.dart';
-export 'src/toolkit/channel/socket.dart';
-export 'src/toolkit/credential/credential.dart';
-export 'src/toolkit/credential/manager.dart';
-export 'src/toolkit/credential/refresher.dart';
-export 'src/toolkit/credential/store.dart';
-export 'src/toolkit/health_monitor.dart';
-export 'src/toolkit/observable.dart';
-export 'src/toolkit/reporter.dart';
-export 'src/toolkit/rest/classifier.dart';
-export 'src/toolkit/rest/client.dart';
-export 'src/toolkit/rest/request.dart';
-export 'src/toolkit/rest/response.dart';
-export 'src/toolkit/storage/preferences.dart';
+export 'src/cache/cache.dart';
+export 'src/cache/cache_policy.dart';
+export 'src/cache/local_storage.dart';
+export 'src/cache/sync_store.dart';
+export 'src/common/backoff.dart';
+export 'src/common/fault.dart';
+export 'src/common/health_monitor.dart';
+export 'src/common/observable.dart';
+export 'src/common/reporter.dart';
+export 'src/common/result.dart';
+export 'src/common/singleton.dart';
+export 'src/credential/credential.dart';
+export 'src/credential/manager.dart';
+export 'src/credential/refresher.dart';
+export 'src/credential/store.dart';
+export 'src/mutation/mutation.dart';
+export 'src/mutation/mutation_queue.dart';
+export 'src/mutation/mutation_store.dart';
+export 'src/preferences/valkery_storage.dart';
+export 'src/realtime/channel.dart';
+export 'src/realtime/keeper.dart';
+export 'src/realtime/memory.dart';
+export 'src/realtime/realtime.dart';
+export 'src/realtime/socket.dart';
+export 'src/rest/call_guard.dart';
+export 'src/rest/classifier.dart';
+export 'src/rest/client.dart';
+export 'src/rest/request.dart';
+export 'src/rest/response.dart';
+export 'src/rest/rest.dart';
+export 'src/sdk/configuration.dart';
+export 'src/sdk/sdk.dart';

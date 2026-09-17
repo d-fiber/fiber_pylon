@@ -36,9 +36,9 @@
 
 import 'dart:async';
 
-import '../observable.dart';
-import '../reporter.dart';
-import 'backoff.dart';
+import '../common/backoff.dart';
+import '../common/observable.dart';
+import '../common/reporter.dart';
 import 'channel.dart';
 
 /// Holds a [Channel] to the subscriptions it is supposed to have.
