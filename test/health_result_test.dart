@@ -195,12 +195,12 @@ void main() {
     });
   });
 
-  group('Config', () {
-    test('reports every missing value at once', () {
-      const config = _TestConfig(url: '', key: '');
+  group('Configuration', () {
+    test('reports every missing environment variable at once', () {
+      const configuration = _TestConfiguration(url: '', key: '');
 
       expect(
-        config.validate,
+        configuration.validate,
         throwsA(
           isA<ConfigurationError>().having(
             (error) => error.missing.length,
@@ -212,26 +212,37 @@ void main() {
     });
 
     test('accepts a configuration that has everything', () {
-      const config = _TestConfig(url: 'https://example.test', key: 'abc');
+      const configuration = _TestConfiguration(
+        url: 'https://example.test',
+        key: 'abc',
+      );
 
-      expect(config.isComplete, isTrue);
-      expect(config.validate, returnsNormally);
+      expect(configuration.isComplete, isTrue);
+      expect(configuration.validate, returnsNormally);
     });
   });
 }
 
-final class _TestConfig extends Config {
+final class _TestConfiguration extends Configuration {
   final String url;
   final String key;
 
-  const _TestConfig({required this.url, required this.key});
+  const _TestConfiguration({required this.url, required this.key});
 
   @override
   String get backend => 'test';
 
   @override
-  List<Requirement> get requirements => [
-    Requirement(name: 'URL', value: url, purpose: 'Where the API lives.'),
-    Requirement(name: 'KEY', value: key, purpose: 'Identifies this app.'),
+  List<EnvironmentVariable> get variables => [
+    EnvironmentVariable(
+      name: 'URL',
+      value: url,
+      reason: 'Where the API lives.',
+    ),
+    EnvironmentVariable(
+      name: 'KEY',
+      value: key,
+      reason: 'Identifies this app.',
+    ),
   ];
 }

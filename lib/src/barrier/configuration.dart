@@ -36,42 +36,44 @@
 
 import 'package:equatable/equatable.dart';
 
-/// One value a backend cannot start without.
-class Requirement extends Equatable {
-  /// What the value is called where it is set, so the message names something
-  /// that can actually be searched for.
+/// One environment variable a backend cannot start without.
+class EnvironmentVariable extends Equatable {
+  /// The name it is declared under, exactly as `String.fromEnvironment` was
+  /// given it, so the message names something that can actually be searched
+  /// for.
   final String name;
 
-  /// The value as it was found, `null` or empty when it was not.
+  /// What `String.fromEnvironment` read, `null` or empty when nothing was set.
   final String? value;
 
-  /// What the backend needs it for, in one short sentence.
+  /// Why the backend needs it, in one short sentence.
   ///
   /// This is what someone reads when they hit the error, usually without having
   /// ever seen the backend's source.
-  final String purpose;
+  final String reason;
 
-  /// Declares that [name] is needed, for [purpose], and was found to be [value].
-  const Requirement({
+  /// Declares that [name] is needed, for [reason], and was read as [value].
+  const EnvironmentVariable({
     required this.name,
     required this.value,
-    required this.purpose,
+    required this.reason,
   });
 
-  /// Whether a usable value was found.
-  bool get isSatisfied => value != null && value!.isNotEmpty;
+  /// Whether it was set to something usable.
+  bool get isSatisfied => value != null && value?.isNotEmpty == true;
 
   @override
-  List<Object?> get props => [name, value, purpose];
+  List<Object?> get props => [name, value, reason];
 }
 
-/// Thrown when a backend cannot start because values are missing.
+/// Thrown when a backend cannot start because environment variables are
+/// missing.
 class ConfigurationError extends Error {
   /// Which backend could not start.
   final String backend;
 
-  /// Every requirement that was not satisfied.
-  final List<Requirement> missing;
+  /// Every environment variable that was not satisfied.
+  final List<EnvironmentVariable> missing;
 
   /// Reports that [backend] is missing [missing].
   ConfigurationError({required this.backend, required this.missing});
@@ -79,26 +81,29 @@ class ConfigurationError extends Error {
   @override
   String toString() {
     final lines = missing
-        .map((requirement) => '  ${requirement.name}: ${requirement.purpose}')
+        .map(
+          (environmentVariable) =>
+              '  ${environmentVariable.name}: ${environmentVariable.reason}',
+        )
         .join('\n');
     return 'Cannot start the $backend backend, '
-        '${missing.length} value(s) missing:\n$lines';
+        '${missing.length} environment variable(s) missing:\n$lines';
   }
 }
 
 /// What a backend needs before it can start.
 ///
 /// Pylon reads no environment and no file. It cannot: `String.fromEnvironment`
-/// only works on a literal at the site that calls it, so the values have to be
-/// read by the project and handed over. What this adds is that they are declared
-/// in one place instead of being pulled out of the air deep inside a client, and
-/// that a missing one is reported properly.
+/// only works on a literal at the site that calls it, so the variables have to
+/// be read by the project and handed over. What this adds is that they are
+/// declared in one place instead of being pulled out of the air deep inside a
+/// client, and that a missing one is reported properly.
 ///
 /// ```dart
-/// class RestConfig extends Config {
-///   const RestConfig({required this.url, required this.appKey});
+/// class RestConfiguration extends Configuration {
+///   const RestConfiguration({required this.url, required this.appKey});
 ///
-///   factory RestConfig.fromEnvironment() => const RestConfig(
+///   factory RestConfiguration.fromEnvironment() => const RestConfiguration(
 ///     url: String.fromEnvironment('ADMIN_URL'),
 ///     appKey: String.fromEnvironment('ADMIN_APP_KEY'),
 ///   );
@@ -110,25 +115,34 @@ class ConfigurationError extends Error {
 ///   String get backend => 'rest';
 ///
 ///   @override
-///   List<Requirement> get requirements => [
-///     Requirement(name: 'ADMIN_URL', value: url, purpose: 'Where the API lives.'),
-///     Requirement(name: 'ADMIN_APP_KEY', value: appKey, purpose: 'Identifies this app to the gateway.'),
+///   List<EnvironmentVariable> get variables => [
+///     EnvironmentVariable(
+///       name: 'ADMIN_URL',
+///       value: url,
+///       reason: 'Where the API lives.',
+///     ),
+///     EnvironmentVariable(
+///       name: 'ADMIN_APP_KEY',
+///       value: appKey,
+///       reason: 'Identifies this app to the gateway.',
+///     ),
 ///   ];
 /// }
 /// ```
-abstract base class Config {
+abstract base class Configuration {
   /// Allows subclasses to be const.
-  const Config();
+  const Configuration();
 
   /// Which backend this configures, as it appears in an error message.
   String get backend;
 
-  /// Every value the backend needs, satisfied or not.
-  List<Requirement> get requirements;
+  /// Every environment variable the backend needs, satisfied or not.
+  List<EnvironmentVariable> get variables;
 
-  /// Every requirement that was not satisfied.
-  List<Requirement> get missing =>
-      requirements.where((requirement) => !requirement.isSatisfied).toList();
+  /// Every environment variable that was not satisfied.
+  List<EnvironmentVariable> get missing => variables
+      .where((environmentVariable) => !environmentVariable.isSatisfied)
+      .toList();
 
   /// Whether the backend has everything it needs.
   bool get isComplete => missing.isEmpty;
@@ -137,7 +151,7 @@ abstract base class Config {
   ///
   /// All of them at once, and outside debug mode too. An assertion reports the
   /// first and only while assertions run, which means a build that is missing
-  /// three values fails three times, and a release build not at all.
+  /// three variables fails three times, and a release build not at all.
   void validate() {
     final absent = missing;
     if (absent.isEmpty) return;

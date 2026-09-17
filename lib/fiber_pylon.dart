@@ -133,7 +133,7 @@
 /// side would stop being a wall.
 library;
 
-export 'src/barrier/config.dart';
+export 'src/barrier/configuration.dart';
 export 'src/barrier/fault.dart';
 export 'src/barrier/fault_mapper.dart';
 export 'src/barrier/realtime/node.dart';
