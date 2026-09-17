@@ -62,6 +62,18 @@ final class _LocalSdk extends LocalBackendSdk {
   }
 }
 
+final class _VendorSdk extends VendorBackendSdk {
+  @override
+  Future<void> initialize() async {
+    await super.initialize();
+  }
+
+  @override
+  Future<void> dispose() async {
+    await super.dispose();
+  }
+}
+
 final class _AppPreferences extends Preferences {}
 
 final class _SdkWithPreferences extends RestBackendSdk {
@@ -137,6 +149,16 @@ void main() {
       final sdk = _LocalSdk();
 
       expect(sdk.type, SdkType.local);
+      expect(sdk, isA<BackendSdk>());
+      expect(sdk, isA<Sdk>());
+    });
+  });
+
+  group('VendorBackendSdk', () {
+    test('answers vendor for type without declaring it', () {
+      final sdk = _VendorSdk();
+
+      expect(sdk.type, SdkType.vendor);
       expect(sdk, isA<BackendSdk>());
       expect(sdk, isA<Sdk>());
     });

@@ -101,13 +101,17 @@ enum SdkType {
 
   /// Keeps everything on the device, with nothing to reach over the network.
   local,
+
+  /// Reaches an external service through a vendor's own SDK — Firebase,
+  /// Supabase, a company's own client — rather than pylon's own [RestClient].
+  vendor,
 }
 
 /// An [Sdk] that says which [SdkType] it is.
 ///
-/// A project rarely extends this directly: [RestBackendSdk] and
-/// [LocalBackendSdk] already fix [type] to the one that matches, so a backend
-/// only has to say which of the two it is.
+/// A project rarely extends this directly: [RestBackendSdk],
+/// [LocalBackendSdk] and [VendorBackendSdk] already fix [type] to the one
+/// that matches, so a backend only has to say which of the three it is.
 abstract base class BackendSdk extends Sdk {
   /// What this implementation talks to.
   SdkType get type;
@@ -133,4 +137,15 @@ abstract base class RestBackendSdk extends BackendSdk {
 abstract base class LocalBackendSdk extends BackendSdk {
   @override
   SdkType get type => SdkType.local;
+}
+
+/// A [BackendSdk] that reaches an external service through a vendor's own
+/// SDK, rather than pylon's own [RestClient].
+///
+/// A project extends this rather than extending [BackendSdk] directly, so
+/// [type] comes for free instead of being redeclared on every backend it
+/// writes over Firebase, Supabase, or any other vendor's own client.
+abstract base class VendorBackendSdk extends BackendSdk {
+  @override
+  SdkType get type => SdkType.vendor;
 }
