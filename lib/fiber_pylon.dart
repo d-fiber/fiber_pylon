@@ -150,9 +150,9 @@ library;
 
 export 'src/barrier/configuration.dart';
 export 'src/barrier/fault.dart';
-export 'src/barrier/realtime/node.dart';
+export 'src/barrier/realtime.dart';
 export 'src/barrier/result.dart';
-export 'src/barrier/rest/node.dart';
+export 'src/barrier/rest.dart';
 export 'src/barrier/sdk.dart';
 export 'src/barrier/singleton.dart';
 export 'src/toolkit/call_guard.dart';

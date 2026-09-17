@@ -36,10 +36,10 @@
 
 import 'dart:convert';
 
-import '../../toolkit/rest/client.dart';
-import '../../toolkit/rest/request.dart';
-import '../../toolkit/rest/response.dart';
-import '../segment.dart';
+import '../toolkit/rest/client.dart';
+import '../toolkit/rest/request.dart';
+import '../toolkit/rest/response.dart';
+import 'segment.dart';
 
 /// One address in a REST resource tree, rooted at a [RestClient]'s base URL.
 ///

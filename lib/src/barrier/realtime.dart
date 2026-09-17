@@ -36,8 +36,8 @@
 
 import 'dart:async';
 
-import '../../toolkit/channel/keeper.dart';
-import '../segment.dart';
+import '../toolkit/channel/keeper.dart';
+import 'segment.dart';
 
 /// One segment of a realtime topic tree, rooted at a live connection.
 ///
