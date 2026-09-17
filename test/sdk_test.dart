@@ -40,47 +40,35 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 final class _RestSdk extends RestBackendSdk {
   @override
-  Future<void> initialize() async {
-    await super.initialize();
-  }
+  Future<void> initialize() async {}
 
   @override
-  Future<void> dispose() async {
-    await super.dispose();
-  }
+  Future<void> dispose() async {}
 }
 
 final class _LocalSdk extends LocalBackendSdk {
   @override
-  Future<void> initialize() async {
-    await super.initialize();
-  }
+  Future<void> initialize() async {}
 
   @override
-  Future<void> dispose() async {
-    await super.dispose();
-  }
+  Future<void> dispose() async {}
 }
 
 final class _VendorSdk extends VendorBackendSdk {
   @override
-  Future<void> initialize() async {
-    await super.initialize();
-  }
+  Future<void> initialize() async {}
 
   @override
-  Future<void> dispose() async {
-    await super.dispose();
-  }
+  Future<void> dispose() async {}
 }
 
-final class _AppPreferences extends Preferences {}
+final class _AppPreferences extends ValkeryStorage {}
 
-final class _SdkWithPreferences extends RestBackendSdk {
+final class _SdkWithPreferences extends Sdk {
   var initializeCalls = 0;
 
   @override
-  Preferences get preferences => _AppPreferences();
+  ValkeryStorage get preferences => _AppPreferences();
 
   @override
   Future<void> initialize() async {
@@ -97,7 +85,7 @@ final class _SdkWithPreferences extends RestBackendSdk {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    Preferences.dispose();
+    ValkeryStorage.dispose();
   });
 
   group('Sdk.initialize', () {
@@ -106,20 +94,20 @@ void main() {
 
       await sdk.initialize();
 
-      expect(Preferences.isInitialized, isTrue);
-      expect(Preferences.I, isA<_AppPreferences>());
+      expect(ValkeryStorage.isInitialized, isTrue);
+      expect(ValkeryStorage.I, isA<_AppPreferences>());
     });
 
     test('does not try to resolve preferences again on a later call, the way a '
         'backend swap replays it', () async {
       final first = _SdkWithPreferences();
       await first.initialize();
-      final resolved = Preferences.I;
+      final resolved = ValkeryStorage.I;
 
       final second = _SdkWithPreferences();
       await second.initialize();
 
-      expect(Preferences.I, same(resolved));
+      expect(ValkeryStorage.I, same(resolved));
     });
 
     test(
@@ -129,7 +117,35 @@ void main() {
 
         await sdk.initialize();
 
-        expect(Preferences.isInitialized, isFalse);
+        expect(ValkeryStorage.isInitialized, isFalse);
+      },
+    );
+  });
+
+  group('Sdk.dispose', () {
+    test(
+      'forgets the resolved preferences so a later initialize resolves fresh ones',
+      () async {
+        final sdk = _SdkWithPreferences();
+        await sdk.initialize();
+
+        await sdk.dispose();
+
+        expect(ValkeryStorage.isInitialized, isFalse);
+      },
+    );
+
+    test(
+      "leaves another implementation's resolved preferences intact when this "
+      'one needs none',
+      () async {
+        final withPreferences = _SdkWithPreferences();
+        await withPreferences.initialize();
+
+        final withoutPreferences = _RestSdk();
+        await withoutPreferences.dispose();
+
+        expect(ValkeryStorage.isInitialized, isTrue);
       },
     );
   });
@@ -140,7 +156,7 @@ void main() {
 
       expect(sdk.type, SdkType.rest);
       expect(sdk, isA<BackendSdk>());
-      expect(sdk, isA<Sdk>());
+      expect(sdk, isA<SdkContract>());
     });
   });
 
@@ -150,7 +166,7 @@ void main() {
 
       expect(sdk.type, SdkType.local);
       expect(sdk, isA<BackendSdk>());
-      expect(sdk, isA<Sdk>());
+      expect(sdk, isA<SdkContract>());
     });
   });
 
@@ -160,7 +176,7 @@ void main() {
 
       expect(sdk.type, SdkType.vendor);
       expect(sdk, isA<BackendSdk>());
-      expect(sdk, isA<Sdk>());
+      expect(sdk, isA<SdkContract>());
     });
   });
 }

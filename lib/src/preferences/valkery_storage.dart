@@ -39,9 +39,9 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../barrier/singleton.dart';
-import '../observable.dart';
-import '../reporter.dart';
+import '../common/observable.dart';
+import '../common/reporter.dart';
+import '../common/singleton.dart';
 
 /// A project's own local preferences, read and written straight through
 /// `shared_preferences`'s native types.
@@ -51,7 +51,7 @@ import '../reporter.dart';
 /// field for each:
 ///
 /// ```dart
-/// class AppPreferences extends Preferences {
+/// class AppPreferences extends ValkeryStorage {
 ///   late final themeMode = LocalPreferenceEnum(
 ///     this,
 ///     'theme_mode',
@@ -60,51 +60,46 @@ import '../reporter.dart';
 ///   );
 ///   late final vibrations = LocalPreference(this, 'vibrations', true);
 /// }
-///
-/// // Anywhere else, once initialize has run:
-/// final theme = (Preferences.I as AppPreferences).themeMode.value;
 /// ```
 ///
-/// [initialize] belongs inside the one call a project's own facade already
-/// makes a caller unable to skip — its own `start`, guarded by a [Singleton]
-/// the same way [Preferences] itself is — rather than a separate step a
-/// caller has to remember on its own:
+/// [initialize] is never called by a project directly. A backend overrides
+/// `Sdk.preferences` to answer one of these, and `Sdk.initialize` resolves
+/// it before anything else runs — once for the whole app, however many
+/// implementations ask for it, and however many times one of them is
+/// initialized again over the app's life:
 ///
 /// ```dart
-/// class MySdk implements RestBackendSdk {
-///   static final _handle = Singleton<MySdk>('MySdk');
-///
-///   static Future<void> start() async {
-///     if (_handle.isInitialized) return;
-///     await Preferences.initialize(AppPreferences());
-///     final sdk = MySdk();
-///     await sdk.initialize();
-///     _handle.initialize(sdk);
-///   }
-///
-///   static MySdk get I => _handle.instance;
+/// class MySdkBackend extends Sdk {
+///   @override
+///   AppPreferences get preferences => AppPreferences();
 /// }
+///
+/// // Anywhere else, once sdk.initialize() has run:
+/// final theme = (ValkeryStorage.I as AppPreferences).themeMode.value;
 /// ```
 ///
-/// [initialize] runs before `sdk.initialize()`, not after: a backend that
-/// keeps a credential through `StoredCredential` needs a [Preferences]
-/// already resolved to build it.
+/// A backend that keeps a credential through `StoredCredential` can rely on
+/// this already being resolved by the time its own override reaches
+/// `super.initialize()`, since `Sdk` resolves it first. Only `Sdk` itself
+/// declares `preferences`: `BackendSdk` and its own `RestBackendSdk`,
+/// `LocalBackendSdk` and `VendorBackendSdk` answer to `SdkContract`
+/// instead, and manage their own bootstrap, or need none.
 ///
 /// Every field is declared `late`, so none of them read [prefs] before
 /// [initialize] has resolved it.
-class Preferences {
-  static final Singleton<Preferences> _handle = Singleton<Preferences>(
-    'Preferences',
-  );
+class ValkeryStorage {
+  static final Singleton<ValkeryStorage> _handle =
+      Singleton<ValkeryStorage>('ValkeryStorage');
 
   late final SharedPreferences _prefs;
 
   /// Resolves [service]'s underlying `shared_preferences` store, registers it
   /// as [I], and hands it back ready to use.
   ///
-  /// Called once, at launch. Throws a [StateError] if called again before
-  /// [dispose].
-  static Future<T> initialize<T extends Preferences>(T service) async {
+  /// Called by `Sdk.initialize`, never directly by a project: that call
+  /// already guards against calling this a second time. Throws a
+  /// [StateError] if called again before [dispose].
+  static Future<T> initialize<T extends ValkeryStorage>(T service) async {
     service._prefs = await SharedPreferences.getInstance();
     _handle.initialize(service);
     return service;
@@ -113,25 +108,26 @@ class Preferences {
   /// The instance [initialize] registered.
   ///
   /// Throws a [StateError] if [initialize] has not run yet.
-  static Preferences get I => _handle.instance;
+  static ValkeryStorage get I => _handle.instance;
 
   /// Whether [initialize] has run.
   static bool get isInitialized => _handle.isInitialized;
 
   /// Forgets the registered instance, so [initialize] can register another.
   ///
-  /// What a test calls between cases. Does not close any [LocalPreference]
-  /// the previous instance handed out; the caller that created it does.
+  /// Called by `Sdk.dispose`, and by a test between cases. Does not close
+  /// any [LocalPreference] the previous instance handed out; the caller
+  /// that created it does.
   static void dispose() => _handle.dispose();
 
   /// The resolved store this service's own preference fields read and write.
   SharedPreferences get prefs => _prefs;
 }
 
-/// One entry of a [Preferences], read and written in whichever native
+/// One entry of a [ValkeryStorage], read and written in whichever native
 /// type `shared_preferences` already stores it as.
 class LocalPreference<T> extends Observable<T> {
-  final Preferences _service;
+  final ValkeryStorage _service;
   final String _key;
   final T _defaultValue;
   final StreamController<T> _controller = StreamController<T>.broadcast();
@@ -211,7 +207,7 @@ class LocalPreferenceEnum<T extends Enum> extends LocalPreference<T> {
   /// `shared_preferences` holds against [values] by name, and answering
   /// [defaultValue] when nothing matches.
   LocalPreferenceEnum(
-    Preferences service,
+    ValkeryStorage service,
     String key,
     this._values,
     T defaultValue,

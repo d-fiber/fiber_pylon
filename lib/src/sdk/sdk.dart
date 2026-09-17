@@ -36,7 +36,23 @@
 
 import 'package:meta/meta.dart';
 
-import '../toolkit/storage/preferences.dart';
+import '../preferences/valkery_storage.dart';
+
+/// The two moments every [Sdk] implementation has, named on their own so
+/// that what an implementation must honour is visible without reading
+/// [Sdk]'s own body.
+///
+/// A project extends [Sdk], never this directly: [Sdk] is what fills
+/// [initialize] and [dispose] with the one piece of behaviour every backend
+/// shares, resolving [Sdk.preferences]. This exists so that contract stays
+/// readable on its own, one layer above the behaviour that answers it.
+abstract base class SdkContract {
+  /// Wires an implementation up and makes it usable.
+  Future<void> initialize();
+
+  /// Releases everything [initialize] took.
+  Future<void> dispose();
+}
 
 /// The plug.
 ///
@@ -55,16 +71,22 @@ import '../toolkit/storage/preferences.dart';
 ///
 /// That is the whole trick. What crosses the boundary is the project's own
 /// interface; what pylon adds is the two moments every implementation has, the
-/// one where it wires itself up and the one where it lets go.
-abstract base class Sdk {
+/// one where it wires itself up and the one where it lets go, declared once as
+/// [SdkContract] and answered here.
+abstract base class Sdk extends SdkContract {
   /// The project's own local preferences this [initialize] resolves before
   /// anything else, unless one is already resolved. `null` when this
   /// implementation needs none.
-  Preferences? get preferences => null;
+  ///
+  /// Overridden by a concrete implementation, never read from outside one:
+  /// [initialize] and [dispose] are the only callers that have a reason to
+  /// reach for it.
+  @protected
+  ValkeryStorage? get preferences => null;
 
   /// Wires this implementation up and makes it usable.
   ///
-  /// Resolves [preferences], unless [Preferences.isInitialized] already —
+  /// Resolves [preferences], unless [ValkeryStorage.isInitialized] already —
   /// once, however many implementations ask for it, and however many times
   /// one of them is initialized again over the app's life. An override does
   /// whatever else it needs — opening connections, restoring a credential,
@@ -73,23 +95,30 @@ abstract base class Sdk {
   ///
   /// Calling it twice must be harmless, because a host that recovers from a
   /// failed start will call it again.
+  @override
   @mustCallSuper
   Future<void> initialize() async {
     final preferences = this.preferences;
-    if (preferences != null && !Preferences.isInitialized) {
-      await Preferences.initialize(preferences);
+    if (preferences != null && !ValkeryStorage.isInitialized) {
+      await ValkeryStorage.initialize(preferences);
     }
   }
 
   /// Releases everything [initialize] took.
   ///
-  /// Does nothing on its own: [preferences] lives for the app, not for this
-  /// one implementation, so nothing here disposes it. An override releases
-  /// whatever else it opened, and must be safe to call on an implementation
-  /// that was never initialised, and safe to call twice, since it runs on
-  /// paths that are already going wrong.
+  /// Forgets the resolved [ValkeryStorage] singleton, so a later [initialize]
+  /// resolves a fresh one rather than reusing what a disposed implementation
+  /// left behind. Left untouched when [preferences] is `null`: an
+  /// implementation that never asked for one must not tear down a singleton
+  /// another implementation, still running, may depend on. An override
+  /// releases whatever else it opened, and must be safe to call on an
+  /// implementation that was never initialised, and safe to call twice,
+  /// since it runs on paths that are already going wrong.
+  @override
   @mustCallSuper
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    if (preferences != null) ValkeryStorage.dispose();
+  }
 }
 
 /// What an [Sdk] talks to, closed rather than a free-form name, so a project
@@ -107,12 +136,18 @@ enum SdkType {
   vendor,
 }
 
-/// An [Sdk] that says which [SdkType] it is.
+/// A [SdkContract] that says which [SdkType] it is, standing next to [Sdk]
+/// rather than under it.
+///
+/// [Sdk] is the implementation that resolves a project's own [ValkeryStorage];
+/// this is the implementation for a backend that manages its own bootstrap,
+/// or needs none, and answers [initialize] and [dispose] on its own terms
+/// instead of inheriting [Sdk]'s.
 ///
 /// A project rarely extends this directly: [RestBackendSdk],
 /// [LocalBackendSdk] and [VendorBackendSdk] already fix [type] to the one
 /// that matches, so a backend only has to say which of the three it is.
-abstract base class BackendSdk extends Sdk {
+abstract base class BackendSdk extends SdkContract {
   /// What this implementation talks to.
   SdkType get type;
 }

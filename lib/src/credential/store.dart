@@ -34,12 +34,12 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../reporter.dart';
-import '../storage/preferences.dart';
+import '../common/reporter.dart';
+import '../preferences/valkery_storage.dart';
 
 /// Where the credential survives a restart.
 ///
-/// Separate from [Preferences] because credentials often belong somewhere the
+/// Separate from [ValkeryStorage] because credentials often belong somewhere the
 /// rest of a project's preferences do not, typically a platform keychain, and
 /// because pylon must not decide where they go.
 abstract interface class CredentialStore<C extends Object> {
@@ -77,7 +77,7 @@ class MemoryCredentialStore<C extends Object> implements CredentialStore<C> {
   }
 }
 
-/// A [CredentialStore] backed by a [Preferences] entry.
+/// A [CredentialStore] backed by a [ValkeryStorage] entry.
 ///
 /// The project supplies [encode] and [decode], so the stored shape is entirely
 /// its own: pylon writes the string it is handed under the key it is given and
@@ -92,7 +92,7 @@ class StoredCredential<C extends Object> implements CredentialStore<C> {
 
   /// Stores the credential in [preferences] under [key].
   StoredCredential(
-    Preferences preferences, {
+    ValkeryStorage preferences, {
     required String key,
     required String Function(C credential) encode,
     required C Function(String raw) decode,

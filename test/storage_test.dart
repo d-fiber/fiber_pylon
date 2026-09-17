@@ -47,12 +47,12 @@ class Ticket {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    Preferences.dispose();
+    ValkeryStorage.dispose();
   });
 
   group('StoredCredential', () {
     test('reads back a credential through the encoding it was given', () async {
-      final preferences = await Preferences.initialize(Preferences());
+      final preferences = await ValkeryStorage.initialize(ValkeryStorage());
       final store = StoredCredential<Ticket>(
         preferences,
         key: 'ticket',
@@ -67,7 +67,7 @@ void main() {
     });
 
     test('reads back nothing once cleared', () async {
-      final preferences = await Preferences.initialize(Preferences());
+      final preferences = await ValkeryStorage.initialize(ValkeryStorage());
       final store = StoredCredential<Ticket>(
         preferences,
         key: 'ticket',
@@ -85,7 +85,7 @@ void main() {
       'reads back nothing when the stored shape no longer decodes',
       () async {
         SharedPreferences.setMockInitialValues({'ticket': 'abc'});
-        final preferences = await Preferences.initialize(Preferences());
+        final preferences = await ValkeryStorage.initialize(ValkeryStorage());
         final store = StoredCredential<Ticket>(
           preferences,
           key: 'ticket',
@@ -98,11 +98,11 @@ void main() {
     );
   });
 
-  group('Preferences', () {
+  group('ValkeryStorage', () {
     test(
       'every entry answers its default value before anything is written',
       () async {
-        final prefs = await Preferences.initialize(_AppPreferences());
+        final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
         expect(prefs.volume.value, 50);
         expect(prefs.enabled.value, isFalse);
@@ -115,14 +115,14 @@ void main() {
     );
 
     test('registers itself as I', () async {
-      final prefs = await Preferences.initialize(_AppPreferences());
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
-      expect(Preferences.I, same(prefs));
+      expect(ValkeryStorage.I, same(prefs));
     });
 
     test('reads back each native type through the shared_preferences getter '
         'matching it', () async {
-      final prefs = await Preferences.initialize(_AppPreferences());
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
       await prefs.volume.set(80);
       await prefs.enabled.set(true);
@@ -138,7 +138,7 @@ void main() {
     });
 
     test('stores an enum by name rather than by index', () async {
-      final prefs = await Preferences.initialize(_AppPreferences());
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
       await prefs.mood.set(Mood.happy);
 
@@ -150,14 +150,14 @@ void main() {
       'answers the fallback for a stored enum value that no longer matches',
       () async {
         SharedPreferences.setMockInitialValues({'mood': 'furious'});
-        final prefs = await Preferences.initialize(_AppPreferences());
+        final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
         expect(prefs.mood.value, Mood.neutral);
       },
     );
 
     test('reads back a JSON-encoded value', () async {
-      final prefs = await Preferences.initialize(_AppPreferences());
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
       await prefs.profile.set(const _Profile(name: 'Alex'));
 
@@ -168,14 +168,14 @@ void main() {
       'answers the fallback for a stored JSON value that no longer decodes',
       () async {
         SharedPreferences.setMockInitialValues({'profile': 'not json'});
-        final prefs = await Preferences.initialize(_AppPreferences());
+        final prefs = await ValkeryStorage.initialize(_AppPreferences());
 
         expect(prefs.profile.value.name, 'anonymous');
       },
     );
 
     test('publishes every value it is given', () async {
-      final prefs = await Preferences.initialize(_AppPreferences());
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
       final seen = <int>[];
       prefs.volume.changes.listen(seen.add);
 
@@ -188,7 +188,7 @@ void main() {
     });
 
     test('clear resets to the default value and publishes it', () async {
-      final prefs = await Preferences.initialize(_AppPreferences());
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
       await prefs.volume.set(99);
 
       await prefs.volume.clear();
@@ -200,7 +200,7 @@ void main() {
 
 enum Mood { happy, sad, neutral }
 
-class _AppPreferences extends Preferences {
+class _AppPreferences extends ValkeryStorage {
   late final volume = LocalPreference<int>(this, 'volume', 50);
   late final enabled = LocalPreference<bool>(this, 'enabled', false);
   late final ratio = LocalPreference<double>(this, 'ratio', 1.0);
