@@ -88,10 +88,10 @@ class PostsSdk {
   static Future<void> initialize({
     required ExampleBackend Function() backend,
   }) async {
-    if (_handle.isSet) return;
+    if (_handle.isInitialized) return;
     final chosen = backend();
     await chosen.initialize();
-    _handle.assign(PostsSdk._(chosen));
+    _handle.initialize(PostsSdk._(chosen));
   }
 
   /// The running SDK.
@@ -101,7 +101,7 @@ class PostsSdk {
   static PostsSdk get I => _handle.instance;
 
   /// Whether [initialize] has run and [shutdown] has not undone it.
-  static bool get isRunning => _handle.isSet;
+  static bool get isRunning => _handle.isInitialized;
 
   /// Initialises [backend] and puts it in place of whichever one is running.
   ///
@@ -113,8 +113,8 @@ class PostsSdk {
     await chosen.initialize();
 
     final previous = _handle.orNull?._backend;
-    _handle.release();
-    _handle.assign(PostsSdk._(chosen));
+    _handle.dispose();
+    _handle.initialize(PostsSdk._(chosen));
 
     await previous?.dispose();
   }
@@ -125,7 +125,7 @@ class PostsSdk {
   static Future<void> shutdown() async {
     final running = _handle.orNull;
     if (running == null) return;
-    _handle.release();
+    _handle.dispose();
     await running._backend.dispose();
   }
 }

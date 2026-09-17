@@ -49,10 +49,10 @@
 ///   static MySdk get I => _handle.instance;
 ///
 ///   static Future<void> initialize({MySdkBackend? backend}) async {
-///     if (_handle.isSet) return;
+///     if (_handle.isInitialized) return;
 ///     final chosen = backend ?? RestBackend(RestConfig.fromEnvironment());
 ///     await chosen.initialize();
-///     _handle.assign(MySdk._(chosen));
+///     _handle.initialize(MySdk._(chosen));
 ///   }
 /// }
 /// ```
@@ -65,8 +65,8 @@ class Singleton<T extends Object> {
   /// Holds the instance called [name].
   Singleton(this.name);
 
-  /// Whether an instance has been assigned.
-  bool get isSet => _instance != null;
+  /// Whether an instance has been initialized.
+  bool get isInitialized => _instance != null;
 
   /// The instance, or `null` when there is none.
   ///
@@ -76,8 +76,8 @@ class Singleton<T extends Object> {
 
   /// The instance.
   ///
-  /// Throws a [StateError] naming [name] when nothing has been assigned yet,
-  /// which is the whole reason this exists.
+  /// Throws a [StateError] naming [name] when nothing has been initialized
+  /// yet, which is the whole reason this exists.
   T get instance {
     final current = _instance;
     if (current == null) {
@@ -92,22 +92,22 @@ class Singleton<T extends Object> {
   ///
   /// Throws a [StateError] when one is already held, because two initialisations
   /// leave half the app talking to the first instance and half to the second,
-  /// which is far harder to see than a thrown error. Call [release] first when
+  /// which is far harder to see than a thrown error. Call [dispose] first when
   /// replacing one deliberately, as a test does between cases.
-  void assign(T value) {
+  void initialize(T value) {
     if (_instance != null) {
       throw StateError(
-        '$name is already initialized. Call release() before assigning again.',
+        '$name is already initialized. Call dispose() before initializing again.',
       );
     }
     _instance = value;
   }
 
-  /// Forgets the instance, so [assign] can take another.
+  /// Forgets the instance, so [initialize] can take another.
   ///
-  /// Does not dispose it: what was held may be shared, and this has no way of
-  /// knowing. The caller disposes.
-  void release() {
+  /// Does not dispose what was held: it may be shared, and this has no way of
+  /// knowing. The caller disposes it.
+  void dispose() {
     _instance = null;
   }
 }

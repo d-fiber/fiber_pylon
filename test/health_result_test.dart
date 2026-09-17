@@ -180,16 +180,16 @@ void main() {
     });
 
     test('refuses to hold two instances at once', () {
-      final handle = Singleton<String>('MySdk')..assign('first');
+      final handle = Singleton<String>('MySdk')..initialize('first');
 
-      expect(() => handle.assign('second'), throwsStateError);
+      expect(() => handle.initialize('second'), throwsStateError);
     });
 
-    test('accepts another instance once released', () {
+    test('accepts another instance once disposed', () {
       final handle = Singleton<String>('MySdk')
-        ..assign('first')
-        ..release()
-        ..assign('second');
+        ..initialize('first')
+        ..dispose()
+        ..initialize('second');
 
       expect(handle.instance, 'second');
     });
