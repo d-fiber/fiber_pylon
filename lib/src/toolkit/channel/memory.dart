@@ -43,8 +43,7 @@ import 'channel.dart';
 ///
 /// What a test runs against, and what a backend with nothing to connect to
 /// uses to demonstrate a live channel without one — the same role
-/// `MemoryCredentialStore` and `MemoryKeyValueStore` play for the toolkit's
-/// other two backing interfaces.
+/// `MemoryCredentialStore` plays for a credential.
 ///
 /// [join] and [leave] only record what was asked, in [joined]: nothing here
 /// gates delivery on them, because a real [Channel] does not either — the

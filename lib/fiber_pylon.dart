@@ -60,9 +60,9 @@
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
 /// needs, [CredentialManager], [CallGuard], [SocketChannel], [ChannelKeeper],
-/// [HealthMonitor], [Preference], [KeyValueStore], [Observable], [Reporter],
-/// [Backoff]. Each is a mechanism every backend would otherwise rewrite, and
-/// rewrite worse the second time.
+/// [HealthMonitor], [Preferences], [Observable], [Reporter], [Backoff]. Each
+/// is a mechanism every backend would otherwise rewrite, and rewrite worse
+/// the second time.
 ///
 /// `package:fiber_pylon/fiber_pylon_io.dart` carries the one piece that needs `dart:io`, a
 /// [SocketLink] over a WebSocket. It is separate so that importing pylon does
@@ -172,5 +172,4 @@ export 'src/toolkit/rest/classifier.dart';
 export 'src/toolkit/rest/client.dart';
 export 'src/toolkit/rest/request.dart';
 export 'src/toolkit/rest/response.dart';
-export 'src/toolkit/storage/key_value_store.dart';
-export 'src/toolkit/storage/preference.dart';
+export 'src/toolkit/storage/preferences.dart';

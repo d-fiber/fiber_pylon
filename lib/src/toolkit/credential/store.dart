@@ -35,12 +35,11 @@
 // LICENSE file, the LICENSE file governs.
 
 import '../reporter.dart';
-import '../storage/key_value_store.dart';
-import '../storage/preference.dart';
+import '../storage/preferences.dart';
 
 /// Where the credential survives a restart.
 ///
-/// Separate from [KeyValueStore] because credentials often belong somewhere the
+/// Separate from [Preferences] because credentials often belong somewhere the
 /// rest of a project's preferences do not, typically a platform keychain, and
 /// because pylon must not decide where they go.
 abstract interface class CredentialStore<C extends Object> {
@@ -78,7 +77,7 @@ class MemoryCredentialStore<C extends Object> implements CredentialStore<C> {
   }
 }
 
-/// A [CredentialStore] backed by a [KeyValueStore].
+/// A [CredentialStore] backed by a [Preferences] entry.
 ///
 /// The project supplies [encode] and [decode], so the stored shape is entirely
 /// its own: pylon writes the string it is handed under the key it is given and
@@ -86,19 +85,19 @@ class MemoryCredentialStore<C extends Object> implements CredentialStore<C> {
 /// back as absent rather than thrown, because this runs at startup and a shape
 /// that changed between two versions of an app must not stop it from opening.
 class StoredCredential<C extends Object> implements CredentialStore<C> {
-  final Preference<String> _entry;
+  final LocalPreference<String> _entry;
   final String Function(C credential) _encode;
   final C Function(String raw) _decode;
   final Reporter _reporter;
 
-  /// Stores the credential in [store] under [key].
+  /// Stores the credential in [preferences] under [key].
   StoredCredential(
-    KeyValueStore store, {
+    Preferences preferences, {
     required String key,
     required String Function(C credential) encode,
     required C Function(String raw) decode,
     Reporter reporter = const SilentReporter(),
-  }) : _entry = Preference.text(store: store, key: key, reporter: reporter),
+  }) : _entry = LocalPreference<String>(preferences, key, ''),
        _encode = encode,
        _decode = decode,
        _reporter = reporter;

@@ -23,7 +23,8 @@ everything you need; there is nothing else to install.
 
 The suite runs on `flutter_test` rather than `package:test`, which is a constraint and not
 a preference: `package:test` pins `analyzer` in a way that collides with the workspace
-pylon is developed in. Nothing in `lib/` depends on Flutter.
+pylon is developed in. The one piece of `lib/` that depends on Flutter is `Preferences`,
+which wraps the `shared_preferences` plugin; everything else is plain Dart.
 
 ## Where your work goes
 
@@ -37,8 +38,7 @@ lib/src/barrier/               what a port touches: Result, Fault, FaultResolver
 lib/src/toolkit/               what only an Sdk implementation touches: CallGuard,
                                 HealthMonitor, Observable, Reporter, RestClient and
                                 what it needs, ChannelKeeper, SocketChannel, Backoff,
-                                CredentialManager and what it needs, KeyValueStore,
-                                Preference
+                                CredentialManager and what it needs, Preferences
 test/                          one file per subject, named after it
 ```
 

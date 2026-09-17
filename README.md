@@ -22,9 +22,9 @@ does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
-`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `Preference`, `KeyValueStore`,
-`Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise
-rewrite, and rewrite worse the second time.
+`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `Preferences`, `Observable`, `Reporter`,
+`Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
+second time.
 
 `package:fiber_pylon/fiber_pylon_io.dart` carries the one piece that needs `dart:io`, a `SocketLink`
 over a WebSocket. It is separate so that importing pylon does not stop a project from
