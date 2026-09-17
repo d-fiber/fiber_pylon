@@ -77,7 +77,8 @@ final _listPosts = FaultResolver<PlaceholderSignal, ListPostsError>(
 /// It carries no credential, which is why its guard is the plain one: only
 /// deduplication is left, and there is nothing to renew. It cannot push
 /// either, so [events] answers `null`.
-class PlaceholderBackend implements ExampleBackend {
+final class PlaceholderBackend extends RestBackendSdk
+    implements ExampleBackend {
   late final RestClient<PlaceholderSignal> _client;
   late final RestNode<PlaceholderSignal> _api;
 
@@ -99,6 +100,7 @@ class PlaceholderBackend implements ExampleBackend {
 
   @override
   Future<void> initialize() async {
+    await super.initialize();
     _client = RestClient<PlaceholderSignal>(
       baseUrl: Uri.parse(_root),
       classifier: const PlaceholderClassifier(),
@@ -111,7 +113,10 @@ class PlaceholderBackend implements ExampleBackend {
   }
 
   @override
-  Future<void> dispose() => _client.dispose();
+  Future<void> dispose() async {
+    await super.dispose();
+    await _client.dispose();
+  }
 }
 
 class _PlaceholderPosts implements PostPort {

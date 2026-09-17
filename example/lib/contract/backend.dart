@@ -41,9 +41,27 @@ import 'post_port.dart';
 
 /// One implementation of everything this app needs.
 ///
-/// The project declares this, not pylon: pylon supplies [Sdk], which is the
-/// lifetime, and the ports are the project's own.
-abstract interface class ExampleBackend implements Sdk {
+/// The project declares this, not pylon: pylon supplies the lifetime, through
+/// [RestBackendSdk] or [LocalBackendSdk], which every concrete backend
+/// extends alongside implementing this; the ports are the project's own.
+///
+/// Not itself related to [BackendSdk] by `extends` or `implements`, because a
+/// concrete class only gets one `extends`, and [RestBackendSdk] or
+/// [LocalBackendSdk] already spends it. [initialize] and [dispose] are
+/// declared again here so this stays the one type `PostsSdk` needs, and a
+/// concrete backend satisfies them for free through whichever of the two it
+/// extends.
+abstract interface class ExampleBackend {
+  /// Wires this backend up. See [Sdk.initialize].
+  Future<void> initialize();
+
+  /// Releases everything [initialize] took. See [Sdk.dispose].
+  Future<void> dispose();
+
+  /// What this backend talks to, short and stable, for the screen and for
+  /// error messages.
+  String get name;
+
   /// A one-line description of what this backend talks to, for the screen.
   String get describe;
 

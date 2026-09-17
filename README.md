@@ -16,9 +16,9 @@ be right most of the time.
 
 **The barrier**, which a port touches: `RestNode`, `RestPath`, `RestParameters` and
 `RestCall` for a REST call, `RealtimeNode`, `RealtimePath`, `RealtimeParameters` and
-`RealtimeTopic` for a live one, `Result`, `Fault`, `FaultResolver`, `Sdk`, `Singleton`,
-`Configuration`. This is what a service layer sees, and it does not change when the backend
-does.
+`RealtimeTopic` for a live one, `Result`, `Fault`, `FaultResolver`, `Sdk`, `SdkType`,
+`BackendSdk`, `RestBackendSdk`, `LocalBackendSdk`, `Singleton`, `Configuration`. This is
+what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,

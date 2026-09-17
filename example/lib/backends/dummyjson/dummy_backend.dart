@@ -94,7 +94,7 @@ final _listPosts = FaultResolver<DummySignal, ListPostsError>(
 /// different failure vocabulary, different body shapes, a credential where the
 /// other has none, and the same [PostPort] out the other end. Neither can
 /// push, so both answer `null` for [events].
-class DummyBackend implements ExampleBackend {
+final class DummyBackend extends RestBackendSdk implements ExampleBackend {
   late final CredentialManager<DummySession, DummySignal> _credentials;
   late final RestClient<DummySignal> _client;
   late final RestClient<DummySignal> _plainClient;
@@ -120,6 +120,7 @@ class DummyBackend implements ExampleBackend {
 
   @override
   Future<void> initialize() async {
+    await super.initialize();
     _plainClient = RestClient<DummySignal>(
       baseUrl: Uri.parse(_root),
       classifier: const DummyClassifier(),
@@ -161,6 +162,7 @@ class DummyBackend implements ExampleBackend {
 
   @override
   Future<void> dispose() async {
+    await super.dispose();
     await _credentials.dispose();
     await _client.dispose();
     await _plainClient.dispose();

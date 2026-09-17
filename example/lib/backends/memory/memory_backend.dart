@@ -49,7 +49,7 @@ import '../../contract/contract.dart';
 ///
 /// It is also what a test of the layer above runs against, since it needs no
 /// network and answers the same way every time.
-class MemoryBackend implements ExampleBackend {
+final class MemoryBackend extends LocalBackendSdk implements ExampleBackend {
   final List<Post> _posts;
   final Duration _latency;
   final Duration _publishEvery;
@@ -89,6 +89,7 @@ class MemoryBackend implements ExampleBackend {
 
   @override
   Future<void> initialize() async {
+    await super.initialize();
     _keeper = ChannelKeeper<Post>(_channel);
     _realtime = RealtimeNode<Post>.root(
       keeper: _keeper,
@@ -102,6 +103,7 @@ class MemoryBackend implements ExampleBackend {
 
   @override
   Future<void> dispose() async {
+    await super.dispose();
     _publisher?.cancel();
     _publisher = null;
     await _keeper.dispose();

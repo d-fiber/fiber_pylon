@@ -54,8 +54,9 @@
 /// [RestParameters] and [RestCall] for a REST call, [RealtimeNode],
 /// [RealtimePath], [RealtimeParameters] and [RealtimeTopic] for a live one,
 /// [Result] and its two variants, [Fault], [FaultResolver], [Sdk],
-/// [Singleton], [Configuration]. This is what a service layer sees, and it
-/// does not change when the backend does.
+/// [SdkType], [BackendSdk], [RestBackendSdk], [LocalBackendSdk], [Singleton],
+/// [Configuration]. This is what a service layer sees, and it does not
+/// change when the backend does.
 ///
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
