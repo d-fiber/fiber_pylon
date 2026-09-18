@@ -10,7 +10,7 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 
-import 'package:fiber_pylon/src/preferences/valkery_storage.dart' as _i206;
+import 'package:fiber_pylon/src/storage/valkery_storage.dart' as _i218;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
 
@@ -21,8 +21,8 @@ extension GetItInjectableX on _i174.GetIt {
     _i526.EnvironmentFilter? environmentFilter,
   }) async {
     final gh = _i526.GetItHelper(this, environment, environmentFilter);
-    await gh.singletonAsync<_i206.ValkeryStorage>(
-      () => _i206.ValkeryStorage.initialize(),
+    await gh.singletonAsync<_i218.ValkeryStorage>(
+      () => _i218.ValkeryStorage.initialize(),
       preResolve: true,
     );
     return this;

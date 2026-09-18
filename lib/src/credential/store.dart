@@ -35,7 +35,7 @@
 // LICENSE file, the LICENSE file governs.
 
 import '../common/reporter.dart';
-import '../preferences/valkery_storage.dart';
+import '../storage/valkery_storage.dart';
 
 /// Where the credential survives a restart.
 ///
