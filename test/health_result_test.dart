@@ -93,7 +93,7 @@ void main() {
     test('stays quiet when the answer has not changed', () async {
       final monitor = HealthMonitor(name: 'network');
       final seen = <bool>[];
-      monitor.healthy.changes.listen(seen.add);
+      monitor.healthy.stream.listen(seen.add);
 
       monitor.report(healthy: true);
       monitor.report(healthy: false);

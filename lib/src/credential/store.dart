@@ -85,7 +85,7 @@ class MemoryCredentialStore<C extends Object> implements CredentialStore<C> {
 /// back as absent rather than thrown, because this runs at startup and a shape
 /// that changed between two versions of an app must not stop it from opening.
 class StoredCredential<C extends Object> implements CredentialStore<C> {
-  final LocalPreference<String> _entry;
+  final Valkery<String> _entry;
   final String Function(C credential) _encode;
   final C Function(String raw) _decode;
   final Reporter _reporter;
@@ -97,7 +97,7 @@ class StoredCredential<C extends Object> implements CredentialStore<C> {
     required String Function(C credential) encode,
     required C Function(String raw) decode,
     Reporter reporter = const SilentReporter(),
-  }) : _entry = LocalPreference<String>(preferences, key, ''),
+  }) : _entry = Valkery.string_(preferences, key, ''),
        _encode = encode,
        _decode = decode,
        _reporter = reporter;

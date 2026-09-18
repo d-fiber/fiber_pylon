@@ -114,12 +114,6 @@ void main() {
       },
     );
 
-    test('registers itself as I', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
-
-      expect(ValkeryStorage.I, same(prefs));
-    });
-
     test('reads back each native type through the shared_preferences getter '
         'matching it', () async {
       final prefs = await ValkeryStorage.initialize(_AppPreferences());
@@ -174,10 +168,36 @@ void main() {
       },
     );
 
+    test('reads back a JSON-encoded list of a native type', () async {
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+
+      await prefs.scores.set([3, 1, 4]);
+
+      expect(prefs.scores.value, [3, 1, 4]);
+    });
+
+    test('reads back a JSON-encoded list of a custom type', () async {
+      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+
+      await prefs.crew.set(const [_Profile(name: 'Alex'), _Profile(name: 'Sam')]);
+
+      expect(prefs.crew.value.map((profile) => profile.name), ['Alex', 'Sam']);
+    });
+
+    test(
+      'answers the fallback for a stored JSON list that no longer decodes',
+      () async {
+        SharedPreferences.setMockInitialValues({'scores': 'not json'});
+        final prefs = await ValkeryStorage.initialize(_AppPreferences());
+
+        expect(prefs.scores.value, isEmpty);
+      },
+    );
+
     test('publishes every value it is given', () async {
       final prefs = await ValkeryStorage.initialize(_AppPreferences());
       final seen = <int>[];
-      prefs.volume.changes.listen(seen.add);
+      prefs.volume.stream.listen(seen.add);
 
       await prefs.volume.set(10);
       await prefs.volume.set(20);
@@ -201,26 +221,34 @@ void main() {
 enum Mood { happy, sad, neutral }
 
 class _AppPreferences extends ValkeryStorage {
-  late final volume = LocalPreference<int>(this, 'volume', 50);
-  late final enabled = LocalPreference<bool>(this, 'enabled', false);
-  late final ratio = LocalPreference<double>(this, 'ratio', 1.0);
-  late final label = LocalPreference<String>(this, 'label', 'default');
-  late final tags = LocalPreference<List<String>>(this, 'tags', const []);
-  late final mood = LocalPreferenceEnum<Mood>(
+  late final volume = Valkery.int_(this, 'volume', 50);
+  late final enabled = Valkery.bool_(this, 'enabled', false);
+  late final ratio = Valkery.double_(this, 'ratio', 1.0);
+  late final label = Valkery.string_(this, 'label', 'default');
+  late final tags = Valkery.array_(this, 'tags', const []);
+  late final mood = Valkery.enum_(
     this,
     'mood',
     Mood.values,
     Mood.neutral,
   );
-  late final profile = LocalPreferenceJsonClass<_Profile>(
+  late final profile = Valkery.json_(
     this,
     'profile',
     const _Profile(name: 'anonymous'),
     _Profile.fromJson,
   );
+  late final scores = Valkery.list_<int>(this, 'scores', const [], (json) => json as int);
+  late final crew = Valkery.list_<_Profile>(
+    this,
+    'crew',
+    const [],
+    (json) => _Profile.fromJson(json as Map<String, dynamic>),
+    toJson: (profile) => profile.toJson(),
+  );
 }
 
-class _Profile implements JsonClass {
+class _Profile implements ValkeryJson {
   final String name;
 
   const _Profile({required this.name});

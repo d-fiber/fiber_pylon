@@ -53,16 +53,12 @@ abstract class Observable<T> {
   ///
   /// The current [value] is not replayed. A listener that also needs it reads
   /// [value], or subscribes to [values] instead.
-  Stream<T> get changes;
+  Stream<T> get stream;
 
-  /// The current [value], then everything [changes] publishes.
+  /// The current [value], then everything [stream] publishes.
   Stream<T> get values => Stream<T>.multi((controller) {
     controller.add(value);
-    final subscription = changes.listen(
-      controller.add,
-      onError: controller.addError,
-      onDone: controller.close,
-    );
+    final subscription = stream.listen(controller.add, onError: controller.addError, onDone: controller.close);
     controller.onCancel = subscription.cancel;
   });
 }
@@ -98,12 +94,12 @@ class MutableObservable<T> extends Observable<T> {
   }
 
   @override
-  Stream<T> get changes => _controller.stream;
+  Stream<T> get stream => _controller.stream;
 
   /// Whether this observable has been disposed.
   bool get isClosed => _controller.isClosed;
 
-  /// Closes [changes] for every listener.
+  /// Closes [stream] for every listener.
   ///
   /// [value] stays readable afterwards: the last value a disposed observable
   /// held is still the truth about what happened, and callers routinely read it
