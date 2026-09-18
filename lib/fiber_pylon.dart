@@ -169,7 +169,7 @@ export 'src/mutation/mutation.dart';
 export 'src/mutation/mutation_queue.dart';
 export 'src/mutation/mutation_store.dart';
 export 'src/storage/local_storage/database.dart';
-export 'src/storage/local_storage/schema.dart';
+export 'src/storage/local_storage/schema/schema.dart';
 export 'src/storage/valkery_storage.dart';
 export 'src/realtime/channel.dart';
 export 'src/realtime/keeper.dart';

@@ -245,7 +245,7 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO todos (title) VALUES (?)', const [SqlValue.text('')]),
-        throwsA(isA<LocalDatabaseError>()),
+        throwsA(isA<DatabaseError>()),
       );
 
       await db.dispose();
@@ -269,7 +269,7 @@ void main() {
           SqlValue.text('a'),
           SqlValue.text('not a number'),
         ]),
-        throwsA(isA<LocalDatabaseError>()),
+        throwsA(isA<DatabaseError>()),
       );
 
       await db.dispose();

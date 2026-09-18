@@ -49,14 +49,14 @@ import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-final class Todo extends Equatable implements LocalRecord {
+final class Todo extends Equatable implements DatabaseRecord {
   const Todo({this.id, required this.title, required this.done});
 
   final int? id;
   final String title;
   final bool done;
 
-  static Todo fromRow(LocalRow row) => Todo(
+  static Todo fromRow(DatabaseRow row) => Todo(
     id: (row['id'] as SqlInteger).value,
     title: (row['title'] as SqlText).value,
     done: (row['done'] as SqlInteger).value != 0,
@@ -66,7 +66,7 @@ final class Todo extends Equatable implements LocalRecord {
       Todo(id: id ?? this.id, title: title ?? this.title, done: done ?? this.done);
 
   @override
-  LocalRow toRow() => {'title': SqlValue.text(title), 'done': SqlValue.boolean(done)};
+  DatabaseRow toRow() => {'title': SqlValue.text(title), 'done': SqlValue.boolean(done)};
 
   @override
   List<Object?> get props => [id, title, done];
@@ -267,7 +267,7 @@ void main() {
       await db.dispose();
     });
 
-    test('reports a unique constraint violation as LocalDatabaseUniqueConstraintError', () async {
+    test('reports a unique constraint violation as DatabaseUniqueConstraintError', () async {
       final db = LocalDatabase(
         name: 'todos_unique.db',
         onCreate: (db, version) =>
@@ -278,18 +278,18 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [SqlValue.text('Ship it')]),
-        throwsA(isA<LocalDatabaseUniqueConstraintError>()),
+        throwsA(isA<DatabaseUniqueConstraintError>()),
       );
       await db.dispose();
     });
 
-    test('reports a query against a missing table as LocalDatabaseNoSuchTableError', () async {
+    test('reports a query against a missing table as DatabaseNoSuchTableError', () async {
       final db = LocalDatabase(name: 'todos_missing.db', onCreate: _createTodos);
       await db.open();
 
       await expectLater(
         db.query<Todo>((q) => q.from('ghosts').map(Todo.fromRow)),
-        throwsA(isA<LocalDatabaseNoSuchTableError>()),
+        throwsA(isA<DatabaseNoSuchTableError>()),
       );
       await db.dispose();
     });
@@ -311,9 +311,9 @@ void main() {
       final columns = await db.columns('todos');
 
       expect(columns, [
-        const LocalColumn(name: 'id', declaredType: 'INTEGER', isNotNull: false, isPrimaryKey: true),
-        const LocalColumn(name: 'title', declaredType: 'TEXT', isNotNull: true, isPrimaryKey: false),
-        const LocalColumn(name: 'done', declaredType: 'INTEGER', isNotNull: true, isPrimaryKey: false),
+        const DatabaseColumn(name: 'id', declaredType: 'INTEGER', isNotNull: false, isPrimaryKey: true),
+        const DatabaseColumn(name: 'title', declaredType: 'TEXT', isNotNull: true, isPrimaryKey: false),
+        const DatabaseColumn(name: 'done', declaredType: 'INTEGER', isNotNull: true, isPrimaryKey: false),
       ]);
       await db.dispose();
     });
