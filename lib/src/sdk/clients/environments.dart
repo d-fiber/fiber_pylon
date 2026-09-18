@@ -36,6 +36,8 @@
 
 import 'package:equatable/equatable.dart';
 
+import 'client.dart';
+
 /// One environment variable a backend cannot start without.
 class EnvironmentVariable extends Equatable {
   /// The name it is declared under, exactly as `String.fromEnvironment` was
@@ -53,11 +55,7 @@ class EnvironmentVariable extends Equatable {
   final String reason;
 
   /// Declares that [name] is needed, for [reason], and was read as [value].
-  const EnvironmentVariable({
-    required this.name,
-    required this.value,
-    required this.reason,
-  });
+  const EnvironmentVariable({required this.name, required this.value, required this.reason});
 
   /// Whether it was set to something usable.
   bool get isSatisfied => value != null && value?.isNotEmpty == true;
@@ -68,25 +66,22 @@ class EnvironmentVariable extends Equatable {
 
 /// Thrown when a backend cannot start because environment variables are
 /// missing.
-class ConfigurationError extends Error {
+class EnvironmentError extends Error {
   /// Which backend could not start.
-  final String backend;
+  final SdkClientKind client;
 
   /// Every environment variable that was not satisfied.
   final List<EnvironmentVariable> missing;
 
-  /// Reports that [backend] is missing [missing].
-  ConfigurationError({required this.backend, required this.missing});
+  /// Reports that [client] is missing [missing].
+  EnvironmentError({required this.client, required this.missing});
 
   @override
   String toString() {
     final lines = missing
-        .map(
-          (environmentVariable) =>
-              '  ${environmentVariable.name}: ${environmentVariable.reason}',
-        )
+        .map((environmentVariable) => '  ${environmentVariable.name}: ${environmentVariable.reason}')
         .join('\n');
-    return 'Cannot start the $backend backend, '
+    return 'Cannot start the ${client.name} backend, '
         '${missing.length} environment variable(s) missing:\n$lines';
   }
 }
@@ -100,10 +95,10 @@ class ConfigurationError extends Error {
 /// client, and that a missing one is reported properly.
 ///
 /// ```dart
-/// class RestConfiguration extends Configuration {
-///   const RestConfiguration({required this.url, required this.appKey});
+/// class RestEnvironments extends Environments {
+///   const RestEnvironments({required this.url, required this.appKey});
 ///
-///   factory RestConfiguration.fromEnvironment() => const RestConfiguration(
+///   factory RestEnvironments.fromEnvironment() => const RestEnvironments(
 ///     url: String.fromEnvironment('ADMIN_URL'),
 ///     appKey: String.fromEnvironment('ADMIN_APP_KEY'),
 ///   );
@@ -129,32 +124,17 @@ class ConfigurationError extends Error {
 ///   ];
 /// }
 /// ```
-abstract base class Configuration {
+abstract base class Environments {
   /// Allows subclasses to be const.
-  const Configuration();
-
-  /// Which backend this configures, as it appears in an error message.
-  String get backend;
+  const Environments();
 
   /// Every environment variable the backend needs, satisfied or not.
   List<EnvironmentVariable> get variables;
 
   /// Every environment variable that was not satisfied.
-  List<EnvironmentVariable> get missing => variables
-      .where((environmentVariable) => !environmentVariable.isSatisfied)
-      .toList();
+  List<EnvironmentVariable> get missing =>
+      variables.where((environmentVariable) => !environmentVariable.isSatisfied).toList();
 
   /// Whether the backend has everything it needs.
   bool get isComplete => missing.isEmpty;
-
-  /// Throws a [ConfigurationError] listing everything that is missing.
-  ///
-  /// All of them at once, and outside debug mode too. An assertion reports the
-  /// first and only while assertions run, which means a build that is missing
-  /// three variables fails three times, and a release build not at all.
-  void validate() {
-    final absent = missing;
-    if (absent.isEmpty) return;
-    throw ConfigurationError(backend: backend, missing: absent);
-  }
 }

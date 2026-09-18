@@ -195,42 +195,31 @@ void main() {
     });
   });
 
-  group('Configuration', () {
+  group('Environments', () {
     test('reports every missing environment variable at once', () {
-      const configuration = _TestConfiguration(url: '', key: '');
+      const environments = _TestEnvironments(url: '', key: '');
 
-      expect(
-        configuration.validate,
-        throwsA(
-          isA<ConfigurationError>().having(
-            (error) => error.missing.length,
-            'missing',
-            2,
-          ),
-        ),
-      );
+      expect(environments.isComplete, isFalse);
+      expect(environments.missing.map((v) => v.name), ['URL', 'KEY']);
     });
 
-    test('accepts a configuration that has everything', () {
-      const configuration = _TestConfiguration(
+    test('accepts an environment that has everything', () {
+      const environments = _TestEnvironments(
         url: 'https://example.test',
         key: 'abc',
       );
 
-      expect(configuration.isComplete, isTrue);
-      expect(configuration.validate, returnsNormally);
+      expect(environments.isComplete, isTrue);
+      expect(environments.missing, isEmpty);
     });
   });
 }
 
-final class _TestConfiguration extends Configuration {
+final class _TestEnvironments extends Environments {
   final String url;
   final String key;
 
-  const _TestConfiguration({required this.url, required this.key});
-
-  @override
-  String get backend => 'test';
+  const _TestEnvironments({required this.url, required this.key});
 
   @override
   List<EnvironmentVariable> get variables => [

@@ -54,8 +54,8 @@
 /// [RestParameters] and [RestCall] for a REST call, [RealtimeNode],
 /// [RealtimePath], [RealtimeParameters] and [RealtimeTopic] for a live one,
 /// [Result] and its two variants, [Fault], [FaultResolver], [Sdk],
-/// [SdkType], [BackendSdk], [RestBackendSdk], [LocalBackendSdk],
-/// [VendorBackendSdk], [Singleton], [Configuration]. This is what a service
+/// [SdkClientKind], [SdkClient], [RestSdkClient], [LocalSdkClient],
+/// [VendorSdkClient], [Singleton], [Environments]. This is what a service
 /// layer sees, and it does not
 /// change when the backend does.
 ///
@@ -180,5 +180,9 @@ export 'src/rest/client.dart';
 export 'src/rest/request.dart';
 export 'src/rest/response.dart';
 export 'src/rest/rest.dart';
-export 'src/sdk/configuration.dart';
+export 'src/sdk/clients/client.dart';
+export 'src/sdk/clients/environments.dart';
+export 'src/sdk/clients/local/local_sdk.dart';
+export 'src/sdk/clients/rest/rest_sdk.dart';
+export 'src/sdk/clients/vendor/vendor_sdk.dart';
 export 'src/sdk/sdk.dart';

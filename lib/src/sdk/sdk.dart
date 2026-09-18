@@ -38,22 +38,6 @@ import 'package:meta/meta.dart';
 
 import '../preferences/valkery_storage.dart';
 
-/// The two moments every [Sdk] implementation has, named on their own so
-/// that what an implementation must honour is visible without reading
-/// [Sdk]'s own body.
-///
-/// A project extends [Sdk], never this directly: [Sdk] is what fills
-/// [initialize] and [dispose] with the one piece of behaviour every backend
-/// shares, resolving [Sdk.preferences]. This exists so that contract stays
-/// readable on its own, one layer above the behaviour that answers it.
-abstract base class SdkContract {
-  /// Wires an implementation up and makes it usable.
-  Future<void> initialize();
-
-  /// Releases everything [initialize] took.
-  Future<void> dispose();
-}
-
 /// The plug.
 ///
 /// An [Sdk] is one implementation of everything a project's contract needs. It
@@ -70,10 +54,34 @@ abstract base class SdkContract {
 /// ```
 ///
 /// That is the whole trick. What crosses the boundary is the project's own
-/// interface; what pylon adds is the two moments every implementation has, the
-/// one where it wires itself up and the one where it lets go, declared once as
-/// [SdkContract] and answered here.
-abstract base class Sdk extends SdkContract {
+/// interface; what pylon adds is the two moments every implementation has,
+/// the one where it wires itself up and the one where it lets go.
+///
+/// Every [Sdk] is a singleton of its own concrete type without doing anything
+/// for it: [initialize] registers `this` the moment it succeeds, and
+/// [instance] hands it back from anywhere, keyed by that type rather than by
+/// a handle a project would otherwise have to declare and thread through
+/// itself.
+abstract base class Sdk {
+  static final Map<Type, Sdk> _instances = {};
+
+  /// The [T] that last reached the end of [initialize].
+  ///
+  /// A project never declares a registry of its own for this: every [Sdk]
+  /// becomes reachable this way as soon as its own `initialize` reaches
+  /// `super.initialize()`, keyed by its concrete type — the same one [T] must
+  /// be called with.
+  ///
+  /// Throws a [StateError] naming [T] when it was never initialized, or was
+  /// disposed since.
+  static T instance<T extends Sdk>() {
+    final found = _instances[T];
+    if (found == null) {
+      throw StateError('$T is not initialized. Call $T().initialize() before using it.');
+    }
+    return found as T;
+  }
+
   /// The project's own local preferences this [initialize] resolves before
   /// anything else, unless one is already resolved. `null` when this
   /// implementation needs none.
@@ -84,20 +92,34 @@ abstract base class Sdk extends SdkContract {
   @protected
   ValkeryStorage? get preferences => null;
 
+  bool _isInitialized = false;
+
+  /// Whether [initialize] has already run.
+  bool get isInitialized => _isInitialized;
+
   /// Wires this implementation up and makes it usable.
   ///
-  /// Resolves [preferences], unless [ValkeryStorage.isInitialized] already —
-  /// once, however many implementations ask for it, and however many times
-  /// one of them is initialized again over the app's life. An override does
-  /// whatever else it needs — opening connections, restoring a credential,
-  /// starting timers — starting with `await super.initialize();`, so the two
-  /// never happen in the wrong order.
+  /// Does nothing when this instance is already [isInitialized]. Otherwise
+  /// marks it so, registers `this` under its own concrete type so [instance]
+  /// can hand it back, and resolves [preferences], unless
+  /// [ValkeryStorage.isInitialized] already, once, however many
+  /// implementations ask for it, and however many times one of them is
+  /// initialized again over the app's life. An override does whatever else it
+  /// needs — opening connections, restoring a credential, starting
+  /// timers — starting with `await super.initialize();`, so the two never
+  /// happen in the wrong order. That override never has to guard against a
+  /// second call itself: reaching [isInitialized] here already means this
+  /// call did nothing, so nothing an override adds afterwards should either —
+  /// the same way [Sdk] itself checks before doing its own work.
   ///
   /// Calling it twice must be harmless, because a host that recovers from a
   /// failed start will call it again.
-  @override
   @mustCallSuper
   Future<void> initialize() async {
+    if (isInitialized) return;
+    _isInitialized = true;
+    _instances[runtimeType] = this;
+
     final preferences = this.preferences;
     if (preferences != null && !ValkeryStorage.isInitialized) {
       await ValkeryStorage.initialize(preferences);
@@ -106,81 +128,26 @@ abstract base class Sdk extends SdkContract {
 
   /// Releases everything [initialize] took.
   ///
-  /// Forgets the resolved [ValkeryStorage] singleton, so a later [initialize]
-  /// resolves a fresh one rather than reusing what a disposed implementation
-  /// left behind. Left untouched when [preferences] is `null`: an
-  /// implementation that never asked for one must not tear down a singleton
-  /// another implementation, still running, may depend on. An override
-  /// releases whatever else it opened, and must be safe to call on an
-  /// implementation that was never initialised, and safe to call twice,
-  /// since it runs on paths that are already going wrong.
-  @override
+  /// Does nothing when this instance was never [isInitialized]. Otherwise
+  /// forgets its registration and the resolved [ValkeryStorage] singleton, so
+  /// a later [initialize] resolves a fresh one rather than reusing what a
+  /// disposed implementation left behind. Unregisters `this` from [instance]
+  /// unless a newer instance of the same type already replaced it — a
+  /// backend swap that never disposed the one it replaced must not cost the
+  /// new one its own registration. [ValkeryStorage] is left untouched when
+  /// [preferences] is `null`: an implementation that never asked for one must
+  /// not tear down a singleton another implementation, still running, may
+  /// depend on. An override releases whatever else it opened, and must be
+  /// safe to call on an implementation that was never initialised, and safe
+  /// to call twice, since it runs on paths that are already going wrong.
   @mustCallSuper
   Future<void> dispose() async {
+    if (!isInitialized) return;
+    _isInitialized = false;
+
+    if (identical(_instances[runtimeType], this)) {
+      _instances.remove(runtimeType);
+    }
     if (preferences != null) ValkeryStorage.dispose();
   }
-}
-
-/// What an [Sdk] talks to, closed rather than a free-form name, so a project
-/// can act on it — showing a network indicator, say — without recognising one
-/// server by name.
-enum SdkType {
-  /// Reaches a server over REST, or a live connection alongside it.
-  rest,
-
-  /// Keeps everything on the device, with nothing to reach over the network.
-  local,
-
-  /// Reaches an external service through a vendor's own SDK — Firebase,
-  /// Supabase, a company's own client — rather than pylon's own [RestClient].
-  vendor,
-}
-
-/// A [SdkContract] that says which [SdkType] it is, standing next to [Sdk]
-/// rather than under it.
-///
-/// [Sdk] is the implementation that resolves a project's own [ValkeryStorage];
-/// this is the implementation for a backend that manages its own bootstrap,
-/// or needs none, and answers [initialize] and [dispose] on its own terms
-/// instead of inheriting [Sdk]'s.
-///
-/// A project rarely extends this directly: [RestBackendSdk],
-/// [LocalBackendSdk] and [VendorBackendSdk] already fix [type] to the one
-/// that matches, so a backend only has to say which of the three it is.
-abstract base class BackendSdk extends SdkContract {
-  /// What this implementation talks to.
-  SdkType get type;
-}
-
-/// A [BackendSdk] that reaches a server over REST, or a live connection
-/// alongside it.
-///
-/// A project extends this rather than extending [BackendSdk] directly, so
-/// [type] comes for free instead of being redeclared on every REST backend it
-/// writes.
-abstract base class RestBackendSdk extends BackendSdk {
-  @override
-  SdkType get type => SdkType.rest;
-}
-
-/// A [BackendSdk] that keeps everything on the device, with nothing to reach
-/// over the network.
-///
-/// A project extends this rather than extending [BackendSdk] directly, so
-/// [type] comes for free instead of being redeclared on every local backend
-/// it writes.
-abstract base class LocalBackendSdk extends BackendSdk {
-  @override
-  SdkType get type => SdkType.local;
-}
-
-/// A [BackendSdk] that reaches an external service through a vendor's own
-/// SDK, rather than pylon's own [RestClient].
-///
-/// A project extends this rather than extending [BackendSdk] directly, so
-/// [type] comes for free instead of being redeclared on every backend it
-/// writes over Firebase, Supabase, or any other vendor's own client.
-abstract base class VendorBackendSdk extends BackendSdk {
-  @override
-  SdkType get type => SdkType.vendor;
 }

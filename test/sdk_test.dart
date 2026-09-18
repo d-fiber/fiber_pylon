@@ -38,28 +38,38 @@ import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-final class _RestSdk extends RestBackendSdk {
+final class _RestSdk extends RestSdkClient {
   @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
+  Environments? get environments => null;
 }
 
-final class _LocalSdk extends LocalBackendSdk {
+final class _LocalSdk extends LocalSdkClient {
   @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> dispose() async {}
+  Environments? get environments => null;
 }
 
-final class _VendorSdk extends VendorBackendSdk {
+final class _VendorSdk extends VendorSdkClient {
   @override
-  Future<void> initialize() async {}
+  Environments? get environments => null;
+}
+
+final class _MissingUrl extends Environments {
+  const _MissingUrl();
 
   @override
-  Future<void> dispose() async {}
+  List<EnvironmentVariable> get variables => const [
+    EnvironmentVariable(name: 'URL', value: null, reason: 'Where the API lives.'),
+  ];
+}
+
+final class _RestSdkWithEnvironments extends RestSdkClient {
+  @override
+  Environments? get environments => const _MissingUrl();
+}
+
+final class _NeverInitializedClient extends RestSdkClient {
+  @override
+  Environments? get environments => null;
 }
 
 final class _AppPreferences extends ValkeryStorage {}
@@ -67,8 +77,10 @@ final class _AppPreferences extends ValkeryStorage {}
 final class _SdkWithPreferences extends Sdk {
   var initializeCalls = 0;
 
+  final _AppPreferences ownPreferences = _AppPreferences();
+
   @override
-  ValkeryStorage get preferences => _AppPreferences();
+  ValkeryStorage get preferences => ownPreferences;
 
   @override
   Future<void> initialize() async {
@@ -81,6 +93,8 @@ final class _SdkWithPreferences extends Sdk {
     await super.dispose();
   }
 }
+
+final class _NeverInitializedSdk extends Sdk {}
 
 void main() {
   setUp(() {
@@ -95,19 +109,20 @@ void main() {
       await sdk.initialize();
 
       expect(ValkeryStorage.isInitialized, isTrue);
-      expect(ValkeryStorage.I, isA<_AppPreferences>());
+      expect(sdk.ownPreferences.prefs, isNotNull);
     });
 
     test('does not try to resolve preferences again on a later call, the way a '
         'backend swap replays it', () async {
       final first = _SdkWithPreferences();
       await first.initialize();
-      final resolved = ValkeryStorage.I;
 
       final second = _SdkWithPreferences();
       await second.initialize();
 
-      expect(ValkeryStorage.I, same(resolved));
+      // second's own preferences were never handed to ValkeryStorage.initialize,
+      // so its late `prefs` was never set.
+      expect(() => second.ownPreferences.prefs, throwsA(isA<Error>()));
     });
 
     test(
@@ -150,33 +165,160 @@ void main() {
     );
   });
 
-  group('RestBackendSdk', () {
-    test('answers rest for type without declaring it', () {
+  group('Sdk.instance', () {
+    test('throws when nothing has registered yet', () {
+      expect(
+        () => Sdk.instance<_NeverInitializedSdk>(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('_NeverInitializedSdk().initialize()'),
+          ),
+        ),
+      );
+    });
+
+    test('answers the instance initialize registered, without a project '
+        'declaring anything for it', () async {
+      final sdk = _SdkWithPreferences();
+      await sdk.initialize();
+
+      expect(Sdk.instance<_SdkWithPreferences>(), same(sdk));
+
+      await sdk.dispose();
+    });
+
+    test('forgets the instance once disposed', () async {
+      final sdk = _SdkWithPreferences();
+      await sdk.initialize();
+      await sdk.dispose();
+
+      expect(() => Sdk.instance<_SdkWithPreferences>(), throwsStateError);
+    });
+
+    test(
+      'keeps the newer instance registered when an older one, replaced '
+      'without being disposed first, is disposed afterwards',
+      () async {
+        final first = _SdkWithPreferences();
+        await first.initialize();
+
+        final second = _SdkWithPreferences();
+        await second.initialize();
+
+        await first.dispose();
+
+        expect(Sdk.instance<_SdkWithPreferences>(), same(second));
+
+        await second.dispose();
+      },
+    );
+  });
+
+  group('RestSdkClient', () {
+    test('answers rest for client without declaring it', () {
       final sdk = _RestSdk();
 
-      expect(sdk.type, SdkType.rest);
-      expect(sdk, isA<BackendSdk>());
-      expect(sdk, isA<SdkContract>());
+      expect(sdk.client, SdkClientKind.rest);
+      expect(sdk, isA<SdkClient>());
     });
   });
 
-  group('LocalBackendSdk', () {
-    test('answers local for type without declaring it', () {
+  group('LocalSdkClient', () {
+    test('answers local for client without declaring it', () {
       final sdk = _LocalSdk();
 
-      expect(sdk.type, SdkType.local);
-      expect(sdk, isA<BackendSdk>());
-      expect(sdk, isA<SdkContract>());
+      expect(sdk.client, SdkClientKind.local);
+      expect(sdk, isA<SdkClient>());
     });
   });
 
-  group('VendorBackendSdk', () {
-    test('answers vendor for type without declaring it', () {
+  group('VendorSdkClient', () {
+    test('answers vendor for client without declaring it', () {
       final sdk = _VendorSdk();
 
-      expect(sdk.type, SdkType.vendor);
-      expect(sdk, isA<BackendSdk>());
-      expect(sdk, isA<SdkContract>());
+      expect(sdk.client, SdkClientKind.vendor);
+      expect(sdk, isA<SdkClient>());
     });
+  });
+
+  group('SdkClient.initialize', () {
+    test('does nothing on a second call', () async {
+      final sdk = _RestSdk();
+
+      await sdk.initialize();
+      await sdk.initialize();
+
+      expect(sdk.isInitialized, isTrue);
+    });
+
+    test('throws an EnvironmentError naming everything missing', () async {
+      final sdk = _RestSdkWithEnvironments();
+
+      expect(
+        sdk.initialize,
+        throwsA(
+          isA<EnvironmentError>()
+              .having((error) => error.client, 'client', SdkClientKind.rest)
+              .having((error) => error.missing.length, 'missing', 1),
+        ),
+      );
+      expect(sdk.isInitialized, isFalse);
+    });
+  });
+
+  group('SdkClient.instance', () {
+    test('throws when nothing has registered yet', () {
+      expect(
+        () => SdkClient.instance<_NeverInitializedClient>(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('_NeverInitializedClient().initialize()'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'answers the instance initialize registered, without a project '
+      'declaring anything for it',
+      () async {
+        final sdk = _RestSdk();
+        await sdk.initialize();
+
+        expect(SdkClient.instance<_RestSdk>(), same(sdk));
+
+        await sdk.dispose();
+      },
+    );
+
+    test('forgets the instance once disposed', () async {
+      final sdk = _RestSdk();
+      await sdk.initialize();
+      await sdk.dispose();
+
+      expect(() => SdkClient.instance<_RestSdk>(), throwsStateError);
+    });
+
+    test(
+      'keeps the newer instance registered when an older one, replaced '
+      'without being disposed first, is disposed afterwards',
+      () async {
+        final first = _RestSdk();
+        await first.initialize();
+
+        final second = _RestSdk();
+        await second.initialize();
+
+        await first.dispose();
+
+        expect(SdkClient.instance<_RestSdk>(), same(second));
+
+        await second.dispose();
+      },
+    );
   });
 }
