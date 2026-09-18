@@ -36,46 +36,13 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'post.dart';
+import '../../signal.dart';
+import 'sign_in.dart';
 
-/// Why reading one post can fail.
-///
-/// Closed, and written from the caller's point of view rather than any server's.
-/// A backend that cannot produce one of these simply never returns it.
-enum ReadPostError {
-  /// No post carries that identifier.
-  notFound,
+class AuthGroundSdk {
+  final RestNode<RestSignal> _rest;
 
-  /// The backend refused the call.
-  refused,
+  AuthGroundSdk(this._rest);
 
-  /// The backend could not be reached.
-  offline,
-
-  /// The caller is asking too often.
-  tooFast,
-
-  /// Something went wrong that this app does not distinguish.
-  unknown,
+  GroundSdkAuthResetSignIn get signIn => GroundSdkAuthResetSignIn(_rest);
 }
-
-/// Why listing posts can fail.
-enum ListPostsError {
-  /// The backend refused the call.
-  refused,
-
-  /// The backend could not be reached.
-  offline,
-
-  /// The caller is asking too often.
-  tooFast,
-
-  /// Something went wrong that this app does not distinguish.
-  unknown,
-}
-
-/// The answer to reading one post.
-typedef ReadPostResult = Result<Post, ReadPostError>;
-
-/// The answer to listing posts.
-typedef ListPostsResult = Result<List<Post>, ListPostsError>;

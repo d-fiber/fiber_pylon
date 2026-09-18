@@ -1,13 +1,20 @@
 # pylon example
 
-Three backends behind one contract, and a screen that cannot tell them apart.
+Three backends behind one contract, and a console script that cannot tell them apart.
 
 ```
-flutter run
+flutter run -t lib/main.dart
 ```
 
-Pick a backend from the row of buttons at the top. The list below is the same widget every
-time, holding the same `PostPort`, and it has no way to find out which one answered.
+Plain `dart run` cannot start this: pylon's storage toolkit (`LocalStorage`, `ValkeryStorage`)
+depends on `sqflite` and `shared_preferences`, real Flutter plugins that pull in `dart:ui`,
+which the bare Dart VM does not have. A connected device or simulator is enough; nothing here
+opens a window.
+
+It runs the same sequence — describe the backend, read its credential state if it has one,
+list its posts, read one back by id, wait for a live one if it can push — against each of the
+three backends in turn, and prints what came back. The sequence never changes; only the
+backend behind `PostsSdk.I` does.
 
 ## What each one is
 
@@ -29,8 +36,7 @@ whether the credential is held and whether it has entered the renewal window.
 ```
 lib/contract/     the barrier: Post, PostPort, the two error enums, ExampleBackend
 lib/backends/     three adapters, each with its own signals and its own tables
-lib/ui/           one screen, which imports the contract and never an adapter
-lib/main.dart     the map of backends, which is the whole of the swap
+lib/main.dart     the map of backends and the sequence run against each, in turn
 ```
 
 Read `lib/backends/placeholder/` and `lib/backends/dummyjson/` next to each other. They face

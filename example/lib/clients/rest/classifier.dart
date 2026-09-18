@@ -34,45 +34,25 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'dart:async';
-import 'dart:io';
-
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'signals.dart';
+import 'signal.dart';
 
-/// Names what DummyJSON did.
-///
-/// It reads the body as well as the status, because this server says which of
-/// two 404s it means in a `message` field. That refinement belongs here and
-/// stops here: the contract sees only [DummySignal].
-class DummyClassifier implements RestClassifier<DummySignal> {
-  /// Creates the classifier.
-  const DummyClassifier();
+final class RestGroundSdkClassifier implements RestClassifier<RestSignal> {
+  const RestGroundSdkClassifier();
 
   @override
-  DummySignal? ofResponse(RestResponse response) {
+  RestSignal? ofResponse(RestResponse response) {
     if (response.status >= 200 && response.status < 300) return null;
 
-    final body = response.body;
-    final message = body is Map<String, dynamic> ? body['message'] : null;
-    if (message is String && message.contains("Post with id")) {
-      return DummySignal.unknownPost;
-    }
-
     return switch (response.status) {
-      401 || 403 => DummySignal.denied,
-      404 => DummySignal.unknownPost,
-      429 => DummySignal.tooMany,
-      >= 500 => DummySignal.serverDown,
-      _ => DummySignal.unaccounted,
+      401 => RestSignal.unauthorized,
+      403 => RestSignal.forbidden,
+      _ => RestSignal.unknown,
     };
   }
 
   @override
-  DummySignal ofTransport(Object error, StackTrace stackTrace) {
-    if (error is TimeoutException) return DummySignal.timedOut;
-    if (error is SocketException) return DummySignal.unreachable;
-    return DummySignal.unreachable;
-  }
+  RestSignal ofTransport(Object error, StackTrace stackTrace) =>
+      RestSignal.noRoute;
 }

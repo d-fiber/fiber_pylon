@@ -34,33 +34,46 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-/// Everything the DummyJSON adapter can report going wrong.
-///
-/// A different list from the JSONPlaceholder one on purpose. This server sends a
-/// `message` field on failures, so this adapter can distinguish a case the other
-/// cannot, and nothing above has to know that.
-enum DummySignal {
-  /// The server said the post does not exist.
-  unknownPost,
+import 'package:fiber_pylon/fiber_pylon.dart';
 
-  /// The server answered 401 or 403.
-  denied,
+import 'classifier.dart';
+import 'configuration.dart';
+import 'signal.dart';
+import 'src/auth/auth.dart';
 
-  /// The server answered 429.
-  tooMany,
+RestGroundSdk rest = RestGroundSdk();
 
-  /// The server answered something in the 500s.
-  serverDown,
+final class RestGroundSdk extends RestSdkClient {
+  static RestGroundSdk get I => SdkClient.instance<RestGroundSdk>();
 
-  /// The call never reached the server.
-  unreachable,
+  final RestConfiguration _configuration = RestConfiguration.fromEnvironment();
 
-  /// The call took too long.
-  timedOut,
+  late final RestClient<RestSignal> _client;
+  late final AuthGroundSdk auth;
 
-  /// A call duplicated one already in flight.
-  duplicated,
+  @override
+  Environments? get environments => _configuration;
 
-  /// The server answered in a way this adapter does not recognise.
-  unaccounted,
+  @override
+  Future<void> initialize() async {
+    if (isInitialized) return;
+
+    _client = RestClient<RestSignal>(
+      baseUrl: Uri.https(_configuration.url),
+      classifier: const RestGroundSdkClassifier(),
+      guard: CallGuard<RestSignal>(duplicateSignal: RestSignal.duplicateCall),
+    );
+    auth = AuthGroundSdk(RestNode<RestSignal>(_client));
+
+    await super.initialize();
+  }
+
+  @override
+  Future<void> dispose() async {
+    if (!isInitialized) return;
+
+    await _client.dispose();
+
+    await super.dispose();
+  }
 }

@@ -34,82 +34,27 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'dart:async';
+library;
 
-import 'package:flutter/material.dart';
+import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'backends/dummyjson/dummy_backend.dart';
-import 'backends/memory/memory_backend.dart';
-import 'backends/placeholder/placeholder_backend.dart';
-import 'contract/contract.dart';
-import 'posts_sdk.dart';
-import 'ui/posts_page.dart';
+import 'src/auth/auth.dart';
 
-/// Every backend this app can put behind [PostsSdk].
-///
-/// This map is the whole of the swap. Adding a fourth server means writing an
-/// adapter and one line here, and [PostsPage] does not move.
-final Map<String, ExampleBackend Function()> backends = {
-  'memory': MemoryBackend.new,
-  'jsonplaceholder': PlaceholderBackend.new,
-  'dummyjson': DummyBackend.new,
-};
+final class GroundSdk extends Sdk {
+  late final Auth auth;
 
-void main() => runApp(const ExampleApp());
-
-/// The example app.
-class ExampleApp extends StatefulWidget {
-  /// Creates the app.
-  const ExampleApp({super.key});
+  static GroundSdk get I => Sdk.instance<GroundSdk>();
+  static GroundSdk get instance => I;
 
   @override
-  State<ExampleApp> createState() => _ExampleAppState();
-}
+  Future<void> initialize() async {
+    await super.initialize();
 
-class _ExampleAppState extends State<ExampleApp> {
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
+    auth = const Auth();
   }
 
   @override
-  void dispose() {
-    unawaited(PostsSdk.shutdown());
-    super.dispose();
+  Future<void> dispose() async {
+    await super.dispose();
   }
-
-  Future<void> _start() async {
-    await PostsSdk.initialize(backend: backends['memory']!);
-    if (!mounted) return;
-    setState(() => _ready = true);
-  }
-
-  Future<void> _switchTo(String name) async {
-    setState(() => _ready = false);
-    await PostsSdk.switchTo(backends[name]!);
-    if (!mounted) return;
-    setState(() => _ready = true);
-  }
-
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'pylon',
-    theme: ThemeData(colorSchemeSeed: Colors.indigo),
-    darkTheme: ThemeData(
-      colorSchemeSeed: Colors.indigo,
-      brightness: Brightness.dark,
-    ),
-    home: !_ready
-        ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-        : PostsPage(
-            // A fresh key remounts the page on every swap, so its own loaded
-            // state never survives into a different backend's answers.
-            key: ValueKey(PostsSdk.I.name),
-            choices: backends.keys.toList(),
-            onSwitch: _switchTo,
-          ),
-  );
 }

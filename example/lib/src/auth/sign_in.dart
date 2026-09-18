@@ -34,48 +34,23 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'package:equatable/equatable.dart';
+import 'package:fiber_pylon/fiber_pylon.dart';
 
-import '../../contract/contract.dart';
+import '../../clients/rest/rest.dart';
 
-/// A post in the shape JSONPlaceholder sends it.
-///
-/// It lives beside the adapter and never crosses the barrier. What crosses is
-/// [Post], which is why the second backend can send something else entirely.
-class PlaceholderPost extends Equatable {
-  /// The identifier, which arrives as a number.
-  final int id;
+final class Session {
+  final String token;
 
-  /// The headline.
-  final String title;
+  const Session({required this.token});
+}
 
-  /// The text.
-  final String body;
+enum SignInError { invalidCredentials, networkError, unknown }
 
-  /// Who wrote it, which arrives as a number too.
-  final int userId;
+final class SignIn {
+  const SignIn();
 
-  /// Describes what the server sent.
-  const PlaceholderPost({
-    required this.id,
-    required this.title,
-    required this.body,
-    required this.userId,
-  });
-
-  /// Reads one post out of a decoded JSON object.
-  factory PlaceholderPost.fromJson(Map<String, dynamic> json) =>
-      PlaceholderPost(
-        id: (json['id'] as num).toInt(),
-        title: json['title'] as String,
-        body: json['body'] as String,
-        userId: (json['userId'] as num).toInt(),
-      );
-
-  /// This post as the contract knows a post.
-  Post toContract() =>
-      Post(id: '$id', title: title, body: body, author: 'user $userId');
-
-  @override
-  List<Object?> get props => [id, title, body, userId];
+  Future<Result<Session, SignInError>> call({
+    required String email,
+    required String password,
+  }) => RestGroundSdk.I.auth.signIn(email: email, password: password);
 }

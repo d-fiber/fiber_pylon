@@ -1,5 +1,5 @@
 name: pylon_example
-description: "Three backends behind one contract, and a screen that cannot tell them apart."
+description: "Three backends behind one contract, and a console script that cannot tell them apart."
 publish_to: "none"
 version: 1.0.0
 
@@ -9,17 +9,11 @@ environment:
 resolution: workspace
 
 dependencies:
-  flutter:
-    sdk: flutter
   fiber_pylon:
     path: ../
   http: ^1.6.0
   equatable: ^3.0.0
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
+  test: ^1.25.0
   lints: ^6.0.0
-
-flutter:
-  uses-material-design: true

@@ -34,14 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'post.dart';
+import 'package:fiber_pylon/fiber_pylon.dart';
 
-/// Live changes to the posts a backend holds.
-///
-/// Optional, unlike [PostPort]: a plain REST backend usually has nothing to
-/// push, and [ExampleBackend.events] answers `null` for one that cannot offer
-/// this rather than a stream that is technically real but never fires.
-abstract interface class EventsPort {
-  /// A new post, the moment one arrives.
-  Stream<Post> newPosts();
-}
+import 'signal.dart';
+
+typedef Caller = RestNode<RestSignal>;

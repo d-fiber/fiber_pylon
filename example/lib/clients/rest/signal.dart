@@ -34,36 +34,4 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'package:fiber_pylon/fiber_pylon.dart';
-
-import 'session.dart';
-import 'signals.dart';
-
-/// The one method a backend writes to keep a credential alive.
-///
-/// Everything around it, when to renew, how to collapse two attempts into one,
-/// when to retry and when to give up, is [CredentialManager] and is not written
-/// again here.
-class DummyRefresher implements CredentialRefresher<DummySession> {
-  final RestNode<DummySignal> _api;
-  final Duration _lifetime;
-
-  /// Renews through [api], asking for tokens that last [lifetime].
-  const DummyRefresher(this._api, this._lifetime);
-
-  /// Lets the [Fault] `post` raised propagate unchanged: [DummySignal] is
-  /// already the vocabulary [CredentialManager] expects here, so there is
-  /// nothing to resolve.
-  @override
-  Future<DummySession> refresh(DummySession current) async {
-    final request =
-        _api.path((p) => p.segment('auth/refresh')).unauthenticated().post()
-          ..body(
-            (b) => b
-                .value('refreshToken', current.refreshToken)
-                .value('expiresInMins', _lifetime.inMinutes),
-          );
-    final response = await request.send();
-    return DummySession.fromJson(response.map, lifetime: _lifetime);
-  }
-}
+enum RestSignal { unauthorized, forbidden, noRoute, duplicateCall, unknown }

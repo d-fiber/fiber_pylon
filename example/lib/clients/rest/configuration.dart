@@ -34,32 +34,22 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-/// Everything the JSONPlaceholder adapter can report going wrong.
-///
-/// Its own vocabulary, and nobody else's. The DummyJSON adapter next door has a
-/// different list, because it fails in different ways and says so differently.
-enum PlaceholderSignal {
-  /// The server answered 404.
-  missing,
+import 'package:fiber_pylon/fiber_pylon.dart';
 
-  /// The server answered 401 or 403.
-  refused,
+final class RestConfiguration extends Environments {
+  final String url;
+  final String appKey;
 
-  /// The server answered 429.
-  throttled,
+  const RestConfiguration({required this.url, required this.appKey});
 
-  /// The server answered something in the 500s.
-  broken,
+  factory RestConfiguration.fromEnvironment() => const RestConfiguration(
+    url: String.fromEnvironment('ADMIN_URL'),
+    appKey: String.fromEnvironment('ADMIN_APP_KEY'),
+  );
 
-  /// The call never reached the server.
-  noRoute,
-
-  /// The call took too long.
-  slow,
-
-  /// A call duplicated one already in flight.
-  duplicate,
-
-  /// The server answered in a way this adapter does not recognise.
-  strange,
+  @override
+  List<EnvironmentVariable> get variables => [
+    EnvironmentVariable(name: 'ADMIN_URL', value: url, reason: 'Where the API lives.'),
+    EnvironmentVariable(name: 'ADMIN_APP_KEY', value: appKey, reason: 'Identifies this app to the gateway.'),
+  ];
 }

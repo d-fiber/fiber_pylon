@@ -36,46 +36,40 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'events_port.dart';
-import 'post_port.dart';
+import '../../../../src/auth/sign_in.dart';
+import '../../caller.dart';
+import '../../signal.dart';
 
-/// One implementation of everything this app needs.
-///
-/// The project declares this, not pylon: pylon supplies the lifetime, through
-/// [RestBackendSdk] or [LocalBackendSdk], which every concrete backend
-/// extends alongside implementing this; the ports are the project's own.
-///
-/// Not itself related to [BackendSdk] by `extends` or `implements`, because a
-/// concrete class only gets one `extends`, and [RestBackendSdk] or
-/// [LocalBackendSdk] already spends it. [initialize] and [dispose] are
-/// declared again here so this stays the one type `PostsSdk` needs, and a
-/// concrete backend satisfies them for free through whichever of the two it
-/// extends.
-abstract interface class ExampleBackend {
-  /// Wires this backend up. See [Sdk.initialize].
-  Future<void> initialize();
+final class GroundSdkAuthResetSignIn {
+  final Caller _caller;
 
-  /// Releases everything [initialize] took. See [Sdk.dispose].
-  Future<void> dispose();
+  GroundSdkAuthResetSignIn(this._caller);
 
-  /// What this backend talks to, short and stable, for the screen and for
-  /// error messages.
-  String get name;
+  static final FaultResolver<RestSignal, SignInError> _resolver =
+      FaultResolver(
+        (signal) => switch (signal) {
+          RestSignal.unauthorized => SignInError.invalidCredentials,
+          RestSignal.noRoute => SignInError.networkError,
+          _ => SignInError.unknown,
+        },
+      );
 
-  /// A one-line description of what this backend talks to, for the screen.
-  String get describe;
+  Future<Result<Session, SignInError>> call({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final call = _caller
+          .path((p) => p.segment('auth/sign_in'))
+          .unauthenticated()
+          .post()
+        ..body((b) => b.value('email', email).value('password', password));
 
-  /// Posts, however this backend gets them.
-  PostPort get posts;
-
-  /// Live changes to the posts this backend holds, or `null` when this
-  /// backend has no way to push them.
-  EventsPort? get events;
-
-  /// The credential this backend keeps alive, or `null` when it needs none.
-  ///
-  /// Read-only here, and typed loosely on purpose: the screen shows whether a
-  /// credential is held and how close to expiry it is, and has no business
-  /// knowing what one is made of.
-  CredentialManager<Object, Object>? get credentials;
+      final response = await call.send();
+      final token = response.map['token'] as String;
+      return OK(Session(token: token));
+    } on Fault<RestSignal> catch (fault) {
+      return Failure(_resolver.call(fault));
+    }
+  }
 }

@@ -34,34 +34,10 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'package:equatable/equatable.dart';
+import 'sign_in.dart';
 
-/// A post, as every screen in this app knows it.
-///
-/// This shape is the contract's, not any server's. Both REST backends answer
-/// with something else and map into it, which is the whole point: the screen
-/// below never learns which one answered.
-class Post extends Equatable {
-  /// What identifies this post with the backend that holds it.
-  final String id;
+final class Auth {
+  const Auth();
 
-  /// The headline.
-  final String title;
-
-  /// The text of the post.
-  final String body;
-
-  /// Who wrote it, or `null` when the backend does not say.
-  final String? author;
-
-  /// Describes the post [id].
-  const Post({
-    required this.id,
-    required this.title,
-    required this.body,
-    this.author,
-  });
-
-  @override
-  List<Object?> get props => [id, title, body, author];
+  SignIn get signIn => const SignIn();
 }
