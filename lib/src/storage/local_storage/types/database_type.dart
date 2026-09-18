@@ -80,7 +80,7 @@ sealed class DatabaseType extends Equatable {
   /// [value] as an [Integer] of `1` or `0` — the convention every SQLite
   /// driver uses for a [bool], this one included, since SQLite has no
   /// boolean storage class of its own.
-  static DatabaseType boolean(bool value) => Integer(value ? 1 : 0);
+  static Integer boolean(bool value) => Integer(value ? 1 : 0);
 
   /// [milliseconds] since the Unix epoch, stored as an [Integer] exactly as
   /// given.
@@ -91,7 +91,7 @@ sealed class DatabaseType extends Equatable {
   /// value means. Pass [DateTime.millisecondsSinceEpoch] to store a
   /// [DateTime]. Read one back with `asDateTime`, which hands back a UTC
   /// [DateTime]; call [DateTime.toLocal] on it if a caller needs local time.
-  static DatabaseType timestamp(int milliseconds) => Integer(milliseconds);
+  static Integer timestamp(int milliseconds) => Integer(milliseconds);
 
   /// [value] as an [Integer] holding its own midnight, UTC, in milliseconds
   /// since the Unix epoch.
@@ -100,7 +100,7 @@ sealed class DatabaseType extends Equatable {
   /// nothing to lose or disagree about in converting it: the same calendar
   /// date reads back on every device, in every time zone. Read one back
   /// with `asDate`.
-  static DatabaseType date(Date value) => Integer(value.toDateTime().millisecondsSinceEpoch);
+  static Integer date(Date value) => Integer(value.toDateTime().millisecondsSinceEpoch);
 
   /// [value] as a [Varchar] holding its JSON form.
   ///
@@ -109,7 +109,7 @@ sealed class DatabaseType extends Equatable {
   /// another in the same time zone, and [Time.utcOffset] makes that not
   /// always true, so nothing here pretends otherwise by picking a single
   /// sortable encoding.
-  static DatabaseType time(Time value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar time(Time value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its own name.
   ///
@@ -118,7 +118,7 @@ sealed class DatabaseType extends Equatable {
   /// project's own enum never silently changes what an existing row reads
   /// back as. Read one back with `asEnum`, given the same enum's own
   /// `values`.
-  static DatabaseType enum_(Enum value) => Varchar(value.name);
+  static Varchar enum_(Enum value) => Varchar(value.name);
 
   /// [value] as a [Varchar] holding its JSON form — meant for a list whose
   /// elements are already native JSON values: an [int], a [double], a
@@ -127,7 +127,13 @@ sealed class DatabaseType extends Equatable {
   /// For a list of a project's own type instead, one that knows its own
   /// `toJson`, reach for [ListJson] — the same way [Json] covers a single
   /// value of one.
-  static DatabaseType list<T>(List<T> value) => Varchar(jsonEncode(value));
+  static Varchar list<T>(List<T> value) => Varchar(jsonEncode(value));
+
+  /// [value] as a [Varchar] holding its canonical lower-case text form.
+  ///
+  /// Read one back with `asUuid`, which validates the text instead of handing
+  /// back whatever the column held.
+  static Varchar uuid(UuidValue value) => Varchar(value.uuid);
 
   /// A new, randomly generated UUID (version 4), as a [Varchar].
   ///
@@ -135,8 +141,8 @@ sealed class DatabaseType extends Equatable {
   /// rather than [Random]'s: two calls landing in the same millisecond,
   /// across however many concurrent inserts, still practically never
   /// collide, which a hand-rolled generator seeded from the clock could not
-  /// promise.
-  static DatabaseType uuid() => Varchar(_uuidGenerator.v4());
+  /// promise. Call `asUuid` on the result to keep the identifier it holds.
+  static Varchar randomUuid() => Varchar(_uuidGenerator.v4());
 
   /// [value] as a [Varchar] holding its JSON form, `{"lat": ..., "lng": ...}`.
   ///
@@ -144,25 +150,25 @@ sealed class DatabaseType extends Equatable {
   /// UUID, a point has no single native representation any driver already
   /// agrees on, so this picks the plainest one rather than a binary format
   /// only this package could read back.
-  static DatabaseType point(Location value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar point(Location value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
-  static DatabaseType line(LocationLine value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar line(LocationLine value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
-  static DatabaseType segment(LocationSegment value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar segment(LocationSegment value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
-  static DatabaseType box(LocationBox value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar box(LocationBox value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
-  static DatabaseType path(LocationPath value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar path(LocationPath value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
-  static DatabaseType polygon(LocationPolygon value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar polygon(LocationPolygon value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
-  static DatabaseType circle(LocationCircle value) => Varchar(jsonEncode(value.toJson()));
+  static Varchar circle(LocationCircle value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its two bounds: an [IntervalBounds.num]
   /// stores them exactly as given, an [IntervalBounds.datetime] stores each
@@ -170,38 +176,47 @@ sealed class DatabaseType extends Equatable {
   ///
   /// Read one back with `asNumberBounds` or `asDateTimeBounds`, whichever
   /// kind it was written as.
-  static DatabaseType interval(IntervalBounds value) => switch (value) {
+  static Varchar interval(IntervalBounds value) => switch (value) {
     NumberBounds(:final start, :final end) => Varchar(jsonEncode({'start': start, 'end': end})),
     DateTimeBounds(:final start, :final end) => Varchar(
       jsonEncode({'start': start.toUtc().millisecondsSinceEpoch, 'end': end.toUtc().millisecondsSinceEpoch}),
     ),
   };
 
-  /// [value] as a [Varchar] holding its own [RangeSubtype], bounds and
-  /// inclusivity: a [RangeBounds.num] stores its two ends exactly as given,
-  /// a [RangeBounds.datetime] stores each as its millisecond offset from the
-  /// Unix epoch, in UTC — [RangeSubtype.timestamp] and
-  /// [RangeSubtype.timestamptz] are not told apart beyond that, and
-  /// [RangeSubtype.date] carries whatever time of day a project's own
-  /// [DateTime] already had, midnight or not.
+  /// [value] as a [Varchar] holding its subtype, bounds and inclusivity.
   ///
-  /// Read one back with `asNumberRange` or `asDateTimeRange`, whichever kind
-  /// it was written as.
-  static DatabaseType range(RangeBounds value) => switch (value) {
-    NumberRangeBounds(:final lower, :final upper) => Varchar(
+  /// A [RangeBounds.num] stores its two ends exactly as given, a
+  /// [RangeBounds.datetime] stores each as its millisecond offset from the
+  /// Unix epoch in UTC, and a [RangeBounds.date] stores each as the midnight,
+  /// UTC, [date] would. [DateTimeRangeSubtype.timestamp] and
+  /// [DateTimeRangeSubtype.timestamptz] are not told apart beyond their name.
+  ///
+  /// Read one back with `asNumberRange`, `asDateTimeRange` or `asDateRange`,
+  /// whichever kind it was written as.
+  static Varchar range(RangeBounds value) => switch (value) {
+    NumberRangeBounds(:final subtype, :final lower, :final upper) => Varchar(
       jsonEncode({
-        'subtype': value.subtype.name,
+        'subtype': subtype.name,
         'lower': lower,
         'upper': upper,
         'lowerInclusive': value.lowerInclusive,
         'upperInclusive': value.upperInclusive,
       }),
     ),
-    DateTimeRangeBounds(:final lower, :final upper) => Varchar(
+    DateTimeRangeBounds(:final subtype, :final lower, :final upper) => Varchar(
       jsonEncode({
-        'subtype': value.subtype.name,
+        'subtype': subtype.name,
         'lower': lower?.toUtc().millisecondsSinceEpoch,
         'upper': upper?.toUtc().millisecondsSinceEpoch,
+        'lowerInclusive': value.lowerInclusive,
+        'upperInclusive': value.upperInclusive,
+      }),
+    ),
+    DateRangeBounds(:final lower, :final upper) => Varchar(
+      jsonEncode({
+        'subtype': 'date',
+        'lower': lower?.toDateTime().millisecondsSinceEpoch,
+        'upper': upper?.toDateTime().millisecondsSinceEpoch,
         'lowerInclusive': value.lowerInclusive,
         'upperInclusive': value.upperInclusive,
       }),
@@ -239,7 +254,8 @@ final class Nil extends DatabaseType {
 /// A signed integer, up to 64 bits.
 final class Integer extends DatabaseType {
   /// Wraps [value]. Prefer [DatabaseType.integer] over calling this
-  /// directly.
+  /// directly, except where a signature asks for an [Integer] itself, such as
+  /// [IntegerColumnBuilder.default_].
   const Integer(this.value);
 
   /// The wrapped integer.
@@ -257,7 +273,9 @@ final class Integer extends DatabaseType {
 
 /// A floating point value.
 final class Real extends DatabaseType {
-  /// Wraps [value]. Prefer [DatabaseType.real] over calling this directly.
+  /// Wraps [value]. Prefer [DatabaseType.real] over calling this directly,
+  /// except where a signature asks for a [Real] itself, such as
+  /// [RealColumnBuilder.default_].
   const Real(this.value);
 
   /// The wrapped floating point value.
@@ -276,7 +294,8 @@ final class Real extends DatabaseType {
 /// UTF-8 text.
 final class Varchar extends DatabaseType {
   /// Wraps [value]. Prefer [DatabaseType.varchar] over calling this
-  /// directly.
+  /// directly, except where a signature asks for a [Varchar] itself, such as
+  /// [TextColumnBuilder.default_].
   const Varchar(this.value);
 
   /// The wrapped text.
@@ -294,7 +313,9 @@ final class Varchar extends DatabaseType {
 
 /// Raw bytes, stored exactly as given.
 final class Blob extends DatabaseType {
-  /// Wraps [value]. Prefer [DatabaseType.blob] over calling this directly.
+  /// Wraps [value]. Prefer [DatabaseType.blob] over calling this directly,
+  /// except where a signature asks for a [Blob] itself, such as
+  /// [BlobColumnBuilder.default_].
   const Blob(this.value);
 
   /// The wrapped bytes.

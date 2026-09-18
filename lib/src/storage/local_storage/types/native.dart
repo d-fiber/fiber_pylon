@@ -34,38 +34,44 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
-/// One column [LocalDatabase.columns] read out of `PRAGMA table_info`.
-final class DatabaseColumn extends Equatable {
-  /// Wraps every field [LocalDatabase.columns] read for one column.
-  const DatabaseColumn({
-    required this.name,
-    required this.declaredType,
-    required this.isNotNull,
-    required this.isPrimaryKey,
-  });
+/// Reads back a value stored as one of SQLite's own four non-null storage
+/// classes, with no convention layered on top.
+///
+/// Reach for these instead of casting a column to [Integer], [Real],
+/// [Varchar] or [Blob] by hand: a cast that fails throws a [TypeError]
+/// naming no column, while these throw a [StateError] naming the value.
+extension NativeDecoding on DatabaseType {
+  /// This value as an [int].
+  ///
+  /// Throws a [StateError] if this is not an [Integer].
+  int get asInt {
+    if (this case Integer(value: final stored)) return stored;
+    throw StateError('$this is not an integer.');
+  }
 
-  /// The column's own name.
-  final String name;
+  /// This value as a [double].
+  ///
+  /// Throws a [StateError] if this is not a [Real].
+  double get asDouble {
+    if (this case Real(value: final stored)) return stored;
+    throw StateError('$this is not a real.');
+  }
 
-  /// The type exactly as the `CREATE TABLE` that declared it wrote it —
-  /// empty when the column carries none, since SQLite never requires one.
-  final String declaredType;
+  /// This value as a [String].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar].
+  String get asString {
+    if (this case Varchar(value: final stored)) return stored;
+    throw StateError('$this is not text.');
+  }
 
-  /// Whether the column carries a `NOT NULL` constraint.
-  final bool isNotNull;
-
-  /// Whether the column is part of the table's primary key.
-  final bool isPrimaryKey;
-
-  factory DatabaseColumn._fromRow(DatabaseRow row) => DatabaseColumn(
-    name: row['name']!.asString,
-    declaredType: row['type']!.asString,
-    isNotNull: row['notnull']!.asBoolean,
-    isPrimaryKey: row['pk']!.asBoolean,
-  );
-
-  @override
-  List<Object?> get props => [name, declaredType, isNotNull, isPrimaryKey];
+  /// This value as raw bytes.
+  ///
+  /// Throws a [StateError] if this is not a [Blob].
+  Uint8List get asBytes {
+    if (this case Blob(value: final stored)) return stored;
+    throw StateError('$this is not a blob.');
+  }
 }

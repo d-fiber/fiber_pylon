@@ -85,7 +85,12 @@ extension LocationDecoding on DatabaseType {
 /// read and write.
 final class Location extends Equatable {
   /// A point at [lat] degrees of latitude, [lng] degrees of longitude.
-  const Location({required this.lat, required this.lng});
+  ///
+  /// Asserts that both sit inside the range their own documentation gives,
+  /// which also refuses a `NaN`.
+  const Location({required this.lat, required this.lng})
+    : assert(lat >= -90 && lat <= 90, 'lat must be -90 through 90.'),
+      assert(lng >= -180 && lng <= 180, 'lng must be -180 through 180.');
 
   /// Degrees of latitude, from -90 at the South Pole to 90 at the North
   /// Pole.
@@ -97,7 +102,7 @@ final class Location extends Equatable {
 
   /// Rebuilds the [Location] [toJson] wrote.
   factory Location.fromJson(Map<String, dynamic> json) =>
-      Location(lat: json['lat'] as double, lng: json['lng'] as double);
+      Location(lat: (json['lat'] as num).toDouble(), lng: (json['lng'] as num).toDouble());
 
   /// This point's own fields, in the shape [Location.fromJson] rebuilds
   /// from.
@@ -245,7 +250,10 @@ final class LocationPolygon extends Equatable {
 /// project's own [Location] coordinates already use.
 final class LocationCircle extends Equatable {
   /// The circle centred on [center], [radius] wide.
-  const LocationCircle({required this.center, required this.radius});
+  ///
+  /// Asserts that [radius] is not negative.
+  const LocationCircle({required this.center, required this.radius})
+    : assert(radius >= 0, 'radius must not be negative.');
 
   /// This circle's own centre.
   final Location center;
@@ -257,7 +265,7 @@ final class LocationCircle extends Equatable {
   /// Rebuilds the [LocationCircle] [toJson] wrote.
   factory LocationCircle.fromJson(Map<String, dynamic> json) => LocationCircle(
     center: Location.fromJson(json['center'] as Map<String, dynamic>),
-    radius: json['radius'] as double,
+    radius: (json['radius'] as num).toDouble(),
   );
 
   /// This circle's own fields, in the shape [LocationCircle.fromJson]

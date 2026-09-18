@@ -34,8 +34,11 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:typed_data';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:uuid/uuid.dart';
 
 enum Season { spring, summer, autumn, winter }
 
@@ -116,7 +119,7 @@ void main() {
       final stored = DatabaseType.enum_(Season.summer);
 
       expect(stored, isA<Varchar>());
-      expect((stored as Varchar).value, 'summer');
+      expect(stored.value, 'summer');
       expect(stored.asEnum(Season.values), Season.summer);
     });
 
@@ -148,18 +151,14 @@ void main() {
       expect(() => const DatabaseType.integer(1).asList<int>(), throwsStateError);
     });
 
-    test('uuid generates a well-formed version 4 identifier', () {
-      final value = DatabaseType.uuid();
+    test('randomUuid generates a well-formed version 4 identifier', () {
+      final value = DatabaseType.randomUuid();
 
-      expect(value, isA<Varchar>());
-      expect(
-        (value as Varchar).value,
-        matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')),
-      );
+      expect(value.value, matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
     });
 
-    test('uuid never repeats across a burst of rapid generation', () {
-      final generated = {for (var i = 0; i < 2000; i++) (DatabaseType.uuid() as Varchar).value};
+    test('randomUuid never repeats across a burst of rapid generation', () {
+      final generated = {for (var i = 0; i < 2000; i++) DatabaseType.randomUuid().value};
 
       expect(generated, hasLength(2000));
     });
@@ -276,12 +275,12 @@ void main() {
     });
 
     test('range of numbers round-trips through asNumberRange, with its default bounds', () {
-      const bounds = RangeBounds.num(subtype: RangeSubtype.integer, lower: 1, upper: 10);
+      const bounds = RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1, upper: 10);
 
       final decoded = DatabaseType.range(bounds).asNumberRange;
 
       expect(decoded, bounds);
-      expect(decoded.subtype, RangeSubtype.integer);
+      expect(decoded.subtype, NumberRangeSubtype.integer);
       expect(decoded.lower, 1);
       expect(decoded.upper, 10);
       expect(decoded.lowerInclusive, isTrue);
@@ -290,7 +289,7 @@ void main() {
 
     test('range of numbers round-trips an unbounded side and explicit inclusivity', () {
       const bounds = RangeBounds.num(
-        subtype: RangeSubtype.numeric,
+        subtype: NumberRangeSubtype.numeric,
         upper: 99.5,
         lowerInclusive: false,
         upperInclusive: true,
@@ -309,10 +308,10 @@ void main() {
       final upper = DateTime(2027);
 
       final decoded = DatabaseType.range(
-        RangeBounds.datetime(subtype: RangeSubtype.timestamptz, lower: lower, upper: upper),
+        RangeBounds.datetime(subtype: DateTimeRangeSubtype.timestamptz, lower: lower, upper: upper),
       ).asDateTimeRange;
 
-      expect(decoded.subtype, RangeSubtype.timestamptz);
+      expect(decoded.subtype, DateTimeRangeSubtype.timestamptz);
       expect(decoded.lower!.isUtc, isTrue);
       expect(decoded.lower!.millisecondsSinceEpoch, lower.toUtc().millisecondsSinceEpoch);
       expect(decoded.upper!.millisecondsSinceEpoch, upper.toUtc().millisecondsSinceEpoch);
@@ -322,21 +321,156 @@ void main() {
       final lower = DateTime(2026);
 
       final decoded = DatabaseType.range(
-        RangeBounds.datetime(subtype: RangeSubtype.date, lower: lower),
+        RangeBounds.datetime(subtype: DateTimeRangeSubtype.timestamp, lower: lower),
       ).asDateTimeRange;
 
       expect(decoded.lower, isNotNull);
       expect(decoded.upper, isNull);
     });
 
-    test('a number range and a date range are told apart by their factory', () {
-      expect(const RangeBounds.num(subtype: RangeSubtype.integer), isA<NumberRangeBounds>());
-      expect(const RangeBounds.datetime(subtype: RangeSubtype.date), isA<DateTimeRangeBounds>());
+    test('range of calendar dates round-trips through asDateRange, with no time of day to lose', () {
+      const lower = Date(year: 2026, month: 7, day: 14);
+      const upper = Date(year: 2026, month: 8, day: 31);
+
+      final decoded = DatabaseType.range(const RangeBounds.date(lower: lower, upper: upper)).asDateRange;
+
+      expect(decoded, const RangeBounds.date(lower: lower, upper: upper));
+      expect(decoded.lower, lower);
+      expect(decoded.upper, upper);
     });
 
-    test('asNumberRange and asDateTimeRange throw on a value that never was a range', () {
+    test('range of calendar dates round-trips an unbounded side and explicit inclusivity', () {
+      const upper = Date(year: 2026, month: 8, day: 31);
+
+      final decoded = DatabaseType.range(const RangeBounds.date(upper: upper, upperInclusive: true)).asDateRange;
+
+      expect(decoded.lower, isNull);
+      expect(decoded.upper, upper);
+      expect(decoded.lowerInclusive, isTrue);
+      expect(decoded.upperInclusive, isTrue);
+    });
+
+    test('a number range, a date time range and a date range are told apart by their factory', () {
+      expect(const RangeBounds.num(subtype: NumberRangeSubtype.integer), isA<NumberRangeBounds>());
+      expect(const RangeBounds.datetime(subtype: DateTimeRangeSubtype.timestamp), isA<DateTimeRangeBounds>());
+      expect(const RangeBounds.date(), isA<DateRangeBounds>());
+    });
+
+    test('asNumberRange, asDateTimeRange and asDateRange throw on a value that never was a range', () {
       expect(() => const DatabaseType.integer(1).asNumberRange, throwsStateError);
       expect(() => const DatabaseType.integer(1).asDateTimeRange, throwsStateError);
+      expect(() => const DatabaseType.integer(1).asDateRange, throwsStateError);
+    });
+  });
+
+  group('NativeDecoding', () {
+    test('asInt, asDouble, asString and asBytes read back the storage class they were written as', () {
+      expect(const DatabaseType.integer(42).asInt, 42);
+      expect(const DatabaseType.real(1.5).asDouble, 1.5);
+      expect(const DatabaseType.varchar('hello').asString, 'hello');
+      expect(DatabaseType.blob(Uint8List.fromList([1, 2, 3])).asBytes, [1, 2, 3]);
+    });
+
+    test('each one throws a StateError naming the value when the storage class differs', () {
+      expect(() => const DatabaseType.varchar('nope').asInt, throwsStateError);
+      expect(() => const DatabaseType.integer(1).asDouble, throwsStateError);
+      expect(() => const DatabaseType.integer(1).asString, throwsStateError);
+      expect(() => const DatabaseType.integer(1).asBytes, throwsStateError);
+      expect(() => const DatabaseType.nil().asInt, throwsStateError);
+    });
+
+    test('a convention factory answers the storage class it is stored as, by its own static type', () {
+      final Integer flag = DatabaseType.boolean(true);
+      final Integer moment = DatabaseType.timestamp(0);
+      final Integer day = DatabaseType.date(const Date(year: 2026, month: 7, day: 14));
+      final Varchar season = DatabaseType.enum_(Season.summer);
+      final Varchar shape = DatabaseType.point(const Location(lat: 0, lng: 0));
+
+      expect([flag.value, moment.value, day.value], [1, 0, 1783987200000]);
+      expect([season.value, shape.value], ['summer', '{"lat":0.0,"lng":0.0}']);
+    });
+  });
+
+  group('UuidDecoding', () {
+    test('a given UUID round-trips through asUuid, in its canonical lower-case form', () {
+      final id = UuidValue.fromString('123E4567-E89B-42D3-A456-426614174000');
+
+      final stored = DatabaseType.uuid(id);
+
+      expect(stored.value, '123e4567-e89b-42d3-a456-426614174000');
+      expect(stored.asUuid, id);
+    });
+
+    test('a generated UUID can be read back as the value it holds', () {
+      final generated = DatabaseType.randomUuid();
+
+      expect(generated.asUuid.uuid, generated.value);
+    });
+
+    test('asUuid throws a StateError on a value that never was text', () {
+      expect(() => const DatabaseType.integer(1).asUuid, throwsStateError);
+    });
+
+    test('asUuid throws a FormatException on text that is not a UUID', () {
+      expect(() => const DatabaseType.varchar('not-a-uuid').asUuid, throwsFormatException);
+    });
+  });
+
+  group('value invariants', () {
+    Date date(int year, int month, int day) => Date(year: year, month: month, day: day);
+    Time time(int hour, int minute, int second, int millisecond) =>
+        Time(hour: hour, minute: minute, second: second, millisecond: millisecond);
+    Location location(double lat, double lng) => Location(lat: lat, lng: lng);
+
+    test('Date refuses a month outside 1 through 12', () {
+      expect(() => date(2026, 0, 1), throwsA(isA<AssertionError>()));
+      expect(() => date(2026, 13, 1), throwsA(isA<AssertionError>()));
+    });
+
+    test('Date refuses a day the month does not have, leap years included', () {
+      expect(() => date(2026, 4, 31), throwsA(isA<AssertionError>()));
+      expect(() => date(2026, 2, 29), throwsA(isA<AssertionError>()));
+      expect(() => date(1900, 2, 29), throwsA(isA<AssertionError>()));
+      expect(() => date(2026, 1, 0), throwsA(isA<AssertionError>()));
+    });
+
+    test('Date accepts the last day of every kind of month', () {
+      expect(date(2024, 2, 29).day, 29);
+      expect(date(2000, 2, 29).day, 29);
+      expect(date(2026, 2, 28).day, 28);
+      expect(date(2026, 4, 30).day, 30);
+      expect(date(2026, 12, 31).day, 31);
+    });
+
+    test('Time refuses a field outside the range its own documentation gives', () {
+      expect(() => time(24, 0, 0, 0), throwsA(isA<AssertionError>()));
+      expect(() => time(0, 60, 0, 0), throwsA(isA<AssertionError>()));
+      expect(() => time(0, 0, 60, 0), throwsA(isA<AssertionError>()));
+      expect(() => time(0, 0, 0, 1000), throwsA(isA<AssertionError>()));
+      expect(() => time(-1, 0, 0, 0), throwsA(isA<AssertionError>()));
+      expect(time(23, 59, 59, 999).hour, 23);
+    });
+
+    test('Location refuses a latitude or a longitude outside the globe, and a NaN', () {
+      expect(() => location(90.1, 0), throwsA(isA<AssertionError>()));
+      expect(() => location(-90.1, 0), throwsA(isA<AssertionError>()));
+      expect(() => location(0, 180.1), throwsA(isA<AssertionError>()));
+      expect(() => location(0, -180.1), throwsA(isA<AssertionError>()));
+      expect(() => location(double.nan, 0), throwsA(isA<AssertionError>()));
+      expect(location(90, -180).lat, 90);
+    });
+
+    test('LocationCircle refuses a negative radius', () {
+      final center = location(0, 0);
+
+      expect(() => LocationCircle(center: center, radius: -1), throwsA(isA<AssertionError>()));
+      expect(LocationCircle(center: center, radius: 0).radius, 0);
+    });
+
+    test('Location reads a coordinate JSON wrote as a whole number', () {
+      final decoded = Location.fromJson({'lat': 48, 'lng': 2});
+
+      expect(decoded, const Location(lat: 48, lng: 2));
     });
   });
 

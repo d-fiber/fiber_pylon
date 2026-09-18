@@ -45,7 +45,7 @@ extension RangeDecoding on DatabaseType {
   NumberRangeBounds get asNumberRange {
     final json = _decodeJson('number range');
     return NumberRangeBounds._(
-      subtype: RangeSubtype.values.byName(json['subtype'] as String),
+      subtype: NumberRangeSubtype.values.byName(json['subtype'] as String),
       lower: json['lower'] as num?,
       upper: json['upper'] as num?,
       lowerInclusive: json['lowerInclusive'] as bool,
@@ -58,27 +58,43 @@ extension RangeDecoding on DatabaseType {
   ///
   /// Throws a [StateError] if this is not a [Varchar].
   DateTimeRangeBounds get asDateTimeRange {
-    final json = _decodeJson('date range');
+    final json = _decodeJson('date time range');
     final lower = json['lower'] as int?;
     final upper = json['upper'] as int?;
     return DateTimeRangeBounds._(
-      subtype: RangeSubtype.values.byName(json['subtype'] as String),
+      subtype: DateTimeRangeSubtype.values.byName(json['subtype'] as String),
       lower: lower == null ? null : DateTime.fromMillisecondsSinceEpoch(lower, isUtc: true),
       upper: upper == null ? null : DateTime.fromMillisecondsSinceEpoch(upper, isUtc: true),
       lowerInclusive: json['lowerInclusive'] as bool,
       upperInclusive: json['upperInclusive'] as bool,
     );
   }
+
+  /// This value as [DateRangeBounds], the same convention [range] wrote a
+  /// [RangeBounds.date] under: each bound, when present, as the calendar date
+  /// of its stored midnight.
+  ///
+  /// Throws a [StateError] if this is not a [Varchar].
+  DateRangeBounds get asDateRange {
+    final json = _decodeJson('date range');
+    final lower = json['lower'] as int?;
+    final upper = json['upper'] as int?;
+    return DateRangeBounds._(
+      lower: lower == null ? null : Date.fromDateTime(DateTime.fromMillisecondsSinceEpoch(lower, isUtc: true)),
+      upper: upper == null ? null : Date.fromDateTime(DateTime.fromMillisecondsSinceEpoch(upper, isUtc: true)),
+      lowerInclusive: json['lowerInclusive'] as bool,
+      upperInclusive: json['upperInclusive'] as bool,
+    );
+  }
 }
 
-/// Which Postgres range type a [RangeBounds] mirrors.
+/// Which Postgres range type over numbers a [RangeBounds.num] mirrors.
 ///
-/// Kept for interoperability and self-description — a project's own schema
-/// can say which of the six it means — not because this package reads it
-/// back: [DatabaseType.range] already picks the right encoding from the
-/// kind of [RangeBounds] it is given, regardless of which member is named
-/// here.
-enum RangeSubtype {
+/// Kept for interoperability and self-description: a project's own schema
+/// can say which of the three it means. This package does not read it back,
+/// since [DatabaseType.range] already picks the right encoding from the kind
+/// of [RangeBounds] it is given.
+enum NumberRangeSubtype {
   /// Postgres's `int4range`.
   integer,
 
@@ -87,100 +103,127 @@ enum RangeSubtype {
 
   /// Postgres's `numrange`.
   numeric,
+}
 
+/// Which Postgres range type over instants a [RangeBounds.datetime] mirrors.
+///
+/// Kept for interoperability and self-description, like [NumberRangeSubtype].
+/// The two are stored the same way, as milliseconds since the Unix epoch in
+/// UTC.
+enum DateTimeRangeSubtype {
   /// Postgres's `tsrange`.
   timestamp,
 
   /// Postgres's `tstzrange`.
   timestamptz,
-
-  /// Postgres's `daterange`.
-  date,
 }
 
 /// A Postgres-style range: bounded by a lower and an upper end, each either
 /// inclusive or exclusive, and either end entirely absent for a range
-/// unbounded on that side. Of exactly one of two kinds: numbers
-/// ([RangeBounds.num]) or dates ([RangeBounds.datetime]), nothing else.
+/// unbounded on that side. Of exactly one of three kinds: numbers
+/// ([RangeBounds.num]), instants ([RangeBounds.datetime]) or calendar dates
+/// ([RangeBounds.date]), nothing else.
 ///
-/// Sealed and built only through those two factories, so a `switch` over a
-/// [RangeBounds] is exhaustive with [NumberRangeBounds] and
-/// [DateTimeRangeBounds]. Postgres's own default shape, `[lower, upper)`, is
+/// Sealed and built only through those three factories, so a `switch` over a
+/// [RangeBounds] is exhaustive with [NumberRangeBounds],
+/// [DateTimeRangeBounds] and [DateRangeBounds]. Each kind takes the subtype
+/// enum of its own family, so a number range can never be declared
+/// [DateTimeRangeSubtype.timestamp], and the bounds live on the subclasses
+/// with their own type. Postgres's own default shape, `[lower, upper)`, is
 /// the default here too: [lowerInclusive] defaults to `true`,
-/// [upperInclusive] to `false`. Nothing here checks that the [subtype] a
-/// project names matches the kind of bounds it gave.
+/// [upperInclusive] to `false`.
 sealed class RangeBounds extends Equatable {
-  const RangeBounds._({required this.subtype, required this.lowerInclusive, required this.upperInclusive});
+  const RangeBounds._({required this.lowerInclusive, required this.upperInclusive});
 
   /// The range from [lower] to [upper], both numbers.
   const factory RangeBounds.num({
-    required RangeSubtype subtype,
+    required NumberRangeSubtype subtype,
     num? lower,
     num? upper,
     bool lowerInclusive,
     bool upperInclusive,
   }) = NumberRangeBounds._;
 
-  /// The range from [lower] to [upper], both dates.
+  /// The range from [lower] to [upper], both instants.
   const factory RangeBounds.datetime({
-    required RangeSubtype subtype,
+    required DateTimeRangeSubtype subtype,
     DateTime? lower,
     DateTime? upper,
     bool lowerInclusive,
     bool upperInclusive,
   }) = DateTimeRangeBounds._;
 
-  /// Which Postgres range type this mirrors.
-  final RangeSubtype subtype;
+  /// The range from [lower] to [upper], both calendar dates. Postgres's
+  /// `daterange`.
+  const factory RangeBounds.date({Date? lower, Date? upper, bool lowerInclusive, bool upperInclusive}) =
+      DateRangeBounds._;
 
-  /// This range's own lower bound. Unbounded below when `null`.
-  Object? get lower;
-
-  /// This range's own upper bound. Unbounded above when `null`.
-  Object? get upper;
-
-  /// Whether [lower] itself is part of this range. Meaningless when [lower]
-  /// is `null`.
+  /// Whether the lower bound itself is part of this range. Meaningless when
+  /// the range is unbounded below.
   final bool lowerInclusive;
 
-  /// Whether [upper] itself is part of this range. Meaningless when [upper]
-  /// is `null`.
+  /// Whether the upper bound itself is part of this range. Meaningless when
+  /// the range is unbounded above.
   final bool upperInclusive;
-
-  @override
-  List<Object?> get props => [subtype, lower, upper, lowerInclusive, upperInclusive];
 }
 
 /// A [RangeBounds] between two numbers.
 final class NumberRangeBounds extends RangeBounds {
   const NumberRangeBounds._({
-    required super.subtype,
+    required this.subtype,
     this.lower,
     this.upper,
     super.lowerInclusive = true,
     super.upperInclusive = false,
   }) : super._();
 
-  @override
+  /// Which Postgres range type over numbers this mirrors.
+  final NumberRangeSubtype subtype;
+
+  /// This range's own lower bound. Unbounded below when `null`.
   final num? lower;
 
-  @override
+  /// This range's own upper bound. Unbounded above when `null`.
   final num? upper;
+
+  @override
+  List<Object?> get props => [subtype, lower, upper, lowerInclusive, upperInclusive];
 }
 
-/// A [RangeBounds] between two dates.
+/// A [RangeBounds] between two instants.
 final class DateTimeRangeBounds extends RangeBounds {
   const DateTimeRangeBounds._({
-    required super.subtype,
+    required this.subtype,
     this.lower,
     this.upper,
     super.lowerInclusive = true,
     super.upperInclusive = false,
   }) : super._();
 
-  @override
+  /// Which Postgres range type over instants this mirrors.
+  final DateTimeRangeSubtype subtype;
+
+  /// This range's own lower bound. Unbounded below when `null`.
   final DateTime? lower;
 
-  @override
+  /// This range's own upper bound. Unbounded above when `null`.
   final DateTime? upper;
+
+  @override
+  List<Object?> get props => [subtype, lower, upper, lowerInclusive, upperInclusive];
+}
+
+/// A [RangeBounds] between two calendar dates.
+final class DateRangeBounds extends RangeBounds {
+  const DateRangeBounds._({this.lower, this.upper, super.lowerInclusive = true, super.upperInclusive = false})
+    : super._();
+
+  /// This range's own lower bound. Unbounded below when `null`.
+  final Date? lower;
+
+  /// This range's own upper bound. Unbounded above when `null`.
+  final Date? upper;
+
+  @override
+  List<Object?> get props => [lower, upper, lowerInclusive, upperInclusive];
 }

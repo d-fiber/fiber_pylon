@@ -66,10 +66,12 @@ extension IntervalDecoding on DatabaseType {
 ///
 /// Sealed and built only through those two factories, so a `switch` over an
 /// [IntervalBounds] is exhaustive with [NumberBounds] and [DateTimeBounds]
-/// and nothing here can be handed a third kind. Neither end is required to
-/// be numerically or chronologically the lesser of the two: a project that
-/// always normalises its own bounds gets a predictable interval back, one
-/// that never does gets exactly the two values it gave.
+/// and nothing here can be handed a third kind. The ends live on those two
+/// subclasses, each with its own type, so reading one never yields an
+/// `Object` to cast. Neither end is required to be numerically or
+/// chronologically the lesser of the two: a project that always normalises
+/// its own bounds gets a predictable interval back, one that never does gets
+/// exactly the two values it gave.
 sealed class IntervalBounds extends Equatable {
   const IntervalBounds._();
 
@@ -78,35 +80,32 @@ sealed class IntervalBounds extends Equatable {
 
   /// The interval from [start] to [end], both dates.
   const factory IntervalBounds.datetime({required DateTime start, required DateTime end}) = DateTimeBounds._;
-
-  /// One end of this interval.
-  Object get start;
-
-  /// The other end of this interval.
-  Object get end;
-
-  @override
-  List<Object?> get props => [start, end];
 }
 
 /// An [IntervalBounds] between two numbers.
 final class NumberBounds extends IntervalBounds {
   const NumberBounds._({required this.start, required this.end}) : super._();
 
-  @override
+  /// One end of this interval.
   final num start;
 
-  @override
+  /// The other end of this interval.
   final num end;
+
+  @override
+  List<Object?> get props => [start, end];
 }
 
 /// An [IntervalBounds] between two dates.
 final class DateTimeBounds extends IntervalBounds {
   const DateTimeBounds._({required this.start, required this.end}) : super._();
 
-  @override
+  /// One end of this interval.
   final DateTime start;
 
-  @override
+  /// The other end of this interval.
   final DateTime end;
+
+  @override
+  List<Object?> get props => [start, end];
 }

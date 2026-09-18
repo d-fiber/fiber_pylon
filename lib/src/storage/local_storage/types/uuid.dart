@@ -34,38 +34,17 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
-/// One column [LocalDatabase.columns] read out of `PRAGMA table_info`.
-final class DatabaseColumn extends Equatable {
-  /// Wraps every field [LocalDatabase.columns] read for one column.
-  const DatabaseColumn({
-    required this.name,
-    required this.declaredType,
-    required this.isNotNull,
-    required this.isPrimaryKey,
-  });
-
-  /// The column's own name.
-  final String name;
-
-  /// The type exactly as the `CREATE TABLE` that declared it wrote it —
-  /// empty when the column carries none, since SQLite never requires one.
-  final String declaredType;
-
-  /// Whether the column carries a `NOT NULL` constraint.
-  final bool isNotNull;
-
-  /// Whether the column is part of the table's primary key.
-  final bool isPrimaryKey;
-
-  factory DatabaseColumn._fromRow(DatabaseRow row) => DatabaseColumn(
-    name: row['name']!.asString,
-    declaredType: row['type']!.asString,
-    isNotNull: row['notnull']!.asBoolean,
-    isPrimaryKey: row['pk']!.asBoolean,
-  );
-
-  @override
-  List<Object?> get props => [name, declaredType, isNotNull, isPrimaryKey];
+/// Reads a value back the way [DatabaseType.uuid] and [DatabaseType.randomUuid] wrote it.
+extension UuidDecoding on DatabaseType {
+  /// This value as a [UuidValue], the same convention [uuid] wrote it under:
+  /// its canonical text form.
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a
+  /// [FormatException] if its text is not a valid UUID.
+  UuidValue get asUuid {
+    if (this case Varchar(value: final stored)) return UuidValue.withValidation(stored);
+    throw StateError('$this is not a UUID.');
+  }
 }

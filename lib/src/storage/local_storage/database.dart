@@ -44,10 +44,12 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 part 'types/database_type.dart';
+part 'types/native.dart';
 part 'types/boolean.dart';
 part 'types/temporal.dart';
 part 'types/enum_value.dart';
 part 'types/list.dart';
+part 'types/uuid.dart';
 part 'types/location.dart';
 part 'types/interval.dart';
 part 'types/range.dart';
@@ -84,8 +86,8 @@ part 'batch.dart';
 ///   final bool done;
 ///
 ///   static Todo fromRow(DatabaseRow row) => Todo(
-///     title: (row['title'] as Varchar).value,
-///     done: (row['done'] as Integer).value != 0,
+///     title: row['title']!.asString,
+///     done: row['done']!.asBoolean,
 ///   );
 ///
 ///   @override
@@ -322,7 +324,7 @@ class LocalDatabase {
         .from('sqlite_master')
         .select(const ['name'])
         .where((w) => w.raw("type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"))
-        .map((row) => (row['name'] as Varchar).value),
+        .map((row) => row['name']!.asString),
   );
 
   /// Every column [table] declares, in declaration order, straight out of

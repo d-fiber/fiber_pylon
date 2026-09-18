@@ -70,7 +70,22 @@ extension TemporalDecoding on DatabaseType {
 /// A calendar date, with no time of day — [year]-[month]-[day].
 final class Date extends Equatable {
   /// The date [year]-[month]-[day].
-  const Date({required this.year, required this.month, required this.day});
+  ///
+  /// Asserts that [month] is `1` through `12` and that [day] exists in that
+  /// month of that year, leap years included. Without it, [toDateTime] would
+  /// roll 31 February over into March instead of refusing it.
+  const Date({required this.year, required this.month, required this.day})
+    : assert(month >= 1 && month <= 12, 'month must be 1 through 12.'),
+      assert(
+        day >= 1 &&
+            day <=
+                (month == 2
+                    ? ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 29 : 28)
+                    : (month == 4 || month == 6 || month == 9 || month == 11)
+                    ? 30
+                    : 31),
+        'day must exist in the given month of the given year.',
+      );
 
   /// The calendar year, astronomical numbering (`0` is 1 BC).
   final int year;
@@ -103,7 +118,14 @@ final class Date extends Equatable {
 /// [millisecond] precision.
 final class Time extends Equatable {
   /// The time [hour]:[minute]:[second].[millisecond].
-  const Time({required this.hour, required this.minute, this.second = 0, this.millisecond = 0, this.utcOffset});
+  ///
+  /// Asserts that every field sits inside the range its own documentation
+  /// gives.
+  const Time({required this.hour, required this.minute, this.second = 0, this.millisecond = 0, this.utcOffset})
+    : assert(hour >= 0 && hour <= 23, 'hour must be 0 through 23.'),
+      assert(minute >= 0 && minute <= 59, 'minute must be 0 through 59.'),
+      assert(second >= 0 && second <= 59, 'second must be 0 through 59.'),
+      assert(millisecond >= 0 && millisecond <= 999, 'millisecond must be 0 through 999.');
 
   /// The hour, `0` through `23`.
   final int hour;
