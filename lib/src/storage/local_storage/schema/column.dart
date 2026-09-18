@@ -37,7 +37,7 @@
 part of 'schema.dart';
 
 /// A `CREATE TABLE` column's declared type, spelled the way SQLite's own
-/// `STRICT` tables take it — the only five keywords a `STRICT` column may
+/// `STRICT` tables take it: the only five keywords a `STRICT` column may
 /// name, matching [DatabaseType]'s own five storage classes exactly. A non-`STRICT`
 /// table accepts the same five keywords too; SQLite just does not enforce
 /// them there.
@@ -54,9 +54,27 @@ enum ColumnType {
   /// Raw bytes.
   blob,
 
-  /// Any storage class at all — the escape hatch `STRICT` needs for a column
-  /// with no fixed type. Meaningless outside a `STRICT` table.
+  /// Any storage class at all. The escape hatch `STRICT` needs for a column
+  /// with no fixed type, meaningless outside a `STRICT` table.
   any,
+}
+
+/// A collating sequence SQLite ships with, which decides how a text column
+/// sorts and compares.
+///
+/// SQLite through sqflite offers no way to register another one, so this is
+/// the complete list.
+enum Collation {
+  /// Compares the raw bytes of two texts. SQLite's own default.
+  binary,
+
+  /// Compares like [binary], except that the 26 upper-case ASCII letters
+  /// count as their lower-case counterparts. Letters outside ASCII keep their
+  /// case.
+  noCase,
+
+  /// Compares like [binary], except that trailing spaces are ignored.
+  rtrim,
 }
 
 /// What happens to a referencing row when the row it points at changes,
@@ -79,6 +97,19 @@ enum ReferentialAction {
   setDefault,
 }
 
+/// When a deferrable foreign key is checked.
+///
+/// A foreign key that carries no [Deferral] is not deferrable: SQLite checks
+/// it after every statement, and no transaction can postpone that.
+enum Deferral {
+  /// Deferrable, and checked after every statement unless a transaction asks
+  /// to postpone it.
+  initiallyImmediate,
+
+  /// Deferrable, and checked when the transaction commits.
+  initiallyDeferred,
+}
+
 /// Whether a [GeneratedColumn]'s value is computed once and stored like any
 /// other column, or recomputed on every read instead.
 enum GeneratedStorage {
@@ -89,21 +120,49 @@ enum GeneratedStorage {
   virtual,
 }
 
+/// The value a column takes when a row does not give it one: either a
+/// literal [DatabaseType] or a raw SQL expression.
+sealed class ColumnDefault extends Equatable {
+  const ColumnDefault();
+}
+
+/// A default that is one fixed value.
+///
+/// Rendered as the SQL literal of [value], so a [Varchar] is quoted and a
+/// [Blob] is spelled in hexadecimal without the caller writing either.
+final class LiteralDefault extends ColumnDefault {
+  /// The default [value].
+  const LiteralDefault(this.value);
+
+  /// The value a row takes when it gives none.
+  final DatabaseType value;
+
+  @override
+  List<Object?> get props => [value];
+}
+
+/// A default computed by a raw SQL expression.
+///
+/// Nothing here validates it, the same choice made for every other raw SQL
+/// fragment a caller supplies.
+final class ExpressionDefault extends ColumnDefault {
+  /// The default computed by [sql].
+  const ExpressionDefault(this.sql);
+
+  /// The SQL expression evaluated for each row that gives no value.
+  final String sql;
+
+  @override
+  List<Object?> get props => [sql];
+}
+
 /// A foreign key, from a column to another table's column.
 ///
 /// Left off [column], SQLite resolves to the referenced table's own primary
-/// key on its own — nothing here has to guess a name for it the way a
-/// Rails-style convention would.
+/// key on its own, so nothing here has to guess a name for it.
 final class ColumnReference extends Equatable {
   /// Wraps every field a [ColumnBuilder.references] or [TableForeignKeyBuilder] call resolved.
-  const ColumnReference({
-    required this.table,
-    this.column,
-    this.onDelete,
-    this.onUpdate,
-    this.deferrable = false,
-    this.initiallyDeferred = false,
-  });
+  const ColumnReference({required this.table, this.column, this.onDelete, this.onUpdate, this.deferral});
 
   /// The table this column points at.
   final String table;
@@ -120,17 +179,12 @@ final class ColumnReference extends Equatable {
   /// Nothing special when left out.
   final ReferentialAction? onUpdate;
 
-  /// Whether this constraint can be checked at the end of the transaction
-  /// rather than immediately. SQLite enforces every other constraint
-  /// immediately; a foreign key is the one this applies to.
-  final bool deferrable;
-
-  /// Whether a deferrable constraint checks at the end of the transaction by
-  /// default. Meaningless when [deferrable] is `false`.
-  final bool initiallyDeferred;
+  /// When this constraint is checked, if it may be checked later than the
+  /// statement that broke it. Not deferrable when left out.
+  final Deferral? deferral;
 
   @override
-  List<Object?> get props => [table, column, onDelete, onUpdate, deferrable, initiallyDeferred];
+  List<Object?> get props => [table, column, onDelete, onUpdate, deferral];
 }
 
 /// A column whose value SQLite computes from the rest of the row, rather
@@ -142,7 +196,7 @@ final class GeneratedColumn extends Equatable {
   /// The SQL expression this column computes, in terms of this table's
   /// other columns.
   ///
-  /// Nothing here validates it, the same choice [ColumnBuilder.default_]
+  /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
   /// makes for raw SQL no closed vocabulary covers.
   final String expression;
 
@@ -165,7 +219,7 @@ final class ColumnDefinition extends Equatable {
     required this.unique,
     required this.autoincrement,
     this.collation,
-    this.defaultSql,
+    this.defaultValue,
     this.references,
     this.generated,
   });
@@ -186,17 +240,13 @@ final class ColumnDefinition extends Equatable {
   /// unless [isPrimary] and [type] is [ColumnType.integer].
   final bool autoincrement;
 
-  /// The collating sequence this column sorts and compares under. SQLite's
-  /// own default, `BINARY`, when left out.
-  final String? collation;
+  /// The collating sequence this column sorts and compares under.
+  /// [Collation.binary], SQLite's own default, when left out.
+  final Collation? collation;
 
-  /// A raw SQL expression this column takes when a row does not give it
-  /// one. Null when it takes none.
-  ///
-  /// Nothing here validates it, the same choice pylon makes for every other
-  /// raw SQL fragment a caller supplies — a `where` clause, a `having`
-  /// clause.
-  final String? defaultSql;
+  /// What this column takes when a row does not give it a value. Null when
+  /// it takes none.
+  final ColumnDefault? defaultValue;
 
   /// The foreign key this column carries. Null when it carries none.
   final ColumnReference? references;
@@ -213,7 +263,7 @@ final class ColumnDefinition extends Equatable {
     unique,
     autoincrement,
     collation,
-    defaultSql,
+    defaultValue,
     references,
     generated,
   ];
@@ -223,14 +273,17 @@ final class ColumnDefinition extends Equatable {
 /// methods and refined by whichever modifier applies, in any order, closed
 /// by [build].
 ///
+/// [Self] is the builder every modifier hands back, so a chain keeps the
+/// modifiers of the type it started with: [TextColumnBuilder.collation] and
+/// [IntegerColumnBuilder.autoincrement] stay reachable after any other
+/// modifier. [Value] is the storage class this column holds, and the only one
+/// [default_] accepts.
+///
 /// Unlike Postgres, SQLite has no per-role privilege to guard and no
 /// server-side identity sequence to configure, so this stays far smaller
 /// than the Postgres builder it mirrors: no `array`, no `identity` options,
-/// no geometric or network types. [CollatableColumnBuilder] and
-/// [AutoincrementCapableColumnBuilder] play the same narrowing role
-/// `CollatableColumnBuilder`/`IdentityCapableColumnBuilder` do there, kept to
-/// the two SQLite features that only make sense on one type each.
-final class ColumnBuilder {
+/// no geometric or network types.
+sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extends DatabaseType> {
   ColumnBuilder._(this._type);
 
   final ColumnType _type;
@@ -238,57 +291,79 @@ final class ColumnBuilder {
   bool _isNullable = true;
   bool _unique = false;
   bool _autoincrement = false;
-  String? _collation;
-  String? _defaultSql;
+  Collation? _collation;
+  ColumnDefault? _default;
   ColumnReference? _references;
   GeneratedColumn? _generated;
 
+  Self get _self => this as Self;
+
   /// Makes this column the table's primary key, which also refuses a null
   /// value.
-  ColumnBuilder isPrimary() {
+  Self isPrimary() {
     _isPrimary = true;
-    return this;
+    return _self;
   }
 
   /// Whether this column accepts a null value. Refuses one when passed
   /// `false`. Accepts one otherwise, including when called with no
   /// argument.
-  ColumnBuilder isNullable([bool value = true]) {
+  Self isNullable([bool value = true]) {
     _isNullable = value;
-    return this;
+    return _self;
   }
 
-  /// Whether this column refuses a value another row already holds.
-  ColumnBuilder unique() {
+  /// Makes this column refuse a value another row already holds.
+  Self unique() {
     _unique = true;
-    return this;
+    return _self;
   }
 
-  /// A raw SQL expression this column takes when a row does not give it
-  /// one.
+  /// Gives this column [value] when a row does not give it one.
   ///
-  /// Nothing here validates it, the same choice pylon makes for every other
-  /// raw SQL fragment a caller supplies.
-  ColumnBuilder default_(String sql) {
-    _defaultSql = sql;
-    return this;
+  /// Accepts only this column's own storage class, so a text column cannot be
+  /// handed an [Integer]. Pass the storage class itself, such as `Integer(0)`
+  /// or `Varchar('open')`, or a [DatabaseType] method that answers one, such
+  /// as [DatabaseType.boolean]. The `DatabaseType.integer` and
+  /// `DatabaseType.varchar` factories answer a plain [DatabaseType] and do
+  /// not type-check here.
+  ///
+  /// Throws an [ArgumentError] for a [Real] that is not finite, since SQL has
+  /// no literal for it.
+  Self default_(Value value) {
+    if (value case Real(value: final number) when !number.isFinite) {
+      throw ArgumentError.value(number, 'value', 'A non-finite REAL has no SQL literal.');
+    }
+    _default = LiteralDefault(value);
+    return _self;
+  }
+
+  /// Gives this column the result of a raw SQL expression when a row does
+  /// not give it a value, for a default no literal can express, such as the
+  /// current time.
+  ///
+  /// Nothing here validates it, the same choice made for every other raw SQL
+  /// fragment a caller supplies.
+  Self defaultExpression(String sql) {
+    _default = ExpressionDefault(sql);
+    return _self;
   }
 
   /// Makes this column a foreign key, pointing at another table's column.
-  ColumnBuilder references(ColumnReference reference) {
+  Self references(ColumnReference reference) {
     _references = reference;
-    return this;
+    return _self;
   }
 
   /// Makes this column computed from the rest of the row, rather than one a
   /// caller ever writes.
   ///
-  /// SQLite refuses this alongside [default_] or [references] on the same
-  /// column, a rule this does not enforce, the same as every other
-  /// cross-field rule an author is expected to hold.
-  ColumnBuilder generated(GeneratedColumn options) {
+  /// SQLite refuses this alongside [default_], [defaultExpression] or
+  /// [references] on the same column, a rule this does not enforce, the same
+  /// as every other cross-field rule an author is expected to hold.
+  Self generated(GeneratedColumn options) {
     _generated = options;
-    return this;
+    return _self;
   }
 
   /// This column's options, exactly as [TableBuilder.columns] reads them
@@ -300,118 +375,56 @@ final class ColumnBuilder {
     unique: _unique,
     autoincrement: _autoincrement,
     collation: _collation,
-    defaultSql: _defaultSql,
+    defaultValue: _default,
     references: _references,
     generated: _generated,
   );
 }
 
-/// A [ColumnType.text] column under construction — the only type
-/// [ColumnFactory] opens as this rather than as a bare [ColumnBuilder],
-/// since a collating sequence changes how text sorts and compares but says
-/// nothing about an integer, a real or a blob.
-final class CollatableColumnBuilder extends ColumnBuilder {
-  // ignore: use_super_parameters (super's constructor is named `_`, which the shorthand cannot target)
-  CollatableColumnBuilder._(ColumnType type) : super._(type);
-
-  @override
-  CollatableColumnBuilder isPrimary() {
-    super.isPrimary();
-    return this;
-  }
-
-  @override
-  CollatableColumnBuilder isNullable([bool value = true]) {
-    super.isNullable(value);
-    return this;
-  }
-
-  @override
-  CollatableColumnBuilder unique() {
-    super.unique();
-    return this;
-  }
-
-  @override
-  CollatableColumnBuilder default_(String sql) {
-    super.default_(sql);
-    return this;
-  }
-
-  @override
-  CollatableColumnBuilder references(ColumnReference reference) {
-    super.references(reference);
-    return this;
-  }
-
-  @override
-  CollatableColumnBuilder generated(GeneratedColumn options) {
-    super.generated(options);
-    return this;
-  }
-
-  /// The collating sequence this column sorts and compares under, by name.
-  /// SQLite's own default, `BINARY`, when left out.
-  CollatableColumnBuilder collation(String name) {
-    _collation = name;
-    return this;
-  }
-}
-
-/// A [ColumnType.integer] column under construction — the only type
-/// [ColumnFactory] opens as this rather than as a bare [ColumnBuilder],
-/// since `AUTOINCREMENT` is legal only on an `INTEGER PRIMARY KEY`.
-final class AutoincrementCapableColumnBuilder extends ColumnBuilder {
-  // ignore: use_super_parameters (super's constructor is named `_`, which the shorthand cannot target)
-  AutoincrementCapableColumnBuilder._(ColumnType type) : super._(type);
-
-  @override
-  AutoincrementCapableColumnBuilder isPrimary() {
-    super.isPrimary();
-    return this;
-  }
-
-  @override
-  AutoincrementCapableColumnBuilder isNullable([bool value = true]) {
-    super.isNullable(value);
-    return this;
-  }
-
-  @override
-  AutoincrementCapableColumnBuilder unique() {
-    super.unique();
-    return this;
-  }
-
-  @override
-  AutoincrementCapableColumnBuilder default_(String sql) {
-    super.default_(sql);
-    return this;
-  }
-
-  @override
-  AutoincrementCapableColumnBuilder references(ColumnReference reference) {
-    super.references(reference);
-    return this;
-  }
-
-  @override
-  AutoincrementCapableColumnBuilder generated(GeneratedColumn options) {
-    super.generated(options);
-    return this;
-  }
+/// A [ColumnType.integer] column under construction. The only builder that
+/// offers `AUTOINCREMENT`, which is legal only on an `INTEGER PRIMARY KEY`.
+final class IntegerColumnBuilder extends ColumnBuilder<IntegerColumnBuilder, Integer> {
+  IntegerColumnBuilder._() : super._(ColumnType.integer);
 
   /// Makes this column's rowid grow on its own, rather than reusing a
   /// smaller id a deleted row left behind.
   ///
-  /// `identity column type must be smallint, integer, or bigint` is
-  /// Postgres's own words for a sibling rule; SQLite's own version is
-  /// narrower still, legal only on a single-column `INTEGER PRIMARY KEY`, a
-  /// rule this does not enforce.
-  AutoincrementCapableColumnBuilder autoincrement() {
+  /// SQLite allows it only on a single-column `INTEGER PRIMARY KEY`, a rule
+  /// this does not enforce.
+  IntegerColumnBuilder autoincrement() {
     _autoincrement = true;
     return this;
   }
+}
+
+/// A [ColumnType.real] column under construction.
+final class RealColumnBuilder extends ColumnBuilder<RealColumnBuilder, Real> {
+  RealColumnBuilder._() : super._(ColumnType.real);
+}
+
+/// A [ColumnType.text] column under construction. The only builder that
+/// offers a [Collation], since a collating sequence changes how text sorts
+/// and compares but says nothing about an integer, a real or a blob.
+final class TextColumnBuilder extends ColumnBuilder<TextColumnBuilder, Varchar> {
+  TextColumnBuilder._() : super._(ColumnType.text);
+
+  /// Makes this column sort and compare under [collation]. [Collation.binary]
+  /// when left out.
+  TextColumnBuilder collation(Collation collation) {
+    _collation = collation;
+    return this;
+  }
+}
+
+/// A [ColumnType.blob] column under construction.
+final class BlobColumnBuilder extends ColumnBuilder<BlobColumnBuilder, Blob> {
+  BlobColumnBuilder._() : super._(ColumnType.blob);
+}
+
+/// A [ColumnType.any] column under construction, holding whichever storage
+/// class a row gives it.
+final class AnyColumnBuilder extends ColumnBuilder<AnyColumnBuilder, DatabaseType> {
+  AnyColumnBuilder._() : super._(ColumnType.any);
 }
 
 /// Opens a column of one SQLite type, refined by whichever [ColumnBuilder]
@@ -420,33 +433,33 @@ final class AutoincrementCapableColumnBuilder extends ColumnBuilder {
 /// ```dart
 /// TableBuilder('todos').columns((c) => {
 ///   'id': c.integer().isPrimary().autoincrement(),
-///   'title': c.text().isNullable(false),
-///   'done': c.integer().isNullable(false).default_('0'),
+///   'title': c.text().isNullable(false).collation(Collation.noCase),
+///   'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
 /// });
 /// ```
 final class ColumnFactory {
   /// Opens no column on its own; each of its methods does.
   const ColumnFactory();
 
-  /// Opens an [ColumnType.integer] column, capable of [AutoincrementCapableColumnBuilder.autoincrement].
-  AutoincrementCapableColumnBuilder integer() => AutoincrementCapableColumnBuilder._(ColumnType.integer);
+  /// Opens a [ColumnType.integer] column, capable of [IntegerColumnBuilder.autoincrement].
+  IntegerColumnBuilder integer() => IntegerColumnBuilder._();
 
   /// Opens a [ColumnType.real] column.
-  ColumnBuilder real() => ColumnBuilder._(ColumnType.real);
+  RealColumnBuilder real() => RealColumnBuilder._();
 
-  /// Opens a [ColumnType.text] column, collatable by name.
-  CollatableColumnBuilder text() => CollatableColumnBuilder._(ColumnType.text);
+  /// Opens a [ColumnType.text] column, capable of [TextColumnBuilder.collation].
+  TextColumnBuilder text() => TextColumnBuilder._();
 
   /// Opens a [ColumnType.blob] column.
-  ColumnBuilder blob() => ColumnBuilder._(ColumnType.blob);
+  BlobColumnBuilder blob() => BlobColumnBuilder._();
 
-  /// Opens an [ColumnType.any] column — a `STRICT`-table escape hatch for a
+  /// Opens an [ColumnType.any] column: a `STRICT`-table escape hatch for a
   /// column with no fixed type. Meaningless outside a [TableBuilder.strict]
   /// table.
-  ColumnBuilder any() => ColumnBuilder._(ColumnType.any);
+  AnyColumnBuilder any() => AnyColumnBuilder._();
 }
 
 /// What [TableBuilder.columns] takes: a column builder, by the name it holds
-/// under, in the order they are declared — the order [DeclaredTable] renders
-/// them in.
-typedef ColumnMap = Map<String, ColumnBuilder>;
+/// under, in the order they are declared, which is the order [DeclaredTable]
+/// renders them in.
+typedef ColumnMap = Map<String, ColumnBuilder<dynamic, DatabaseType>>;

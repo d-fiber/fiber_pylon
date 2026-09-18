@@ -36,41 +36,55 @@
 
 part of 'schema.dart';
 
-/// Which way an [IndexColumn] sorts. Ascending, SQLite's own default, when
-/// left out entirely.
-enum IndexOrder {
-  /// Smallest first.
-  asc,
+/// One column an index covers, with the collation and sort order it carries.
+///
+/// Built through one of two factories, so a name and a raw SQL expression
+/// can never be mistaken for one another: [IndexColumn.named] takes a column
+/// name and quotes it, [IndexColumn.expression] takes SQL and leaves it as
+/// written. A `switch` over an [IndexColumn] is exhaustive with
+/// [NamedIndexColumn] and [ExpressionIndexColumn].
+sealed class IndexColumn extends Equatable {
+  const IndexColumn._({this.collation, this.order});
 
-  /// Largest first.
-  desc,
-}
+  /// The column called [name], quoted the way SQLite expects an identifier.
+  const factory IndexColumn.named(String name, {Collation? collation, SortOrder? order}) = NamedIndexColumn._;
 
-/// One column an index covers, spelled out rather than left as a bare name,
-/// for an entry that needs a collation or its own sort order.
-final class IndexColumn extends Equatable {
-  /// Wraps [expression], [collation] and [order] directly, rather than through a builder — this is the leaf entry [TableIndexBuilder.columns] itself takes.
-  const IndexColumn(this.expression, {this.collation, this.order});
-
-  /// The raw SQL expression this entry covers, most often a bare column
-  /// name.
+  /// The raw SQL [sql], most often an expression over columns such as
+  /// `lower(email)`.
   ///
-  /// Nothing here validates it, the same choice [ColumnBuilder.default_]
-  /// makes for raw SQL no closed vocabulary covers — an expression a bare
-  /// column name cannot express, `"lower(email)"`, belongs here just as
-  /// well as a plain column would.
-  final String expression;
+  /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
+  /// makes for raw SQL no closed vocabulary covers.
+  const factory IndexColumn.expression(String sql, {Collation? collation, SortOrder? order}) = ExpressionIndexColumn._;
 
   /// The collating sequence this entry sorts and compares under. SQLite's
   /// own default for its type when left out.
-  final String? collation;
+  final Collation? collation;
 
-  /// The order this entry sorts in. Ascending when left out, SQLite's own
-  /// default.
-  final IndexOrder? order;
+  /// The order this entry sorts in. [SortOrder.asc], SQLite's own default,
+  /// when left out.
+  final SortOrder? order;
+}
+
+/// An [IndexColumn] that covers one column, by name.
+final class NamedIndexColumn extends IndexColumn {
+  const NamedIndexColumn._(this.name, {super.collation, super.order}) : super._();
+
+  /// The name of the column this entry covers.
+  final String name;
 
   @override
-  List<Object?> get props => [expression, collation, order];
+  List<Object?> get props => [name, collation, order];
+}
+
+/// An [IndexColumn] that covers a raw SQL expression.
+final class ExpressionIndexColumn extends IndexColumn {
+  const ExpressionIndexColumn._(this.sql, {super.collation, super.order}) : super._();
+
+  /// The SQL expression this entry covers.
+  final String sql;
+
+  @override
+  List<Object?> get props => [sql, collation, order];
 }
 
 /// An index exactly as a [TableIndexBuilder] resolved it, read by
@@ -93,7 +107,7 @@ final class TableIndex extends Equatable {
   /// Restricts the index to the rows where this raw SQL predicate holds,
   /// making it a partial index. Covers every row when left out.
   ///
-  /// Nothing here validates it, the same choice [ColumnBuilder.default_]
+  /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
   /// makes for raw SQL no closed vocabulary covers.
   final String? where;
 
@@ -122,12 +136,8 @@ final class TableIndexBuilder {
 
   /// The columns this index covers, in the order SQLite will list them, at
   /// least one.
-  ///
-  /// A bare [String] is read as an [IndexColumn.expression] with no
-  /// collation and no explicit order; reach for [IndexColumn] itself only
-  /// when an entry needs one of those.
-  TableIndexBuilder columns(List<Object> columns) {
-    _columns = columns.map((column) => column is IndexColumn ? column : IndexColumn(column as String)).toList();
+  TableIndexBuilder columns(List<IndexColumn> columns) {
+    _columns = columns;
     return this;
   }
 

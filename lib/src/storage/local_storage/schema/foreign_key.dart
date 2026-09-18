@@ -46,8 +46,7 @@ final class TableForeignKey extends Equatable {
     this.referencedColumns,
     this.onDelete,
     this.onUpdate,
-    this.deferrable = false,
-    this.initiallyDeferred = false,
+    this.deferral,
     this.name,
   });
 
@@ -69,29 +68,16 @@ final class TableForeignKey extends Equatable {
   /// Nothing special when left out.
   final ReferentialAction? onUpdate;
 
-  /// Whether this constraint can be checked at the end of the transaction
-  /// rather than immediately.
-  final bool deferrable;
-
-  /// Whether a deferrable constraint checks at the end of the transaction by
-  /// default. Meaningless when [deferrable] is `false`.
-  final bool initiallyDeferred;
+  /// When this constraint is checked, if it may be checked later than the
+  /// statement that broke it. Not deferrable when left out.
+  final Deferral? deferral;
 
   /// The name this constraint is created under. SQLite picks one on its
   /// own when left out.
   final String? name;
 
   @override
-  List<Object?> get props => [
-    columns,
-    referencedTable,
-    referencedColumns,
-    onDelete,
-    onUpdate,
-    deferrable,
-    initiallyDeferred,
-    name,
-  ];
+  List<Object?> get props => [columns, referencedTable, referencedColumns, onDelete, onUpdate, deferral, name];
 }
 
 /// Opens a table-level `FOREIGN KEY` constraint, closed once
@@ -115,8 +101,7 @@ final class TableForeignKeyBuilder {
   List<String>? _referencedColumns;
   ReferentialAction? _onDelete;
   ReferentialAction? _onUpdate;
-  bool _deferrable = false;
-  bool _initiallyDeferred = false;
+  Deferral? _deferral;
   String? _name;
 
   /// The table [TableForeignKeyFactory.columns] points at, and which of its
@@ -142,11 +127,10 @@ final class TableForeignKeyBuilder {
     return this;
   }
 
-  /// Lets this constraint wait until the end of its transaction to be
-  /// checked, rather than immediately.
-  TableForeignKeyBuilder deferrable([bool initiallyDeferred = false]) {
-    _deferrable = true;
-    _initiallyDeferred = initiallyDeferred;
+  /// Lets this constraint be checked later than the statement that broke it,
+  /// as [deferral] says.
+  TableForeignKeyBuilder deferrable(Deferral deferral) {
+    _deferral = deferral;
     return this;
   }
 
@@ -171,8 +155,7 @@ final class TableForeignKeyBuilder {
       referencedColumns: _referencedColumns,
       onDelete: _onDelete,
       onUpdate: _onUpdate,
-      deferrable: _deferrable,
-      initiallyDeferred: _initiallyDeferred,
+      deferral: _deferral,
       name: _name,
     );
   }

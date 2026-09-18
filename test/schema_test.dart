@@ -35,6 +35,7 @@
 // LICENSE file, the LICENSE file governs.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -152,10 +153,10 @@ void main() {
       final table = TableBuilder('todos')
           .indexes(
             (i) => [
-              i.name('todos_done_idx').columns(['done']),
+              i.name('todos_done_idx').columns(const [IndexColumn.named('done')]),
               i
                   .name('todos_title_idx')
-                  .columns([const IndexColumn('title', collation: 'NOCASE', order: IndexOrder.desc)])
+                  .columns(const [IndexColumn.named('title', collation: Collation.noCase, order: SortOrder.desc)])
                   .where('done = 0'),
             ],
           )
@@ -163,8 +164,136 @@ void main() {
 
       expect(table.statements, [
         'CREATE TABLE "todos" ("title" TEXT, "done" INTEGER)',
-        'CREATE INDEX "todos_done_idx" ON "todos" (done)',
-        'CREATE INDEX "todos_title_idx" ON "todos" (title COLLATE NOCASE DESC) WHERE done = 0',
+        'CREATE INDEX "todos_done_idx" ON "todos" ("done")',
+        'CREATE INDEX "todos_title_idx" ON "todos" ("title" COLLATE NOCASE DESC) WHERE done = 0',
+      ]);
+    });
+
+    test('renders a literal default as SQL, quoting text and spelling a blob in hexadecimal', () {
+      final table = TableBuilder('samples').columns(
+        (c) => {
+          'count': c.integer().default_(const Integer(-3)),
+          'ratio': c.real().default_(const Real(0.25)),
+          'label': c.text().default_(const Varchar("it's")),
+          'payload': c.blob().default_(Blob(Uint8List.fromList([0, 15, 255]))),
+          'anything': c.any().default_(const DatabaseType.nil()),
+        },
+      );
+
+      expect(table.statements, [
+        'CREATE TABLE "samples" ('
+            '"count" INTEGER DEFAULT (-3), '
+            '"ratio" REAL DEFAULT (0.25), '
+            '"label" TEXT DEFAULT (\'it\'\'s\'), '
+            '"payload" BLOB DEFAULT (X\'000fff\'), '
+            '"anything" ANY DEFAULT (NULL)'
+            ')',
+      ]);
+    });
+
+    test('renders a boolean default as the integer the value layer stores it as', () {
+      final table = TableBuilder(
+        'todos',
+      ).columns((c) => {'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false))});
+
+      expect(table.statements, ['CREATE TABLE "todos" ("done" INTEGER NOT NULL DEFAULT (0))']);
+    });
+
+    test('renders an expression default as written', () {
+      final table = TableBuilder(
+        'events',
+      ).columns((c) => {'at': c.integer().defaultExpression("CAST(strftime('%s', 'now') AS INTEGER)")});
+
+      expect(table.statements, [
+        'CREATE TABLE "events" ("at" INTEGER DEFAULT (CAST(strftime(\'%s\', \'now\') AS INTEGER)))',
+      ]);
+    });
+
+    test('refuses a default the SQL grammar has no literal for', () {
+      expect(
+        () => TableBuilder('samples').columns((c) => {'ratio': c.real().default_(const Real(double.nan))}),
+        throwsArgumentError,
+      );
+      expect(
+        () => TableBuilder('samples').columns((c) => {'ratio': c.real().default_(const Real(double.infinity))}),
+        throwsArgumentError,
+      );
+    });
+
+    test('renders the collation of a text column', () {
+      final table = TableBuilder('people').columns(
+        (c) => {
+          'name': c.text().collation(Collation.noCase),
+          'code': c.text().collation(Collation.rtrim),
+          'raw': c.text().collation(Collation.binary),
+        },
+      );
+
+      expect(table.statements, [
+        'CREATE TABLE "people" ("name" TEXT COLLATE NOCASE, "code" TEXT COLLATE RTRIM, "raw" TEXT COLLATE BINARY)',
+      ]);
+    });
+
+    test('keeps the modifiers of the column type after any other modifier', () {
+      final table = TableBuilder('people').columns(
+        (c) => {
+          'id': c.integer().isNullable(false).unique().isPrimary().autoincrement(),
+          'name': c.text().isNullable(false).unique().collation(Collation.noCase),
+        },
+      );
+
+      expect(table.statements, [
+        'CREATE TABLE "people" ("id" INTEGER PRIMARY KEY AUTOINCREMENT UNIQUE, "name" TEXT NOT NULL UNIQUE COLLATE NOCASE)',
+      ]);
+    });
+
+    test('renders a deferral on a column-level and a table-level foreign key', () {
+      final table = TableBuilder('devices')
+          .foreignKeys(
+            (fk) => [
+              fk.columns(['owner_id']).references('accounts').deferrable(Deferral.initiallyDeferred),
+              fk.columns(['backup_id']).references('accounts').deferrable(Deferral.initiallyImmediate),
+              fk.columns(['peer_id']).references('devices'),
+            ],
+          )
+          .columns(
+            (c) => {
+              'account_id': c.integer().references(
+                const ColumnReference(table: 'accounts', deferral: Deferral.initiallyDeferred),
+              ),
+              'owner_id': c.integer(),
+              'backup_id': c.integer(),
+              'peer_id': c.integer(),
+            },
+          );
+
+      expect(table.statements, [
+        'CREATE TABLE "devices" ('
+            '"account_id" INTEGER REFERENCES "accounts" DEFERRABLE INITIALLY DEFERRED, '
+            '"owner_id" INTEGER, "backup_id" INTEGER, "peer_id" INTEGER, '
+            'FOREIGN KEY ("owner_id") REFERENCES "accounts" DEFERRABLE INITIALLY DEFERRED, '
+            'FOREIGN KEY ("backup_id") REFERENCES "accounts" DEFERRABLE, '
+            'FOREIGN KEY ("peer_id") REFERENCES "devices"'
+            ')',
+      ]);
+    });
+
+    test('quotes an index column named like an SQL keyword and leaves an expression as written', () {
+      final table = TableBuilder('people')
+          .indexes(
+            (i) => [
+              i.name('people_group_idx').columns(const [IndexColumn.named('group')]),
+              i.name('people_email_idx').columns(const [
+                IndexColumn.expression('lower(email)', collation: Collation.noCase),
+              ]).unique(),
+            ],
+          )
+          .columns((c) => {'group': c.text(), 'email': c.text()});
+
+      expect(table.statements, [
+        'CREATE TABLE "people" ("group" TEXT, "email" TEXT)',
+        'CREATE INDEX "people_group_idx" ON "people" ("group")',
+        'CREATE UNIQUE INDEX "people_email_idx" ON "people" (lower(email) COLLATE NOCASE)',
       ]);
     });
 
@@ -206,14 +335,14 @@ void main() {
           .checks((ck) => [ck.expression("length(title) > 0")])
           .indexes(
             (i) => [
-              i.name('todos_done_idx').columns(['done']),
+              i.name('todos_done_idx').columns(const [IndexColumn.named('done')]),
             ],
           )
           .columns(
             (c) => {
               'id': c.integer().isPrimary().autoincrement(),
               'title': c.text().isNullable(false),
-              'done': c.integer().isNullable(false).default_('0'),
+              'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
             },
           );
 
@@ -241,6 +370,131 @@ void main() {
       final columns = await db.columns('todos');
       expect(columns.map((column) => column.name), ['id', 'title', 'done']);
 
+      await db.dispose();
+    });
+
+    LocalDatabase openDeclared(String name, DeclaredTable declared, {Future<void> Function(Database)? onConfigure}) =>
+        LocalDatabase(
+          name: name,
+          onConfigure: onConfigure,
+          onCreate: (db, version) async {
+            for (final statement in declared.statements) {
+              await db.execute(statement);
+            }
+          },
+        );
+
+    test('a typed default is applied by SQLite exactly as the value layer stores it', () async {
+      final declared = TableBuilder('samples').columns(
+        (c) => {
+          'id': c.integer().isPrimary().autoincrement(),
+          'done': c.integer().default_(DatabaseType.boolean(true)),
+          'ratio': c.real().default_(const Real(0.25)),
+          'label': c.text().default_(const Varchar("it's")),
+          'payload': c.blob().default_(Blob(Uint8List.fromList([0, 15, 255]))),
+        },
+      );
+      final db = openDeclared('schema_defaults.db', declared);
+      await db.open();
+
+      await db.execute('INSERT INTO samples DEFAULT VALUES');
+      final row = (await db.rawQuery('SELECT done, ratio, label, payload FROM samples')).single;
+
+      expect(row['done']!.asBoolean, isTrue);
+      expect(row['ratio']!.asDouble, 0.25);
+      expect(row['label']!.asString, "it's");
+      expect(row['payload']!.asBytes, [0, 15, 255]);
+      await db.dispose();
+    });
+
+    test('a NOCASE collation makes a unique column treat two spellings as one', () async {
+      final declared = TableBuilder(
+        'people',
+      ).columns((c) => {'name': c.text().isNullable(false).unique().collation(Collation.noCase)});
+      final db = openDeclared('schema_collation.db', declared);
+      await db.open();
+      await db.execute('INSERT INTO people (name) VALUES (?)', const [DatabaseType.varchar('Ada')]);
+
+      await expectLater(
+        db.execute('INSERT INTO people (name) VALUES (?)', const [DatabaseType.varchar('ADA')]),
+        throwsA(isA<DatabaseUniqueConstraintError>()),
+      );
+      await db.dispose();
+    });
+
+    test('an index over an expression and one over a keyword-named column both create', () async {
+      final declared = TableBuilder('people')
+          .indexes(
+            (i) => [
+              i.name('people_group_idx').columns(const [IndexColumn.named('group', order: SortOrder.desc)]),
+              i.name('people_email_idx').columns(const [IndexColumn.expression('lower(email)')]).unique(),
+            ],
+          )
+          .columns((c) => {'group': c.text(), 'email': c.text()});
+      final db = openDeclared('schema_indexes.db', declared);
+      await db.open();
+      await db.execute('INSERT INTO people (email) VALUES (?)', const [DatabaseType.varchar('Ada@Example.com')]);
+
+      await expectLater(
+        db.execute('INSERT INTO people (email) VALUES (?)', const [DatabaseType.varchar('ada@example.com')]),
+        throwsA(isA<DatabaseUniqueConstraintError>()),
+      );
+      await db.dispose();
+    });
+
+    test('an initially deferred foreign key lets a child land before its parent inside one transaction', () async {
+      final declared = TableBuilder('children').columns(
+        (c) => {
+          'id': c.integer().isPrimary(),
+          'parent_id': c.integer().references(
+            const ColumnReference(table: 'parents', column: 'id', deferral: Deferral.initiallyDeferred),
+          ),
+        },
+      );
+      final db = LocalDatabase(
+        name: 'schema_deferred.db',
+        onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+        onCreate: (db, version) async {
+          await db.execute('CREATE TABLE parents (id INTEGER PRIMARY KEY)');
+          for (final statement in declared.statements) {
+            await db.execute(statement);
+          }
+        },
+      );
+      await db.open();
+
+      await db.transaction((txn) async {
+        await txn.execute('INSERT INTO children (id, parent_id) VALUES (1, 7)');
+        await txn.execute('INSERT INTO parents (id) VALUES (7)');
+      });
+
+      expect(await db.rawQuery('SELECT id FROM children'), hasLength(1));
+      await db.dispose();
+    });
+
+    test('a foreign key with no deferral refuses a child that lands before its parent', () async {
+      final declared = TableBuilder('children').columns(
+        (c) => {
+          'id': c.integer().isPrimary(),
+          'parent_id': c.integer().references(const ColumnReference(table: 'parents', column: 'id')),
+        },
+      );
+      final db = LocalDatabase(
+        name: 'schema_immediate.db',
+        onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+        onCreate: (db, version) async {
+          await db.execute('CREATE TABLE parents (id INTEGER PRIMARY KEY)');
+          for (final statement in declared.statements) {
+            await db.execute(statement);
+          }
+        },
+      );
+      await db.open();
+
+      await expectLater(
+        db.transaction((txn) => txn.execute('INSERT INTO children (id, parent_id) VALUES (1, 7)')),
+        throwsA(isA<DatabaseError>()),
+      );
       await db.dispose();
     });
 

@@ -36,6 +36,9 @@
 
 import 'package:equatable/equatable.dart';
 
+import '../database.dart';
+import '../sort_order.dart';
+
 part 'column.dart';
 part 'primary_key.dart';
 part 'unique.dart';
@@ -53,6 +56,30 @@ String _renderAction(ReferentialAction action) => switch (action) {
   ReferentialAction.setDefault => 'SET DEFAULT',
 };
 
+String _renderCollation(Collation collation) => switch (collation) {
+  Collation.binary => 'BINARY',
+  Collation.noCase => 'NOCASE',
+  Collation.rtrim => 'RTRIM',
+};
+
+String _renderDeferral(Deferral deferral) => switch (deferral) {
+  Deferral.initiallyImmediate => 'DEFERRABLE',
+  Deferral.initiallyDeferred => 'DEFERRABLE INITIALLY DEFERRED',
+};
+
+String _renderLiteral(DatabaseType value) => switch (value) {
+  Nil() => 'NULL',
+  Integer(value: final integer) => '$integer',
+  Real(value: final real) => '$real',
+  Varchar(value: final text) => "'${text.replaceAll("'", "''")}'",
+  Blob(value: final bytes) => "X'${bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join()}'",
+};
+
+String _renderDefault(ColumnDefault defaultValue) => switch (defaultValue) {
+  LiteralDefault(:final value) => _renderLiteral(value),
+  ExpressionDefault(:final sql) => sql,
+};
+
 String _renderColumn(String name, ColumnDefinition column) {
   final parts = <String>[_quoteIdentifier(name), column.type.name.toUpperCase()];
   if (column.isPrimary) {
@@ -61,8 +88,10 @@ String _renderColumn(String name, ColumnDefinition column) {
   }
   if (column.notNull && !column.isPrimary) parts.add('NOT NULL');
   if (column.unique) parts.add('UNIQUE');
-  if (column.collation != null) parts.add('COLLATE ${column.collation}');
-  if (column.defaultSql != null) parts.add('DEFAULT (${column.defaultSql})');
+  final collation = column.collation;
+  if (collation != null) parts.add('COLLATE ${_renderCollation(collation)}');
+  final defaultValue = column.defaultValue;
+  if (defaultValue != null) parts.add('DEFAULT (${_renderDefault(defaultValue)})');
   final generated = column.generated;
   if (generated != null) {
     final storage = generated.storage == GeneratedStorage.stored ? 'STORED' : 'VIRTUAL';
@@ -74,10 +103,7 @@ String _renderColumn(String name, ColumnDefinition column) {
     if (reference.column != null) parts.add('(${_quoteIdentifier(reference.column!)})');
     if (reference.onDelete != null) parts.add('ON DELETE ${_renderAction(reference.onDelete!)}');
     if (reference.onUpdate != null) parts.add('ON UPDATE ${_renderAction(reference.onUpdate!)}');
-    if (reference.deferrable) {
-      parts.add('DEFERRABLE');
-      if (reference.initiallyDeferred) parts.add('INITIALLY DEFERRED');
-    }
+    if (reference.deferral != null) parts.add(_renderDeferral(reference.deferral!));
   }
   return parts.join(' ');
 }
@@ -106,23 +132,27 @@ String _renderForeignKey(TableForeignKey key) {
   }
   if (key.onDelete != null) parts.add('ON DELETE ${_renderAction(key.onDelete!)}');
   if (key.onUpdate != null) parts.add('ON UPDATE ${_renderAction(key.onUpdate!)}');
-  if (key.deferrable) {
-    parts.add('DEFERRABLE');
-    if (key.initiallyDeferred) parts.add('INITIALLY DEFERRED');
-  }
+  if (key.deferral != null) parts.add(_renderDeferral(key.deferral!));
+  return parts.join(' ');
+}
+
+String _renderIndexColumn(IndexColumn column) {
+  final parts = <String>[
+    switch (column) {
+      NamedIndexColumn(:final name) => _quoteIdentifier(name),
+      ExpressionIndexColumn(:final sql) => sql,
+    },
+  ];
+  final collation = column.collation;
+  if (collation != null) parts.add('COLLATE ${_renderCollation(collation)}');
+  final order = column.order;
+  if (order != null) parts.add(order.sql);
   return parts.join(' ');
 }
 
 String _renderIndex(String table, TableIndex index) {
   final unique = index.unique ? 'UNIQUE ' : '';
-  final columns = index.columns
-      .map((column) {
-        final parts = <String>[column.expression];
-        if (column.collation != null) parts.add('COLLATE ${column.collation}');
-        if (column.order != null) parts.add(column.order == IndexOrder.desc ? 'DESC' : 'ASC');
-        return parts.join(' ');
-      })
-      .join(', ');
+  final columns = index.columns.map(_renderIndexColumn).join(', ');
   final where = index.where != null ? ' WHERE ${index.where}' : '';
   return 'CREATE ${unique}INDEX ${_quoteIdentifier(index.name)} ON ${_quoteIdentifier(table)} ($columns)$where';
 }
@@ -210,11 +240,11 @@ final class DeclaredTable extends Equatable {
 /// ```dart
 /// final table = TableBuilder('todos')
 ///     .checks((ck) => [ck.expression("length(title) > 0")])
-///     .indexes((i) => [i.name('todos_done_idx').columns(['done'])])
+///     .indexes((i) => [i.name('todos_done_idx').columns(const [IndexColumn.named('done')])])
 ///     .columns((c) => {
 ///       'id': c.integer().isPrimary().autoincrement(),
 ///       'title': c.text().isNullable(false),
-///       'done': c.integer().isNullable(false).default_('0'),
+///       'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
 ///     });
 ///
 /// onCreate: (db, version) async {

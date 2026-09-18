@@ -34,52 +34,17 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'schema.dart';
+/// Which way a sort runs, for an index column and for a query's `ORDER BY`
+/// alike.
+enum SortOrder {
+  /// Smallest first. SQLite's own default when no order is given.
+  asc('ASC'),
 
-/// A `CHECK` constraint, carried by the table rather than by one column, so
-/// it may read several at once.
-final class CheckConstraint extends Equatable {
-  /// Wraps every field a [TableCheckBuilder] call resolved.
-  const CheckConstraint({required this.expression, this.name});
+  /// Largest first.
+  desc('DESC');
 
-  /// The raw SQL predicate every row must satisfy.
-  ///
-  /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
-  /// makes for raw SQL no closed vocabulary covers.
-  final String expression;
+  const SortOrder(this.sql);
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
-  final String? name;
-
-  @override
-  List<Object?> get props => [expression, name];
-}
-
-/// Opens a `CHECK` constraint, closed by [TableCheckBuilder.name] or read
-/// directly once [TableBuilder.checks]' own callback returns.
-final class TableCheckFactory {
-  /// Opens no constraint on its own; [expression] does.
-  const TableCheckFactory();
-
-  /// The raw SQL predicate every row must satisfy.
-  TableCheckBuilder expression(String expression) => TableCheckBuilder._(expression);
-}
-
-/// A `CHECK` constraint under construction, opened by
-/// [TableCheckFactory.expression].
-final class TableCheckBuilder {
-  TableCheckBuilder._(this._expression);
-
-  final String _expression;
-  String? _name;
-
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
-  TableCheckBuilder name(String name) {
-    _name = name;
-    return this;
-  }
-
-  CheckConstraint _build() => CheckConstraint(expression: _expression, name: _name);
+  /// The keyword SQL spells this order with.
+  final String sql;
 }
