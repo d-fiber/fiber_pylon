@@ -20,6 +20,7 @@ dependencies:
   path: ^1.9.1
   injectable: ^3.0.0
   get_it: ^9.2.1
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:
