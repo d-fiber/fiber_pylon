@@ -65,7 +65,7 @@ final class DatabaseTransaction {
           distinct: spec._distinct,
           columns: spec._columns,
           where: spec._where,
-          whereArgs: _toNativeArgs(spec._whereArgs),
+          whereArgs: _toNativeArgs(spec._arguments),
           groupBy: spec._groupBy,
           having: spec._having,
           orderBy: spec._orderBy,

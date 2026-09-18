@@ -36,6 +36,8 @@
 
 part of 'database.dart';
 
+enum _BatchStatement { insert, update, delete, execute, query }
+
 /// A sequence of writes queued against a [LocalDatabase], none of which
 /// touch it until [commit] or [apply] runs them. Never constructed directly;
 /// [LocalDatabase.batch] hands one back.
@@ -43,11 +45,13 @@ final class DatabaseBatch {
   DatabaseBatch._(this._batch);
 
   final Batch _batch;
+  final List<_BatchStatement> _statements = [];
 
   /// Queues a [LocalDatabase.insert].
   void insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) {
     final spec = build(DatabaseInsert<T>._());
     _batch.insert(spec._table, _toNativeRow(spec._data.toRow()), conflictAlgorithm: spec._conflict);
+    _statements.add(_BatchStatement.insert);
   }
 
   /// Queues a [LocalDatabase.update].
@@ -60,63 +64,149 @@ final class DatabaseBatch {
       whereArgs: _toNativeArgs(spec._whereArgs),
       conflictAlgorithm: spec._conflict,
     );
+    _statements.add(_BatchStatement.update);
   }
 
   /// Queues a [LocalDatabase.delete].
   void delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) {
     final spec = build(const DatabaseDelete._());
     _batch.delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
+    _statements.add(_BatchStatement.delete);
   }
 
   /// Queues a [LocalDatabase.execute].
-  void execute(String sql, [List<DatabaseType>? arguments]) => _batch.execute(sql, _toNativeArgs(arguments));
+  void execute(String sql, [List<DatabaseType>? arguments]) {
+    _batch.execute(sql, _toNativeArgs(arguments));
+    _statements.add(_BatchStatement.execute);
+  }
 
-  /// Queues a [LocalDatabase.query]. Its rows land at this call's own
-  /// position in [commit]'s or [apply]'s result list, as a raw
-  /// `List<Map<String, Object?>>` — sqflite's own batch API answers every
-  /// queued statement through one shared, loosely typed result list, so
-  /// this is the one place [DatabaseBatch] cannot hand back a [DatabaseRow] the
-  /// way every other method here does; each column value is left in the
-  /// native shape sqflite itself hands back (`null`, [int], [double],
-  /// [String] or [Uint8List]).
-  void query(
-    String table, {
-    bool distinct = false,
-    List<String>? columns,
-    String? where,
-    List<DatabaseType>? whereArgs,
-    String? groupBy,
-    String? having,
-    String? orderBy,
-    int? limit,
-    int? offset,
-  }) => _batch.query(
-    table,
-    distinct: distinct,
-    columns: columns,
-    where: where,
-    whereArgs: _toNativeArgs(whereArgs),
-    groupBy: groupBy,
-    having: having,
-    orderBy: orderBy,
-    limit: limit,
-    offset: offset,
-  );
+  /// Queues a query composed by [build] from an empty [DatabaseQuery], the
+  /// same builder [LocalDatabase.query] takes.
+  ///
+  /// Its rows come back as a [DatabaseBatchRows] at this call's own position
+  /// in the list [commit] or [apply] answers, undecoded: a batch runs every
+  /// statement before it hands anything back, so [DatabaseQueryFrom.map] has
+  /// nothing to map yet and is never read.
+  void query(DatabaseQueryFrom<Object> Function(DatabaseQuery<Object> query) build) {
+    final spec = build(DatabaseQuery<Object>._());
+    _batch.query(
+      spec._table,
+      distinct: spec._distinct,
+      columns: spec._columns,
+      where: spec._where,
+      whereArgs: _toNativeArgs(spec._arguments),
+      groupBy: spec._groupBy,
+      having: spec._having,
+      orderBy: spec._orderBy,
+      limit: spec._limit,
+      offset: spec._offset,
+    );
+    _statements.add(_BatchStatement.query);
+  }
 
   /// Runs every statement queued so far as one atomic unit: either they all
-  /// land, or — unless [continueOnError] is `true` — none of them do.
+  /// land, or, unless [continueOnError] is `true`, none of them do.
   ///
-  /// [noResult] skips collecting each statement's own result (an inserted
-  /// row id, an affected-row count, a query's rows), worth setting for a
-  /// large batch that only cares whether it succeeded.
-  Future<List<Object?>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) =>
-      _guarded(() => _batch.commit(exclusive: exclusive, noResult: noResult, continueOnError: continueOnError));
+  /// Answers one [DatabaseBatchResult] per queued statement, in the order
+  /// they were queued. With [continueOnError], a statement that failed is a
+  /// [DatabaseBatchFailed] at its own position rather than a throw.
+  ///
+  /// [noResult] skips collecting each statement's own result, worth setting
+  /// for a large batch that only cares whether it succeeded. The list
+  /// answered is then empty.
+  Future<List<DatabaseBatchResult>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) => _guarded(
+    () async => _typed(await _batch.commit(exclusive: exclusive, noResult: noResult, continueOnError: continueOnError)),
+  );
 
   /// Runs every statement queued so far without wrapping them in a
-  /// transaction sqflite manages — faster, but with no all-or-nothing
+  /// transaction sqflite manages: faster, but with no all-or-nothing
   /// guarantee if one fails partway through. Prefer [commit] unless this
   /// batch is already running inside a [LocalDatabase.transaction] of its
   /// own, or another transaction not managed through this class.
-  Future<List<Object?>> apply({bool? noResult, bool? continueOnError}) =>
-      _guarded(() => _batch.apply(noResult: noResult, continueOnError: continueOnError));
+  ///
+  /// Answers the same list [commit] does.
+  Future<List<DatabaseBatchResult>> apply({bool? noResult, bool? continueOnError}) =>
+      _guarded(() async => _typed(await _batch.apply(noResult: noResult, continueOnError: continueOnError)));
+
+  List<DatabaseBatchResult> _typed(List<Object?> results) => [
+    for (var position = 0; position < results.length; position++)
+      _typedResult(_statements[position], results[position]),
+  ];
+}
+
+DatabaseBatchResult _typedResult(_BatchStatement statement, Object? result) {
+  if (result is DatabaseException) return DatabaseBatchFailed(DatabaseError.from(result));
+  return switch (statement) {
+    _BatchStatement.insert => DatabaseBatchInserted(result as int?),
+    _BatchStatement.update || _BatchStatement.delete => DatabaseBatchChanged(result as int),
+    _BatchStatement.execute => const DatabaseBatchExecuted(),
+    _BatchStatement.query => DatabaseBatchRows(
+      (result as List<Object?>).cast<Map<String, Object?>>().map(_fromNativeRow).toList(),
+    ),
+  };
+}
+
+/// What one statement of a [DatabaseBatch] came to, at the position it was
+/// queued in.
+sealed class DatabaseBatchResult extends Equatable {
+  const DatabaseBatchResult();
+}
+
+/// The outcome of a queued [DatabaseBatch.insert].
+final class DatabaseBatchInserted extends DatabaseBatchResult {
+  /// Wraps the [rowId] sqflite answered.
+  const DatabaseBatchInserted(this.rowId);
+
+  /// The row id sqflite assigned. `null` when the row was skipped, which is
+  /// what [ConflictAlgorithm.ignore] does with one that collides.
+  final int? rowId;
+
+  @override
+  List<Object?> get props => [rowId];
+}
+
+/// The outcome of a queued [DatabaseBatch.update] or [DatabaseBatch.delete].
+final class DatabaseBatchChanged extends DatabaseBatchResult {
+  /// Wraps the [count] sqflite answered.
+  const DatabaseBatchChanged(this.count);
+
+  /// How many rows the statement changed or removed.
+  final int count;
+
+  @override
+  List<Object?> get props => [count];
+}
+
+/// The outcome of a queued [DatabaseBatch.execute], which answers nothing.
+final class DatabaseBatchExecuted extends DatabaseBatchResult {
+  /// The outcome of a statement that ran.
+  const DatabaseBatchExecuted();
+
+  @override
+  List<Object?> get props => const [];
+}
+
+/// The outcome of a queued [DatabaseBatch.query].
+final class DatabaseBatchRows extends DatabaseBatchResult {
+  /// Wraps the [rows] the query selected.
+  const DatabaseBatchRows(this.rows);
+
+  /// The rows the query selected, undecoded.
+  final List<DatabaseRow> rows;
+
+  @override
+  List<Object?> get props => [rows];
+}
+
+/// The outcome of a queued statement that failed under `continueOnError`.
+final class DatabaseBatchFailed extends DatabaseBatchResult {
+  /// Wraps the [error] the statement raised.
+  const DatabaseBatchFailed(this.error);
+
+  /// Why the statement failed, read the way every other method here reads a
+  /// sqflite failure.
+  final DatabaseError error;
+
+  @override
+  List<Object?> get props => [error];
 }

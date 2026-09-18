@@ -56,11 +56,8 @@ final class Todo extends Equatable implements DatabaseRecord {
   final String title;
   final bool done;
 
-  static Todo fromRow(DatabaseRow row) => Todo(
-    id: (row['id'] as Integer).value,
-    title: (row['title'] as Varchar).value,
-    done: (row['done'] as Integer).value != 0,
-  );
+  static Todo fromRow(DatabaseRow row) =>
+      Todo(id: row['id']!.asInt, title: row['title']!.asString, done: row['done']!.asBoolean);
 
   Todo copyWith({int? id, String? title, bool? done}) =>
       Todo(id: id ?? this.id, title: title ?? this.title, done: done ?? this.done);
@@ -79,6 +76,17 @@ Future<void> _createTodos(Database db, int version) => db.execute(
   'done INTEGER NOT NULL DEFAULT 0'
   ')',
 );
+
+Future<void> _createUniqueTodos(Database db, int version) => db.execute(
+  'CREATE TABLE todos ('
+  'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+  'title TEXT NOT NULL UNIQUE, '
+  'done INTEGER NOT NULL DEFAULT 0'
+  ')',
+);
+
+Future<void> _createKeywordColumns(Database db, int version) =>
+    db.execute('CREATE TABLE things ("group" TEXT NOT NULL, "order" INTEGER NOT NULL)');
 
 void main() {
   late Directory directory;
@@ -134,10 +142,102 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
 
       final page = await db.query<Todo>(
-        (q) => q.from('todos').orderBy('title ASC').limit(1).offset(1).map(Todo.fromRow),
+        (q) => q.from('todos').orderBy(const [DatabaseOrder.named('title')]).limit(1).offset(1).map(Todo.fromRow),
       );
 
       expect(page.map((todo) => todo.title), ['B']);
+      await db.dispose();
+    });
+
+    test('orders by several terms, each in its own direction', () async {
+      final db = LocalDatabase(name: 'todos_order_terms.db', onCreate: _createTodos);
+      await db.open();
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: true)));
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
+
+      final rows = await db.query<Todo>(
+        (q) => q
+            .from('todos')
+            .orderBy(const [DatabaseOrder.named('done'), DatabaseOrder.named('title', order: SortOrder.desc)])
+            .map(Todo.fromRow),
+      );
+
+      expect(rows.map((todo) => todo.title), ['C', 'B', 'A']);
+      await db.dispose();
+    });
+
+    test('orders by a raw expression when a bare column cannot say it', () async {
+      final db = LocalDatabase(name: 'todos_order_expression.db', onCreate: _createTodos);
+      await db.open();
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'b', done: false)));
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
+
+      final rows = await db.query<Todo>(
+        (q) => q.from('todos').orderBy(const [DatabaseOrder.expression('lower(title)')]).map(Todo.fromRow),
+      );
+
+      expect(rows.map((todo) => todo.title), ['A', 'b', 'C']);
+      await db.dispose();
+    });
+
+    test('quotes the column names of select, groupBy and orderBy, so a keyword is still a column', () async {
+      final db = LocalDatabase(name: 'things_keywords.db', onCreate: _createKeywordColumns);
+      await db.open();
+      await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
+        DatabaseType.varchar('x'),
+        DatabaseType.integer(1),
+      ]);
+      await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
+        DatabaseType.varchar('y'),
+        DatabaseType.integer(2),
+      ]);
+      await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
+        DatabaseType.varchar('x'),
+        DatabaseType.integer(3),
+      ]);
+
+      final groups = await db.query<String>(
+        (q) => q
+            .from('things')
+            .select(const ['group'])
+            .groupBy(const ['group'])
+            .orderBy(const [DatabaseOrder.named('group', order: SortOrder.desc)])
+            .map((row) => row['group']!.asString),
+      );
+
+      expect(groups, ['y', 'x']);
+      await db.dispose();
+    });
+
+    test('having keeps only the groups its filter matches, with its arguments bound after where', () async {
+      final db = LocalDatabase(name: 'todos_having.db', onCreate: _createTodos);
+      await db.open();
+      for (final title in ['A', 'A', 'A', 'B', 'B', 'C']) {
+        await db.insert<Todo>((i) => i.into('todos').values(Todo(title: title, done: false)));
+      }
+
+      final repeated = await db.query<String>(
+        (q) => q
+            .from('todos')
+            .select(const ['title'])
+            .where((w) => w.isNotEqualTo(key: 'title', value: const DatabaseType.varchar('B')))
+            .groupBy(const ['title'])
+            .having((h) => h.raw('COUNT(*) > ?', const [DatabaseType.integer(1)]))
+            .map((row) => row['title']!.asString),
+      );
+
+      expect(repeated, ['A']);
+      await db.dispose();
+    });
+
+    test('limit and offset refuse a negative count, which SQLite would read as no limit', () async {
+      final db = LocalDatabase(name: 'todos_negative_page.db', onCreate: _createTodos);
+      await db.open();
+
+      await expectLater(db.query<Todo>((q) => q.from('todos').limit(-1).map(Todo.fromRow)), throwsRangeError);
+      await expectLater(db.query<Todo>((q) => q.from('todos').offset(-1).map(Todo.fromRow)), throwsRangeError);
       await db.dispose();
     });
 
@@ -147,7 +247,7 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
       final rows = await db.query<String>(
-        (q) => q.from('todos').select(const ['title']).map((row) => (row['title'] as Varchar).value),
+        (q) => q.from('todos').select(const ['title']).map((row) => row['title']!.asString),
       );
 
       expect(rows, ['Ship it']);
@@ -272,6 +372,100 @@ void main() {
       await db.dispose();
     });
 
+    test('answers one typed result per queued statement, in the order they were queued', () async {
+      final db = LocalDatabase(name: 'todos_batch_results.db', onCreate: _createUniqueTodos);
+      await db.open();
+
+      final batch = db.batch();
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'First', done: false)));
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Second', done: false)));
+      batch.update<Todo>(
+        (u) => u
+            .table('todos')
+            .set(const Todo(title: 'First', done: true))
+            .where((w) => w.isEqualTo(key: 'title', value: const DatabaseType.varchar('First'))),
+      );
+      batch.delete(
+        (d) => d.from('todos').where((w) => w.isEqualTo(key: 'title', value: const DatabaseType.varchar('Nothing'))),
+      );
+      batch.execute('SELECT 1');
+      batch.query((q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
+
+      final results = await batch.commit();
+
+      expect(results, [
+        const DatabaseBatchInserted(1),
+        const DatabaseBatchInserted(2),
+        const DatabaseBatchChanged(1),
+        const DatabaseBatchChanged(0),
+        const DatabaseBatchExecuted(),
+        const DatabaseBatchRows([
+          {'id': Integer(1), 'title': Varchar('First'), 'done': Integer(1)},
+        ]),
+      ]);
+      await db.dispose();
+    });
+
+    test('reports a statement that failed under continueOnError as a value at its own position', () async {
+      final db = LocalDatabase(name: 'todos_batch_failure.db', onCreate: _createUniqueTodos);
+      await db.open();
+
+      final batch = db.batch();
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Other', done: false)));
+
+      final results = await batch.commit(continueOnError: true);
+
+      expect(results, hasLength(3));
+      expect(results[0], const DatabaseBatchInserted(1));
+      expect(
+        results[1],
+        isA<DatabaseBatchFailed>().having((failed) => failed.error, 'error', isA<DatabaseUniqueConstraintError>()),
+      );
+      expect(results[2], const DatabaseBatchInserted(2));
+      await db.dispose();
+    });
+
+    test('reports an insert skipped by ConflictAlgorithm.ignore as a null row id', () async {
+      final db = LocalDatabase(name: 'todos_batch_ignore.db', onCreate: _createUniqueTodos);
+      await db.open();
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
+
+      final batch = db.batch();
+      batch.insert<Todo>(
+        (i) => i.into('todos').values(const Todo(title: 'Same', done: false)).onConflict(ConflictAlgorithm.ignore),
+      );
+
+      expect(await batch.commit(), [const DatabaseBatchInserted(null)]);
+      await db.dispose();
+    });
+
+    test('answers no results at all when noResult asks to skip them', () async {
+      final db = LocalDatabase(name: 'todos_batch_no_result.db', onCreate: _createUniqueTodos);
+      await db.open();
+
+      final batch = db.batch();
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Quiet', done: false)));
+
+      expect(await batch.commit(noResult: true), isEmpty);
+      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(1));
+      await db.dispose();
+    });
+
+    test('rolls back a whole batch when a statement fails and continueOnError is off', () async {
+      final db = LocalDatabase(name: 'todos_batch_rollback.db', onCreate: _createUniqueTodos);
+      await db.open();
+
+      final batch = db.batch();
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
+      batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
+
+      await expectLater(batch.commit(), throwsA(isA<DatabaseUniqueConstraintError>()));
+      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), isEmpty);
+      await db.dispose();
+    });
+
     test('reports a unique constraint violation as DatabaseUniqueConstraintError', () async {
       final db = LocalDatabase(
         name: 'todos_unique.db',
@@ -338,7 +532,9 @@ void main() {
     tearDown(() => db.dispose());
 
     Future<List<String>> titlesWhere(DatabaseFilter Function(DatabaseFilterBuilder w) build) async {
-      final rows = await db.query<Todo>((q) => q.from('todos').where(build).orderBy('title').map(Todo.fromRow));
+      final rows = await db.query<Todo>(
+        (q) => q.from('todos').where(build).orderBy(const [DatabaseOrder.named('title')]).map(Todo.fromRow),
+      );
       return rows.map((todo) => todo.title).toList();
     }
 
@@ -350,7 +546,9 @@ void main() {
     });
 
     test('isGreaterThan and isLessThan compare ids', () async {
-      final all = await db.query<Todo>((q) => q.from('todos').orderBy('id').map(Todo.fromRow));
+      final all = await db.query<Todo>(
+        (q) => q.from('todos').orderBy(const [DatabaseOrder.named('id')]).map(Todo.fromRow),
+      );
       final firstId = all.first.id!;
 
       expect(await titlesWhere((w) => w.isGreaterThan(key: 'id', value: DatabaseType.integer(firstId))), [
@@ -361,7 +559,9 @@ void main() {
     });
 
     test('isGreaterThanOrEqualTo and isLessThanOrEqualTo include the boundary', () async {
-      final all = await db.query<Todo>((q) => q.from('todos').orderBy('id').map(Todo.fromRow));
+      final all = await db.query<Todo>(
+        (q) => q.from('todos').orderBy(const [DatabaseOrder.named('id')]).map(Todo.fromRow),
+      );
       final firstId = all.first.id!;
 
       expect(await titlesWhere((w) => w.isGreaterThanOrEqualTo(key: 'id', value: DatabaseType.integer(firstId))), [

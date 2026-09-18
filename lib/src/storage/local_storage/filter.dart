@@ -46,11 +46,35 @@ sealed class DatabaseFilter {
   const DatabaseFilter();
 }
 
+enum _Comparison {
+  equal('='),
+  notEqual('!='),
+  greaterThan('>'),
+  greaterThanOrEqual('>='),
+  lessThan('<'),
+  lessThanOrEqual('<='),
+  like('LIKE');
+
+  const _Comparison(this.sql);
+
+  final String sql;
+}
+
+enum _Connector {
+  and('AND', '1'),
+  or('OR', '0');
+
+  const _Connector(this.sql, this.whenEmpty);
+
+  final String sql;
+  final String whenEmpty;
+}
+
 final class _DatabaseFilterComparison extends DatabaseFilter {
-  const _DatabaseFilterComparison(this.column, this.operator, this.value);
+  const _DatabaseFilterComparison(this.column, this.comparison, this.value);
 
   final String column;
-  final String operator;
+  final _Comparison comparison;
   final DatabaseType value;
 }
 
@@ -77,7 +101,7 @@ final class _DatabaseFilterNot extends DatabaseFilter {
 final class _DatabaseFilterCombination extends DatabaseFilter {
   const _DatabaseFilterCombination(this.connector, this.filters);
 
-  final String connector;
+  final _Connector connector;
   final List<DatabaseFilter> filters;
 }
 
@@ -90,8 +114,8 @@ final class _DatabaseFilterRaw extends DatabaseFilter {
 
 (String, List<DatabaseType>) _renderDatabaseFilter(DatabaseFilter filter) {
   switch (filter) {
-    case _DatabaseFilterComparison(:final column, :final operator, :final value):
-      return ('${_quotedIdentifier(column)} $operator ?', [value]);
+    case _DatabaseFilterComparison(:final column, :final comparison, :final value):
+      return ('${_quotedIdentifier(column)} ${comparison.sql} ?', [value]);
     case _DatabaseFilterIn(:final column, :final values):
       if (values.isEmpty) return ('0', const []);
       return ('${_quotedIdentifier(column)} IN (${List.filled(values.length, '?').join(', ')})', values);
@@ -101,7 +125,7 @@ final class _DatabaseFilterRaw extends DatabaseFilter {
       final (clause, arguments) = _renderDatabaseFilter(filter);
       return ('NOT ($clause)', arguments);
     case _DatabaseFilterCombination(:final connector, :final filters):
-      if (filters.isEmpty) return (connector == 'AND' ? '1' : '0', const []);
+      if (filters.isEmpty) return (connector.whenEmpty, const []);
       final clauses = <String>[];
       final arguments = <DatabaseType>[];
       for (final filter in filters) {
@@ -109,7 +133,7 @@ final class _DatabaseFilterRaw extends DatabaseFilter {
         clauses.add('($clause)');
         arguments.addAll(filterArguments);
       }
-      return (clauses.join(' $connector '), arguments);
+      return (clauses.join(' ${connector.sql} '), arguments);
     case _DatabaseFilterRaw(:final sql, :final arguments):
       return (sql, arguments);
   }
@@ -131,32 +155,32 @@ final class DatabaseFilterBuilder {
 
   /// Rows where [key] equals [value].
   DatabaseFilter isEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, '=', value);
+      _DatabaseFilterComparison(key, _Comparison.equal, value);
 
   /// Rows where [key] differs from [value].
   DatabaseFilter isNotEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, '!=', value);
+      _DatabaseFilterComparison(key, _Comparison.notEqual, value);
 
   /// Rows where [key] is strictly greater than [value].
   DatabaseFilter isGreaterThan({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, '>', value);
+      _DatabaseFilterComparison(key, _Comparison.greaterThan, value);
 
   /// Rows where [key] is greater than [value], or equal to it.
   DatabaseFilter isGreaterThanOrEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, '>=', value);
+      _DatabaseFilterComparison(key, _Comparison.greaterThanOrEqual, value);
 
   /// Rows where [key] is strictly less than [value].
   DatabaseFilter isLessThan({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, '<', value);
+      _DatabaseFilterComparison(key, _Comparison.lessThan, value);
 
   /// Rows where [key] is less than [value], or equal to it.
   DatabaseFilter isLessThanOrEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, '<=', value);
+      _DatabaseFilterComparison(key, _Comparison.lessThanOrEqual, value);
 
   /// Rows where [key] matches [pattern], where `%` stands for any run of
   /// characters and `_` for exactly one.
   DatabaseFilter isLike({required String key, required String pattern}) =>
-      _DatabaseFilterComparison(key, 'LIKE', DatabaseType.varchar(pattern));
+      _DatabaseFilterComparison(key, _Comparison.like, DatabaseType.varchar(pattern));
 
   /// Rows where [key] is one of [values].
   DatabaseFilter isIn({required String key, required List<DatabaseType> values}) => _DatabaseFilterIn(key, values);
@@ -169,11 +193,11 @@ final class DatabaseFilterBuilder {
 
   /// Rows every one of [filters] matches. `AND`s nothing, and matches every
   /// row, when [filters] is empty.
-  DatabaseFilter and(List<DatabaseFilter> filters) => _DatabaseFilterCombination('AND', filters);
+  DatabaseFilter and(List<DatabaseFilter> filters) => _DatabaseFilterCombination(_Connector.and, filters);
 
   /// Rows at least one of [filters] matches. Matches no row when [filters]
   /// is empty.
-  DatabaseFilter or(List<DatabaseFilter> filters) => _DatabaseFilterCombination('OR', filters);
+  DatabaseFilter or(List<DatabaseFilter> filters) => _DatabaseFilterCombination(_Connector.or, filters);
 
   /// Rows [filter] does not match.
   DatabaseFilter not(DatabaseFilter filter) => _DatabaseFilterNot(filter);

@@ -68,6 +68,7 @@ final class DatabaseQueryFrom<T extends Object> {
     List<DatabaseType>? whereArgs,
     String? groupBy,
     String? having,
+    List<DatabaseType>? havingArgs,
     String? orderBy,
     int? limit,
     int? offset,
@@ -79,6 +80,7 @@ final class DatabaseQueryFrom<T extends Object> {
        _whereArgs = whereArgs,
        _groupBy = groupBy,
        _having = having,
+       _havingArgs = havingArgs,
        _orderBy = orderBy,
        _limit = limit,
        _offset = offset;
@@ -91,6 +93,7 @@ final class DatabaseQueryFrom<T extends Object> {
   final List<DatabaseType>? _whereArgs;
   final String? _groupBy;
   final String? _having;
+  final List<DatabaseType>? _havingArgs;
   final String? _orderBy;
   final int? _limit;
   final int? _offset;
@@ -103,8 +106,10 @@ final class DatabaseQueryFrom<T extends Object> {
   /// [select] named.
   DatabaseQueryFrom<T> distinct([bool value = true]) => _copyWith(distinct: value);
 
-  /// Reads only [columns], instead of every column the table declares.
-  DatabaseQueryFrom<T> select(List<String> columns) => _copyWith(columns: columns);
+  /// Reads only the columns named [columns], instead of every column the
+  /// table declares. Each name is quoted, so it is read as a column and never
+  /// as SQL: an aggregate or an expression belongs in [LocalDatabase.rawQuery].
+  DatabaseQueryFrom<T> select(List<String> columns) => _copyWith(columns: columns.map(_quotedIdentifier).toList());
 
   /// Keeps only the rows [build] matches, composed from an empty
   /// [DatabaseFilterBuilder].
@@ -113,20 +118,35 @@ final class DatabaseQueryFrom<T extends Object> {
     return _copyWith(where: clause, whereArgs: arguments);
   }
 
-  /// Groups matching rows by [clause] before [having] and [map] see them.
-  DatabaseQueryFrom<T> groupBy(String clause) => _copyWith(groupBy: clause);
+  /// Groups matching rows by the columns named [columns] before [having] and
+  /// [map] see them. Each name is quoted, so it is read as a column and never
+  /// as SQL.
+  DatabaseQueryFrom<T> groupBy(List<String> columns) => _copyWith(groupBy: columns.map(_quotedIdentifier).join(', '));
 
-  /// Keeps only the groups [clause] matches. Meaningless without [groupBy].
-  DatabaseQueryFrom<T> having(String clause) => _copyWith(having: clause);
+  /// Keeps only the groups [build] matches, composed from an empty
+  /// [DatabaseFilterBuilder]. Meaningless without [groupBy].
+  ///
+  /// A condition over an aggregate goes through [DatabaseFilterBuilder.raw],
+  /// such as `w.raw('COUNT(*) > ?', [DatabaseType.integer(1)])`.
+  DatabaseQueryFrom<T> having(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
+    return _copyWith(having: clause, havingArgs: arguments);
+  }
 
-  /// Orders the result by [clause].
-  DatabaseQueryFrom<T> orderBy(String clause) => _copyWith(orderBy: clause);
+  /// Orders the result by [orders], the first one deciding and each later one
+  /// only breaking the ties the one before it left.
+  DatabaseQueryFrom<T> orderBy(List<DatabaseOrder> orders) => _copyWith(orderBy: orders.map(_renderOrder).join(', '));
 
   /// Reads at most [count] rows.
-  DatabaseQueryFrom<T> limit(int count) => _copyWith(limit: count);
+  ///
+  /// Throws a [RangeError] if [count] is negative, which SQLite would read as
+  /// no limit at all.
+  DatabaseQueryFrom<T> limit(int count) => _copyWith(limit: RangeError.checkNotNegative(count, 'count'));
 
   /// Skips the first [count] matching rows, applied after [limit].
-  DatabaseQueryFrom<T> offset(int count) => _copyWith(offset: count);
+  ///
+  /// Throws a [RangeError] if [count] is negative.
+  DatabaseQueryFrom<T> offset(int count) => _copyWith(offset: RangeError.checkNotNegative(count, 'count'));
 
   DatabaseQueryFrom<T> _copyWith({
     T Function(DatabaseRow row)? fromRow,
@@ -136,6 +156,7 @@ final class DatabaseQueryFrom<T extends Object> {
     List<DatabaseType>? whereArgs,
     String? groupBy,
     String? having,
+    List<DatabaseType>? havingArgs,
     String? orderBy,
     int? limit,
     int? offset,
@@ -148,11 +169,69 @@ final class DatabaseQueryFrom<T extends Object> {
     whereArgs: whereArgs ?? _whereArgs,
     groupBy: groupBy ?? _groupBy,
     having: having ?? _having,
+    havingArgs: havingArgs ?? _havingArgs,
     orderBy: orderBy ?? _orderBy,
     limit: limit ?? _limit,
     offset: offset ?? _offset,
   );
 
+  List<DatabaseType>? get _arguments =>
+      _whereArgs == null && _havingArgs == null ? null : [...?_whereArgs, ...?_havingArgs];
+
   T Function(DatabaseRow row) get _requiredFromRow =>
       _fromRow ?? (throw StateError('DatabaseQueryFrom.map was never set.'));
+}
+
+/// One term of a query's `ORDER BY`, with the [SortOrder] it sorts in.
+///
+/// Built through one of two factories, so a column name and a raw SQL
+/// expression can never be mistaken for one another: [DatabaseOrder.named]
+/// takes a column name and quotes it, [DatabaseOrder.expression] takes SQL and
+/// leaves it as written. A `switch` over a [DatabaseOrder] is exhaustive with
+/// [NamedDatabaseOrder] and [ExpressionDatabaseOrder].
+sealed class DatabaseOrder extends Equatable {
+  const DatabaseOrder._({required this.order});
+
+  /// The column called [name], sorted in [order].
+  const factory DatabaseOrder.named(String name, {SortOrder order}) = NamedDatabaseOrder._;
+
+  /// The raw SQL [sql], sorted in [order], for a term a bare column cannot
+  /// express, such as `lower(title)`.
+  ///
+  /// Nothing here validates it, the same choice made for every other raw SQL
+  /// fragment a caller supplies.
+  const factory DatabaseOrder.expression(String sql, {SortOrder order}) = ExpressionDatabaseOrder._;
+
+  /// The direction this term sorts in.
+  final SortOrder order;
+}
+
+/// A [DatabaseOrder] that sorts by one column, by name.
+final class NamedDatabaseOrder extends DatabaseOrder {
+  const NamedDatabaseOrder._(this.name, {super.order = SortOrder.asc}) : super._();
+
+  /// The name of the column this term sorts by.
+  final String name;
+
+  @override
+  List<Object?> get props => [name, order];
+}
+
+/// A [DatabaseOrder] that sorts by a raw SQL expression.
+final class ExpressionDatabaseOrder extends DatabaseOrder {
+  const ExpressionDatabaseOrder._(this.sql, {super.order = SortOrder.asc}) : super._();
+
+  /// The SQL expression this term sorts by.
+  final String sql;
+
+  @override
+  List<Object?> get props => [sql, order];
+}
+
+String _renderOrder(DatabaseOrder term) {
+  final target = switch (term) {
+    NamedDatabaseOrder(:final name) => _quotedIdentifier(name),
+    ExpressionDatabaseOrder(:final sql) => sql,
+  };
+  return '$target ${term.order.sql}';
 }

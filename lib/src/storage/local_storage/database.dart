@@ -43,6 +43,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import 'sort_order.dart';
+
 part 'types/database_type.dart';
 part 'types/native.dart';
 part 'types/boolean.dart';
@@ -245,7 +247,7 @@ class LocalDatabase {
           distinct: spec._distinct,
           columns: spec._columns,
           where: spec._where,
-          whereArgs: _toNativeArgs(spec._whereArgs),
+          whereArgs: _toNativeArgs(spec._arguments),
           groupBy: spec._groupBy,
           having: spec._having,
           orderBy: spec._orderBy,
