@@ -60,10 +60,10 @@ final class DatabaseColumn extends Equatable {
   final bool isPrimaryKey;
 
   factory DatabaseColumn._fromRow(DatabaseRow row) => DatabaseColumn(
-    name: (row['name'] as SqlText).value,
-    declaredType: (row['type'] as SqlText).value,
-    isNotNull: (row['notnull'] as SqlInteger).value != 0,
-    isPrimaryKey: (row['pk'] as SqlInteger).value != 0,
+    name: (row['name'] as Varchar).value,
+    declaredType: (row['type'] as Varchar).value,
+    isNotNull: (row['notnull'] as Integer).value != 0,
+    isPrimaryKey: (row['pk'] as Integer).value != 0,
   );
 
   @override

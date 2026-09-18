@@ -43,9 +43,9 @@ import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 void main() {
   group('TableBuilder (rendering)', () {
     test('renders a single-column primary key inline', () {
-      final table = TableBuilder('todos').columns(
-        (c) => {'id': c.integer().isPrimary().autoincrement(), 'title': c.text().isNullable(false)},
-      );
+      final table = TableBuilder(
+        'todos',
+      ).columns((c) => {'id': c.integer().isPrimary().autoincrement(), 'title': c.text().isNullable(false)});
 
       expect(table.statements, [
         'CREATE TABLE "todos" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "title" TEXT NOT NULL)',
@@ -71,7 +71,11 @@ void main() {
 
     test('renders unique, check and foreign key table constraints', () {
       final table = TableBuilder('devices')
-          .uniques((u) => [u.columns(['account_id', 'device_id']).name('devices_account_device_key')])
+          .uniques(
+            (u) => [
+              u.columns(['account_id', 'device_id']).name('devices_account_device_key'),
+            ],
+          )
           .checks((ck) => [ck.expression('last_seen_at <= unixepoch()')])
           .foreignKeys(
             (fk) => [
@@ -117,14 +121,11 @@ void main() {
     });
 
     test('renders STRICT and WITHOUT ROWID', () {
-      final table = TableBuilder('kv')
-          .strict()
-          .withoutRowid()
-          .columns((c) => {'key': c.text().isPrimary(), 'value': c.any()});
+      final table = TableBuilder(
+        'kv',
+      ).strict().withoutRowid().columns((c) => {'key': c.text().isPrimary(), 'value': c.any()});
 
-      expect(table.statements, [
-        'CREATE TABLE "kv" ("key" TEXT PRIMARY KEY, "value" ANY) STRICT, WITHOUT ROWID',
-      ]);
+      expect(table.statements, ['CREATE TABLE "kv" ("key" TEXT PRIMARY KEY, "value" ANY) STRICT, WITHOUT ROWID']);
     });
 
     test('renders a generated column', () {
@@ -172,7 +173,14 @@ void main() {
     });
 
     test('throws when a foreign key builder never names what it references', () {
-      expect(() => TableBuilder('devices').foreignKeys((fk) => [fk.columns(['account_id'])]), throwsStateError);
+      expect(
+        () => TableBuilder('devices').foreignKeys(
+          (fk) => [
+            fk.columns(['account_id']),
+          ],
+        ),
+        throwsStateError,
+      );
     });
   });
 
@@ -196,7 +204,11 @@ void main() {
     test('a declared table actually creates and accepts rows', () async {
       final declared = TableBuilder('todos')
           .checks((ck) => [ck.expression("length(title) > 0")])
-          .indexes((i) => [i.name('todos_done_idx').columns(['done'])])
+          .indexes(
+            (i) => [
+              i.name('todos_done_idx').columns(['done']),
+            ],
+          )
           .columns(
             (c) => {
               'id': c.integer().isPrimary().autoincrement(),
@@ -215,10 +227,14 @@ void main() {
       );
       await db.open();
 
-      await db.execute('INSERT INTO todos (title) VALUES (?)', const [SqlValue.text('Ship it')]);
+      await db.execute('INSERT INTO todos (title) VALUES (?)', const [DatabaseType.varchar('Ship it')]);
       final rows = await db.rawQuery('SELECT id, title, done FROM todos');
       expect(rows, [
-        const {'id': SqlValue.integer(1), 'title': SqlValue.text('Ship it'), 'done': SqlValue.integer(0)},
+        const {
+          'id': DatabaseType.integer(1),
+          'title': DatabaseType.varchar('Ship it'),
+          'done': DatabaseType.integer(0),
+        },
       ]);
 
       expect(await db.tableNames(), ['todos']);
@@ -229,9 +245,9 @@ void main() {
     });
 
     test('a CHECK constraint the DSL renders is actually enforced', () async {
-      final declared = TableBuilder('todos')
-          .checks((ck) => [ck.expression('length(title) > 0')])
-          .columns((c) => {'title': c.text().isNullable(false)});
+      final declared = TableBuilder(
+        'todos',
+      ).checks((ck) => [ck.expression('length(title) > 0')]).columns((c) => {'title': c.text().isNullable(false)});
 
       final db = LocalDatabase(
         name: 'schema_check.db',
@@ -244,7 +260,7 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.execute('INSERT INTO todos (title) VALUES (?)', const [SqlValue.text('')]),
+        db.execute('INSERT INTO todos (title) VALUES (?)', const [DatabaseType.varchar('')]),
         throwsA(isA<DatabaseError>()),
       );
 
@@ -266,8 +282,8 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO kv (key, value) VALUES (?, ?)', const [
-          SqlValue.text('a'),
-          SqlValue.text('not a number'),
+          DatabaseType.varchar('a'),
+          DatabaseType.varchar('not a number'),
         ]),
         throwsA(isA<DatabaseError>()),
       );

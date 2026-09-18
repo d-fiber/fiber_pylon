@@ -43,7 +43,7 @@ part of 'database.dart';
 ///
 /// ```dart
 /// final open = await db.query<Todo>(
-///   (q) => q.from('todos').where('done = ?', [SqlValue.boolean(false)]).map(Todo.fromRow),
+///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(false))).map(Todo.fromRow),
 /// );
 /// ```
 final class DatabaseQuery<T extends Object> {
@@ -65,7 +65,7 @@ final class DatabaseQueryFrom<T extends Object> {
     bool distinct = false,
     List<String>? columns,
     String? where,
-    List<SqlValue>? whereArgs,
+    List<DatabaseType>? whereArgs,
     String? groupBy,
     String? having,
     String? orderBy,
@@ -88,7 +88,7 @@ final class DatabaseQueryFrom<T extends Object> {
   final bool _distinct;
   final List<String>? _columns;
   final String? _where;
-  final List<SqlValue>? _whereArgs;
+  final List<DatabaseType>? _whereArgs;
   final String? _groupBy;
   final String? _having;
   final String? _orderBy;
@@ -106,14 +106,12 @@ final class DatabaseQueryFrom<T extends Object> {
   /// Reads only [columns], instead of every column the table declares.
   DatabaseQueryFrom<T> select(List<String> columns) => _copyWith(columns: columns);
 
-  /// Keeps only the rows [clause] matches, every `?` in it bound to
-  /// [arguments] in order.
-  ///
-  /// `WHERE column = ?` with a `null` argument never matches a row where
-  /// `column IS NULL` — write `column IS NULL` into [clause] directly for
-  /// that, the same rule plain SQL follows.
-  DatabaseQueryFrom<T> where(String clause, [List<SqlValue>? arguments]) =>
-      _copyWith(where: clause, whereArgs: arguments);
+  /// Keeps only the rows [build] matches, composed from an empty
+  /// [DatabaseFilterBuilder].
+  DatabaseQueryFrom<T> where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
+    return _copyWith(where: clause, whereArgs: arguments);
+  }
 
   /// Groups matching rows by [clause] before [having] and [map] see them.
   DatabaseQueryFrom<T> groupBy(String clause) => _copyWith(groupBy: clause);
@@ -135,7 +133,7 @@ final class DatabaseQueryFrom<T extends Object> {
     bool? distinct,
     List<String>? columns,
     String? where,
-    List<SqlValue>? whereArgs,
+    List<DatabaseType>? whereArgs,
     String? groupBy,
     String? having,
     String? orderBy,
@@ -155,5 +153,6 @@ final class DatabaseQueryFrom<T extends Object> {
     offset: offset ?? _offset,
   );
 
-  T Function(DatabaseRow row) get _requiredFromRow => _fromRow ?? (throw StateError('DatabaseQueryFrom.map was never set.'));
+  T Function(DatabaseRow row) get _requiredFromRow =>
+      _fromRow ?? (throw StateError('DatabaseQueryFrom.map was never set.'));
 }

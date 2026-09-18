@@ -69,21 +69,22 @@ final class DatabaseBatch {
   }
 
   /// Queues a [LocalDatabase.execute].
-  void execute(String sql, [List<SqlValue>? arguments]) => _batch.execute(sql, _toNativeArgs(arguments));
+  void execute(String sql, [List<DatabaseType>? arguments]) => _batch.execute(sql, _toNativeArgs(arguments));
 
   /// Queues a [LocalDatabase.query]. Its rows land at this call's own
   /// position in [commit]'s or [apply]'s result list, as a raw
   /// `List<Map<String, Object?>>` — sqflite's own batch API answers every
   /// queued statement through one shared, loosely typed result list, so
   /// this is the one place [DatabaseBatch] cannot hand back a [DatabaseRow] the
-  /// way every other method here does; decode it with
-  /// [SqlValue.fromNative] per column.
+  /// way every other method here does; each column value is left in the
+  /// native shape sqflite itself hands back (`null`, [int], [double],
+  /// [String] or [Uint8List]).
   void query(
     String table, {
     bool distinct = false,
     List<String>? columns,
     String? where,
-    List<SqlValue>? whereArgs,
+    List<DatabaseType>? whereArgs,
     String? groupBy,
     String? having,
     String? orderBy,

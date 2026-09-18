@@ -43,7 +43,7 @@ part of 'database.dart';
 ///
 /// ```dart
 /// final changed = await db.update<Todo>(
-///   (u) => u.table('todos').set(done).where('id = ?', [SqlValue.integer(id)]),
+///   (u) => u.table('todos').set(done).where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
 /// );
 /// ```
 final class DatabaseUpdate<T extends DatabaseRecord> {
@@ -76,14 +76,16 @@ final class DatabaseUpdateSet<T extends DatabaseRecord> {
   final String _table;
   final T _data;
   final String? _where;
-  final List<SqlValue>? _whereArgs;
+  final List<DatabaseType>? _whereArgs;
   final ConflictAlgorithm? _conflict;
 
-  /// Keeps only the rows [clause] matches, every `?` in it bound to
-  /// [arguments] in order. Every row in the table is matched when this is
+  /// Keeps only the rows [build] matches, composed from an empty
+  /// [DatabaseFilterBuilder]. Every row in the table is matched when this is
   /// never called.
-  DatabaseUpdateSet<T> where(String clause, [List<SqlValue>? arguments]) =>
-      DatabaseUpdateSet._(_table, _data, clause, arguments, _conflict);
+  DatabaseUpdateSet<T> where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
+    return DatabaseUpdateSet._(_table, _data, clause, arguments, _conflict);
+  }
 
   /// Resolves the conflict, should [set] collide with a row already there.
   /// Left unset, sqflite aborts the whole statement.

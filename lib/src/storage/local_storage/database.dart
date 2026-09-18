@@ -35,16 +35,27 @@
 // LICENSE file, the LICENSE file governs.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
-part 'sql_value.dart';
+part 'types/database_type.dart';
+part 'types/boolean.dart';
+part 'types/temporal.dart';
+part 'types/enum_value.dart';
+part 'types/list.dart';
+part 'types/location.dart';
+part 'types/interval.dart';
+part 'types/range.dart';
+part 'types/json.dart';
 part 'record.dart';
 part 'column.dart';
 part 'errors.dart';
+part 'filter.dart';
 part 'insert.dart';
 part 'query.dart';
 part 'update.dart';
@@ -61,7 +72,7 @@ part 'batch.dart';
 /// exist or what a row looks like: a project (or another pylon primitive)
 /// supplies its own schema through [onCreate] and [onUpgrade], then reads
 /// and writes it through [insert], [query], [update], [delete], raw SQL and
-/// [transaction], typed throughout on [SqlValue] and [DatabaseRow] rather than
+/// [transaction], typed throughout on [DatabaseType] and [DatabaseRow] rather than
 /// `Object?`. This adds only the lifecycle sqflite leaves to the caller; it
 /// never reinterprets a column, a table name or a query as meaning
 /// something.
@@ -73,12 +84,12 @@ part 'batch.dart';
 ///   final bool done;
 ///
 ///   static Todo fromRow(DatabaseRow row) => Todo(
-///     title: (row['title'] as SqlText).value,
-///     done: (row['done'] as SqlInteger).value != 0,
+///     title: (row['title'] as Varchar).value,
+///     done: (row['done'] as Integer).value != 0,
 ///   );
 ///
 ///   @override
-///   DatabaseRow toRow() => {'title': SqlValue.text(title), 'done': SqlValue.boolean(done)};
+///   DatabaseRow toRow() => {'title': DatabaseType.varchar(title), 'done': DatabaseType.boolean(done)};
 /// }
 ///
 /// final db = LocalDatabase(
@@ -96,12 +107,15 @@ part 'batch.dart';
 ///
 /// final id = await db.insert<Todo>((i) => i.into('todos').values(Todo(title: 'Ship it', done: false)));
 /// final open = await db.query<Todo>(
-///   (q) => q.from('todos').where('done = ?', [SqlValue.boolean(false)]).map(Todo.fromRow),
+///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(false))).map(Todo.fromRow),
 /// );
 /// await db.update<Todo>(
-///   (u) => u.table('todos').set(Todo(title: 'Ship it', done: true)).where('id = ?', [SqlValue.integer(id)]),
+///   (u) => u
+///       .table('todos')
+///       .set(Todo(title: 'Ship it', done: true))
+///       .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
 /// );
-/// await db.delete((d) => d.from('todos').where('done = ?', [SqlValue.boolean(true)]));
+/// await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
 /// ```
 ///
 /// A [DatabaseException] sqflite itself throws never escapes: every method
@@ -204,7 +218,7 @@ class LocalDatabase {
   /// Runs [sql] directly, for anything [insert], [query], [update] and
   /// [delete] do not cover — a `CREATE TABLE`, a `CREATE INDEX`, a schema
   /// change inside [onUpgrade].
-  Future<void> execute(String sql, [List<SqlValue>? arguments]) =>
+  Future<void> execute(String sql, [List<DatabaseType>? arguments]) =>
       _guarded(() => _requireOpen().execute(sql, _toNativeArgs(arguments)));
 
   /// Inserts one row, composed by [build] from an empty [DatabaseInsert] —
@@ -214,11 +228,7 @@ class LocalDatabase {
   Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
       _guarded(() {
         final spec = build(DatabaseInsert<T>._());
-        return _requireOpen().insert(
-          spec._table,
-          _toNativeRow(spec._data.toRow()),
-          conflictAlgorithm: spec._conflict,
-        );
+        return _requireOpen().insert(spec._table, _toNativeRow(spec._data.toRow()), conflictAlgorithm: spec._conflict);
       });
 
   /// Reads rows, filtered, ordered, paged and decoded exactly as [build]
@@ -247,7 +257,7 @@ class LocalDatabase {
   /// Runs [sql] directly and answers the rows it selected, for a query
   /// [query] cannot express — a join, an aggregate, anything past one
   /// table's own `WHERE`.
-  Future<List<DatabaseRow>> rawQuery(String sql, [List<SqlValue>? arguments]) => _guarded(() async {
+  Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
     final rows = await _requireOpen().rawQuery(sql, _toNativeArgs(arguments));
     return rows.map(_fromNativeRow).toList();
   });
@@ -256,16 +266,17 @@ class LocalDatabase {
   /// empty [DatabaseUpdate] — [build] must return a [DatabaseUpdateSet], the same
   /// way a raw `UPDATE table` needs a `SET` before it means anything —
   /// answering how many rows changed.
-  Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) => _guarded(() {
-    final spec = build(DatabaseUpdate<T>._());
-    return _requireOpen().update(
-      spec._table,
-      _toNativeRow(spec._data.toRow()),
-      where: spec._where,
-      whereArgs: _toNativeArgs(spec._whereArgs),
-      conflictAlgorithm: spec._conflict,
-    );
-  });
+  Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
+      _guarded(() {
+        final spec = build(DatabaseUpdate<T>._());
+        return _requireOpen().update(
+          spec._table,
+          _toNativeRow(spec._data.toRow()),
+          where: spec._where,
+          whereArgs: _toNativeArgs(spec._whereArgs),
+          conflictAlgorithm: spec._conflict,
+        );
+      });
 
   /// Removes every row matched, composed by [build] from an empty
   /// [DatabaseDelete] — [build] must return a [DatabaseDeleteFrom], the same way
@@ -299,7 +310,7 @@ class LocalDatabase {
   /// Whether [table] exists in this database.
   Future<bool> tableExists(String table) => _guarded(() async {
     final rows = await rawQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", [
-      SqlValue.text(table),
+      DatabaseType.varchar(table),
     ]);
     return rows.isNotEmpty;
   });
@@ -310,8 +321,8 @@ class LocalDatabase {
     (q) => q
         .from('sqlite_master')
         .select(const ['name'])
-        .where("type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")
-        .map((row) => (row['name'] as SqlText).value),
+        .where((w) => w.raw("type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"))
+        .map((row) => (row['name'] as Varchar).value),
   );
 
   /// Every column [table] declares, in declaration order, straight out of

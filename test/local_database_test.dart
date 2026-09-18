@@ -57,16 +57,16 @@ final class Todo extends Equatable implements DatabaseRecord {
   final bool done;
 
   static Todo fromRow(DatabaseRow row) => Todo(
-    id: (row['id'] as SqlInteger).value,
-    title: (row['title'] as SqlText).value,
-    done: (row['done'] as SqlInteger).value != 0,
+    id: (row['id'] as Integer).value,
+    title: (row['title'] as Varchar).value,
+    done: (row['done'] as Integer).value != 0,
   );
 
   Todo copyWith({int? id, String? title, bool? done}) =>
       Todo(id: id ?? this.id, title: title ?? this.title, done: done ?? this.done);
 
   @override
-  DatabaseRow toRow() => {'title': SqlValue.text(title), 'done': SqlValue.boolean(done)};
+  DatabaseRow toRow() => {'title': DatabaseType.varchar(title), 'done': DatabaseType.boolean(done)};
 
   @override
   List<Object?> get props => [id, title, done];
@@ -116,7 +116,10 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
 
       final open = await db.query<Todo>(
-        (q) => q.from('todos').where('done = ?', [SqlValue.boolean(false)]).map(Todo.fromRow),
+        (q) => q
+            .from('todos')
+            .where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(false)))
+            .map(Todo.fromRow),
       );
 
       expect(open.map((todo) => todo.title), ['Still open']);
@@ -144,7 +147,7 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
       final rows = await db.query<String>(
-        (q) => q.from('todos').select(const ['title']).map((row) => (row['title'] as SqlText).value),
+        (q) => q.from('todos').select(const ['title']).map((row) => (row['title'] as Varchar).value),
       );
 
       expect(rows, ['Ship it']);
@@ -160,12 +163,12 @@ void main() {
         (u) => u
             .table('todos')
             .set(const Todo(title: 'Ship it', done: true))
-            .where('id = ?', [SqlValue.integer(id)]),
+            .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
       );
 
       expect(changed, 1);
       final rows = await db.query<Todo>(
-        (q) => q.from('todos').where('id = ?', [SqlValue.integer(id)]).map(Todo.fromRow),
+        (q) => q.from('todos').where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))).map(Todo.fromRow),
       );
       expect(rows.single.done, isTrue);
       await db.dispose();
@@ -177,7 +180,9 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
       final keep = await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
 
-      final removed = await db.delete((d) => d.from('todos').where('done = ?', [SqlValue.boolean(true)]));
+      final removed = await db.delete(
+        (d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))),
+      );
 
       expect(removed, 1);
       final rows = await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow));
@@ -218,10 +223,10 @@ void main() {
       await db.open();
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
-      final rows = await db.rawQuery('SELECT title FROM todos WHERE done = ?', [SqlValue.boolean(false)]);
+      final rows = await db.rawQuery('SELECT title FROM todos WHERE done = ?', [DatabaseType.boolean(false)]);
 
       expect(rows, [
-        const {'title': SqlValue.text('Ship it')},
+        const {'title': DatabaseType.varchar('Ship it')},
       ]);
       await db.dispose();
     });
@@ -274,10 +279,10 @@ void main() {
             db.execute('CREATE TABLE todos (id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE)'),
       );
       await db.open();
-      await db.execute('INSERT INTO todos (id, title) VALUES (1, ?)', const [SqlValue.text('Ship it')]);
+      await db.execute('INSERT INTO todos (id, title) VALUES (1, ?)', const [DatabaseType.varchar('Ship it')]);
 
       await expectLater(
-        db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [SqlValue.text('Ship it')]),
+        db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [DatabaseType.varchar('Ship it')]),
         throwsA(isA<DatabaseUniqueConstraintError>()),
       );
       await db.dispose();
@@ -316,6 +321,113 @@ void main() {
         const DatabaseColumn(name: 'done', declaredType: 'INTEGER', isNotNull: true, isPrimaryKey: false),
       ]);
       await db.dispose();
+    });
+  });
+
+  group('DatabaseFilterBuilder', () {
+    late LocalDatabase db;
+
+    setUp(() async {
+      db = LocalDatabase(name: 'todos_filters.db', onCreate: _createTodos);
+      await db.open();
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ant', done: false)));
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Bee', done: true)));
+      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Cat', done: true)));
+    });
+
+    tearDown(() => db.dispose());
+
+    Future<List<String>> titlesWhere(DatabaseFilter Function(DatabaseFilterBuilder w) build) async {
+      final rows = await db.query<Todo>((q) => q.from('todos').where(build).orderBy('title').map(Todo.fromRow));
+      return rows.map((todo) => todo.title).toList();
+    }
+
+    test('isNotEqualTo excludes the matching rows', () async {
+      expect(await titlesWhere((w) => w.isNotEqualTo(key: 'title', value: const DatabaseType.varchar('Bee'))), [
+        'Ant',
+        'Cat',
+      ]);
+    });
+
+    test('isGreaterThan and isLessThan compare ids', () async {
+      final all = await db.query<Todo>((q) => q.from('todos').orderBy('id').map(Todo.fromRow));
+      final firstId = all.first.id!;
+
+      expect(await titlesWhere((w) => w.isGreaterThan(key: 'id', value: DatabaseType.integer(firstId))), [
+        'Bee',
+        'Cat',
+      ]);
+      expect(await titlesWhere((w) => w.isLessThan(key: 'id', value: DatabaseType.integer(firstId))), isEmpty);
+    });
+
+    test('isGreaterThanOrEqualTo and isLessThanOrEqualTo include the boundary', () async {
+      final all = await db.query<Todo>((q) => q.from('todos').orderBy('id').map(Todo.fromRow));
+      final firstId = all.first.id!;
+
+      expect(await titlesWhere((w) => w.isGreaterThanOrEqualTo(key: 'id', value: DatabaseType.integer(firstId))), [
+        'Ant',
+        'Bee',
+        'Cat',
+      ]);
+      expect(await titlesWhere((w) => w.isLessThanOrEqualTo(key: 'id', value: DatabaseType.integer(firstId))), ['Ant']);
+    });
+
+    test('isLike matches a pattern', () async {
+      expect(await titlesWhere((w) => w.isLike(key: 'title', pattern: 'B%')), ['Bee']);
+    });
+
+    test('isIn matches any of a set of values', () async {
+      expect(
+        await titlesWhere(
+          (w) => w.isIn(key: 'title', values: const [DatabaseType.varchar('Ant'), DatabaseType.varchar('Cat')]),
+        ),
+        ['Ant', 'Cat'],
+      );
+    });
+
+    test('isIn with no values matches nothing', () async {
+      expect(await titlesWhere((w) => w.isIn(key: 'title', values: const [])), isEmpty);
+    });
+
+    test('isNull and isNotNull read column presence', () async {
+      expect(await titlesWhere((w) => w.isNull('title')), isEmpty);
+      expect(await titlesWhere((w) => w.isNotNull('title')), ['Ant', 'Bee', 'Cat']);
+    });
+
+    test('and combines every condition', () async {
+      expect(
+        await titlesWhere(
+          (w) => w.and([
+            w.isEqualTo(key: 'done', value: DatabaseType.boolean(true)),
+            w.isLike(key: 'title', pattern: 'B%'),
+          ]),
+        ),
+        ['Bee'],
+      );
+    });
+
+    test('or matches any condition', () async {
+      expect(
+        await titlesWhere(
+          (w) => w.or([
+            w.isEqualTo(key: 'title', value: const DatabaseType.varchar('Ant')),
+            w.isEqualTo(key: 'title', value: const DatabaseType.varchar('Cat')),
+          ]),
+        ),
+        ['Ant', 'Cat'],
+      );
+    });
+
+    test('not negates a condition', () async {
+      expect(await titlesWhere((w) => w.not(w.isEqualTo(key: 'done', value: DatabaseType.boolean(true)))), ['Ant']);
+    });
+
+    test('raw carries a predicate the rest of the builder cannot express', () async {
+      expect(await titlesWhere((w) => w.raw('length(title) = ?', const [DatabaseType.integer(3)])), [
+        'Ant',
+        'Bee',
+        'Cat',
+      ]);
     });
   });
 }

@@ -38,7 +38,7 @@ part of 'schema.dart';
 
 /// A `CREATE TABLE` column's declared type, spelled the way SQLite's own
 /// `STRICT` tables take it — the only five keywords a `STRICT` column may
-/// name, matching [SqlValue]'s own five storage classes exactly. A non-`STRICT`
+/// name, matching [DatabaseType]'s own five storage classes exactly. A non-`STRICT`
 /// table accepts the same five keywords too; SQLite just does not enforce
 /// them there.
 enum ColumnType {

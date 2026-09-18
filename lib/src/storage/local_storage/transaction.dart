@@ -46,7 +46,7 @@ final class DatabaseTransaction {
   final Transaction _txn;
 
   /// See [LocalDatabase.execute].
-  Future<void> execute(String sql, [List<SqlValue>? arguments]) =>
+  Future<void> execute(String sql, [List<DatabaseType>? arguments]) =>
       _guarded(() => _txn.execute(sql, _toNativeArgs(arguments)));
 
   /// See [LocalDatabase.insert].
@@ -77,22 +77,23 @@ final class DatabaseTransaction {
       });
 
   /// See [LocalDatabase.rawQuery].
-  Future<List<DatabaseRow>> rawQuery(String sql, [List<SqlValue>? arguments]) => _guarded(() async {
+  Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
     final rows = await _txn.rawQuery(sql, _toNativeArgs(arguments));
     return rows.map(_fromNativeRow).toList();
   });
 
   /// See [LocalDatabase.update].
-  Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) => _guarded(() {
-    final spec = build(DatabaseUpdate<T>._());
-    return _txn.update(
-      spec._table,
-      _toNativeRow(spec._data.toRow()),
-      where: spec._where,
-      whereArgs: _toNativeArgs(spec._whereArgs),
-      conflictAlgorithm: spec._conflict,
-    );
-  });
+  Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
+      _guarded(() {
+        final spec = build(DatabaseUpdate<T>._());
+        return _txn.update(
+          spec._table,
+          _toNativeRow(spec._data.toRow()),
+          where: spec._where,
+          whereArgs: _toNativeArgs(spec._whereArgs),
+          conflictAlgorithm: spec._conflict,
+        );
+      });
 
   /// See [LocalDatabase.delete].
   Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() {

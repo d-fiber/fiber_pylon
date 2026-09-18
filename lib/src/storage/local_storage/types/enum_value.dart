@@ -34,38 +34,17 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
-/// Opens one [LocalDatabase.delete] (or [DatabaseBatch.delete]) call. Never
-/// constructed directly — [LocalDatabase.delete] hands one to its own
-/// callback. The only method here is [from]: nothing can follow `DELETE`
-/// before naming a table, so nothing else is offered here either.
-///
-/// ```dart
-/// final removed = await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
-/// ```
-final class DatabaseDelete {
-  const DatabaseDelete._();
-
-  /// Removes rows from [name], the same `FROM` a raw `DELETE FROM ...` names.
-  DatabaseDeleteFrom from(String name) => DatabaseDeleteFrom._(name);
-}
-
-/// A [DatabaseDelete] that has named its table, opened by [DatabaseDelete.from] —
-/// already a fully composed delete, since `WHERE` is genuinely optional on
-/// a raw `DELETE FROM table` (it removes every row without one).
-final class DatabaseDeleteFrom {
-  DatabaseDeleteFrom._(this._table, [this._where, this._whereArgs]);
-
-  final String _table;
-  final String? _where;
-  final List<DatabaseType>? _whereArgs;
-
-  /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Every row in the table is removed when this is
-  /// never called.
-  DatabaseDeleteFrom where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
-    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return DatabaseDeleteFrom._(_table, clause, arguments);
+/// Reads a value back the way [DatabaseType.enum_] wrote it.
+extension EnumDecoding on DatabaseType {
+  /// This value as one of [values], matched by the name [enum_] wrote it
+  /// under.
+  ///
+  /// Throws an [ArgumentError] if no member of [values] has that name.
+  /// Throws a [StateError] if this is not a [Varchar].
+  E asEnum<E extends Enum>(List<E> values) {
+    if (this case Varchar(value: final stored)) return values.byName(stored);
+    throw StateError('$this is not an enum.');
   }
 }
