@@ -36,7 +36,6 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 final class _RestSdk extends RestSdkClient {
   @override
@@ -72,15 +71,8 @@ final class _NeverInitializedClient extends RestSdkClient {
   Environments? get environments => null;
 }
 
-final class _AppPreferences extends ValkeryStorage {}
-
-final class _SdkWithPreferences extends Sdk {
+final class _TestSdk extends Sdk {
   var initializeCalls = 0;
-
-  final _AppPreferences ownPreferences = _AppPreferences();
-
-  @override
-  ValkeryStorage get preferences => ownPreferences;
 
   @override
   Future<void> initialize() async {
@@ -97,74 +89,6 @@ final class _SdkWithPreferences extends Sdk {
 final class _NeverInitializedSdk extends Sdk {}
 
 void main() {
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
-    ValkeryStorage.dispose();
-  });
-
-  group('Sdk.initialize', () {
-    test('resolves preferences the first time it runs', () async {
-      final sdk = _SdkWithPreferences();
-
-      await sdk.initialize();
-
-      expect(ValkeryStorage.isInitialized, isTrue);
-      expect(sdk.ownPreferences.prefs, isNotNull);
-    });
-
-    test('does not try to resolve preferences again on a later call, the way a '
-        'backend swap replays it', () async {
-      final first = _SdkWithPreferences();
-      await first.initialize();
-
-      final second = _SdkWithPreferences();
-      await second.initialize();
-
-      // second's own preferences were never handed to ValkeryStorage.initialize,
-      // so its late `prefs` was never set.
-      expect(() => second.ownPreferences.prefs, throwsA(isA<Error>()));
-    });
-
-    test(
-      'leaves preferences untouched when an implementation needs none',
-      () async {
-        final sdk = _RestSdk();
-
-        await sdk.initialize();
-
-        expect(ValkeryStorage.isInitialized, isFalse);
-      },
-    );
-  });
-
-  group('Sdk.dispose', () {
-    test(
-      'forgets the resolved preferences so a later initialize resolves fresh ones',
-      () async {
-        final sdk = _SdkWithPreferences();
-        await sdk.initialize();
-
-        await sdk.dispose();
-
-        expect(ValkeryStorage.isInitialized, isFalse);
-      },
-    );
-
-    test(
-      "leaves another implementation's resolved preferences intact when this "
-      'one needs none',
-      () async {
-        final withPreferences = _SdkWithPreferences();
-        await withPreferences.initialize();
-
-        final withoutPreferences = _RestSdk();
-        await withoutPreferences.dispose();
-
-        expect(ValkeryStorage.isInitialized, isTrue);
-      },
-    );
-  });
-
   group('Sdk.instance', () {
     test('throws when nothing has registered yet', () {
       expect(
@@ -181,35 +105,35 @@ void main() {
 
     test('answers the instance initialize registered, without a project '
         'declaring anything for it', () async {
-      final sdk = _SdkWithPreferences();
+      final sdk = _TestSdk();
       await sdk.initialize();
 
-      expect(Sdk.instance<_SdkWithPreferences>(), same(sdk));
+      expect(Sdk.instance<_TestSdk>(), same(sdk));
 
       await sdk.dispose();
     });
 
     test('forgets the instance once disposed', () async {
-      final sdk = _SdkWithPreferences();
+      final sdk = _TestSdk();
       await sdk.initialize();
       await sdk.dispose();
 
-      expect(() => Sdk.instance<_SdkWithPreferences>(), throwsStateError);
+      expect(() => Sdk.instance<_TestSdk>(), throwsStateError);
     });
 
     test(
       'keeps the newer instance registered when an older one, replaced '
       'without being disposed first, is disposed afterwards',
       () async {
-        final first = _SdkWithPreferences();
+        final first = _TestSdk();
         await first.initialize();
 
-        final second = _SdkWithPreferences();
+        final second = _TestSdk();
         await second.initialize();
 
         await first.dispose();
 
-        expect(Sdk.instance<_SdkWithPreferences>(), same(second));
+        expect(Sdk.instance<_TestSdk>(), same(second));
 
         await second.dispose();
       },

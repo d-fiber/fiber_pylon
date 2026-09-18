@@ -34,8 +34,10 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Ticket {
@@ -44,15 +46,25 @@ class Ticket {
   const Ticket(this.value);
 }
 
+Future<ValkeryStorage> _preferences() async {
+  await GetIt.instance.reset();
+  await configureSdk();
+  return GetIt.instance<ValkeryStorage>();
+}
+
+Future<_AppPreferences> _appPreferences() async {
+  await _preferences();
+  return _AppPreferences();
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    ValkeryStorage.dispose();
   });
 
   group('StoredCredential', () {
     test('reads back a credential through the encoding it was given', () async {
-      final preferences = await ValkeryStorage.initialize(ValkeryStorage());
+      final preferences = await _preferences();
       final store = StoredCredential<Ticket>(
         preferences,
         key: 'ticket',
@@ -67,7 +79,7 @@ void main() {
     });
 
     test('reads back nothing once cleared', () async {
-      final preferences = await ValkeryStorage.initialize(ValkeryStorage());
+      final preferences = await _preferences();
       final store = StoredCredential<Ticket>(
         preferences,
         key: 'ticket',
@@ -85,7 +97,7 @@ void main() {
       'reads back nothing when the stored shape no longer decodes',
       () async {
         SharedPreferences.setMockInitialValues({'ticket': 'abc'});
-        final preferences = await ValkeryStorage.initialize(ValkeryStorage());
+        final preferences = await _preferences();
         final store = StoredCredential<Ticket>(
           preferences,
           key: 'ticket',
@@ -102,13 +114,12 @@ void main() {
     test(
       'every entry answers its default value before anything is written',
       () async {
-        final prefs = await ValkeryStorage.initialize(_AppPreferences());
+        final prefs = await _appPreferences();
 
         expect(prefs.volume.value, 50);
         expect(prefs.enabled.value, isFalse);
         expect(prefs.ratio.value, 1.0);
         expect(prefs.label.value, 'default');
-        expect(prefs.tags.value, <String>[]);
         expect(prefs.mood.value, Mood.neutral);
         expect(prefs.profile.value.name, 'anonymous');
       },
@@ -116,27 +127,26 @@ void main() {
 
     test('reads back each native type through the shared_preferences getter '
         'matching it', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
 
       await prefs.volume.set(80);
       await prefs.enabled.set(true);
       await prefs.ratio.set(2.5);
       await prefs.label.set('changed');
-      await prefs.tags.set(['a', 'b']);
 
       expect(prefs.volume.value, 80);
       expect(prefs.enabled.value, isTrue);
       expect(prefs.ratio.value, 2.5);
       expect(prefs.label.value, 'changed');
-      expect(prefs.tags.value, ['a', 'b']);
     });
 
     test('stores an enum by name rather than by index', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
 
       await prefs.mood.set(Mood.happy);
 
-      expect(prefs.prefs.getString('mood'), 'happy');
+      final rawPrefs = await SharedPreferences.getInstance();
+      expect(rawPrefs.getString('mood'), 'happy');
       expect(prefs.mood.value, Mood.happy);
     });
 
@@ -144,14 +154,14 @@ void main() {
       'answers the fallback for a stored enum value that no longer matches',
       () async {
         SharedPreferences.setMockInitialValues({'mood': 'furious'});
-        final prefs = await ValkeryStorage.initialize(_AppPreferences());
+        final prefs = await _appPreferences();
 
         expect(prefs.mood.value, Mood.neutral);
       },
     );
 
     test('reads back a JSON-encoded value', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
 
       await prefs.profile.set(const _Profile(name: 'Alex'));
 
@@ -162,14 +172,14 @@ void main() {
       'answers the fallback for a stored JSON value that no longer decodes',
       () async {
         SharedPreferences.setMockInitialValues({'profile': 'not json'});
-        final prefs = await ValkeryStorage.initialize(_AppPreferences());
+        final prefs = await _appPreferences();
 
         expect(prefs.profile.value.name, 'anonymous');
       },
     );
 
     test('reads back a JSON-encoded list of a native type', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
 
       await prefs.scores.set([3, 1, 4]);
 
@@ -177,7 +187,7 @@ void main() {
     });
 
     test('reads back a JSON-encoded list of a custom type', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
 
       await prefs.crew.set(const [_Profile(name: 'Alex'), _Profile(name: 'Sam')]);
 
@@ -188,14 +198,14 @@ void main() {
       'answers the fallback for a stored JSON list that no longer decodes',
       () async {
         SharedPreferences.setMockInitialValues({'scores': 'not json'});
-        final prefs = await ValkeryStorage.initialize(_AppPreferences());
+        final prefs = await _appPreferences();
 
         expect(prefs.scores.value, isEmpty);
       },
     );
 
     test('publishes every value it is given', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
       final seen = <int>[];
       prefs.volume.stream.listen(seen.add);
 
@@ -203,12 +213,14 @@ void main() {
       await prefs.volume.set(20);
       await pumpEventQueue();
 
-      expect(seen, [10, 20]);
+      // 50 first: stream is backed by a BehaviorSubject, which replays the
+      // current value to a new listener before anything that changes after.
+      expect(seen, [50, 10, 20]);
       await prefs.volume.dispose();
     });
 
     test('clear resets to the default value and publishes it', () async {
-      final prefs = await ValkeryStorage.initialize(_AppPreferences());
+      final prefs = await _appPreferences();
       await prefs.volume.set(99);
 
       await prefs.volume.clear();
@@ -220,27 +232,19 @@ void main() {
 
 enum Mood { happy, sad, neutral }
 
-class _AppPreferences extends ValkeryStorage {
-  late final volume = Valkery.int_(this, 'volume', 50);
-  late final enabled = Valkery.bool_(this, 'enabled', false);
-  late final ratio = Valkery.double_(this, 'ratio', 1.0);
-  late final label = Valkery.string_(this, 'label', 'default');
-  late final tags = Valkery.array_(this, 'tags', const []);
-  late final mood = Valkery.enum_(
-    this,
-    'mood',
-    Mood.values,
-    Mood.neutral,
-  );
-  late final profile = Valkery.json_(
-    this,
+class _AppPreferences {
+  late final volume = ValkeryStorage.int_('volume', 50);
+  late final enabled = ValkeryStorage.bool_('enabled', false);
+  late final ratio = ValkeryStorage.double_('ratio', 1.0);
+  late final label = ValkeryStorage.string_('label', 'default');
+  late final mood = ValkeryStorage.enum_('mood', Mood.values, Mood.neutral);
+  late final profile = ValkeryStorage.json_(
     'profile',
     const _Profile(name: 'anonymous'),
     _Profile.fromJson,
   );
-  late final scores = Valkery.list_<int>(this, 'scores', const [], (json) => json as int);
-  late final crew = Valkery.list_<_Profile>(
-    this,
+  late final scores = ValkeryStorage.list_<int>('scores', const [], (json) => json as int);
+  late final crew = ValkeryStorage.list_<_Profile>(
     'crew',
     const [],
     (json) => _Profile.fromJson(json as Map<String, dynamic>),

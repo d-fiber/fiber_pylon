@@ -36,8 +36,6 @@
 
 import 'package:meta/meta.dart';
 
-import '../preferences/valkery_storage.dart';
-
 /// The plug.
 ///
 /// An [Sdk] is one implementation of everything a project's contract needs. It
@@ -82,16 +80,6 @@ abstract base class Sdk {
     return found as T;
   }
 
-  /// The project's own local preferences this [initialize] resolves before
-  /// anything else, unless one is already resolved. `null` when this
-  /// implementation needs none.
-  ///
-  /// Overridden by a concrete implementation, never read from outside one:
-  /// [initialize] and [dispose] are the only callers that have a reason to
-  /// reach for it.
-  @protected
-  ValkeryStorage? get preferences => null;
-
   bool _isInitialized = false;
 
   /// Whether [initialize] has already run.
@@ -100,11 +88,8 @@ abstract base class Sdk {
   /// Wires this implementation up and makes it usable.
   ///
   /// Does nothing when this instance is already [isInitialized]. Otherwise
-  /// marks it so, registers `this` under its own concrete type so [instance]
-  /// can hand it back, and resolves [preferences], unless
-  /// [ValkeryStorage.isInitialized] already, once, however many
-  /// implementations ask for it, and however many times one of them is
-  /// initialized again over the app's life. An override does whatever else it
+  /// marks it so and registers `this` under its own concrete type so
+  /// [instance] can hand it back. An override does whatever else it
   /// needs — opening connections, restoring a credential, starting
   /// timers — starting with `await super.initialize();`, so the two never
   /// happen in the wrong order. That override never has to guard against a
@@ -119,27 +104,18 @@ abstract base class Sdk {
     if (isInitialized) return;
     _isInitialized = true;
     _instances[runtimeType] = this;
-
-    final preferences = this.preferences;
-    if (preferences != null && !ValkeryStorage.isInitialized) {
-      await ValkeryStorage.initialize(preferences);
-    }
   }
 
   /// Releases everything [initialize] took.
   ///
   /// Does nothing when this instance was never [isInitialized]. Otherwise
-  /// forgets its registration and the resolved [ValkeryStorage] singleton, so
-  /// a later [initialize] resolves a fresh one rather than reusing what a
-  /// disposed implementation left behind. Unregisters `this` from [instance]
-  /// unless a newer instance of the same type already replaced it — a
-  /// backend swap that never disposed the one it replaced must not cost the
-  /// new one its own registration. [ValkeryStorage] is left untouched when
-  /// [preferences] is `null`: an implementation that never asked for one must
-  /// not tear down a singleton another implementation, still running, may
-  /// depend on. An override releases whatever else it opened, and must be
-  /// safe to call on an implementation that was never initialised, and safe
-  /// to call twice, since it runs on paths that are already going wrong.
+  /// forgets its registration. Unregisters `this` from [instance] unless a
+  /// newer instance of the same type already replaced it — a backend swap
+  /// that never disposed the one it replaced must not cost the new one its
+  /// own registration. An override releases whatever else it opened, and
+  /// must be safe to call on an implementation that was never initialised,
+  /// and safe to call twice, since it runs on paths that are already going
+  /// wrong.
   @mustCallSuper
   Future<void> dispose() async {
     if (!isInitialized) return;
@@ -148,6 +124,5 @@ abstract base class Sdk {
     if (identical(_instances[runtimeType], this)) {
       _instances.remove(runtimeType);
     }
-    if (preferences != null) ValkeryStorage.dispose();
   }
 }

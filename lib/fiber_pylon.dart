@@ -186,3 +186,4 @@ export 'src/sdk/clients/local/local_sdk.dart';
 export 'src/sdk/clients/rest/rest_sdk.dart';
 export 'src/sdk/clients/vendor/vendor_sdk.dart';
 export 'src/sdk/sdk.dart';
+export 'package:injectable/injectable.dart' show singleton;
