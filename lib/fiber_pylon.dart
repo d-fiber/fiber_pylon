@@ -169,10 +169,6 @@ export 'src/storage/preferences_storage.dart';
 export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';
 export 'src/sdk/clients/local/database/database.dart';
-// The engine is the package's own plumbing: a project declares tables and
-// reaches them through the Firestore-like layer above, or through the static
-// calls of LocalDatabase. The migrations, the drift report and the schema DSL
-// stay inside.
 export 'src/sdk/clients/local/database/engine/database.dart'
     hide LocalDatabaseTenants, Connection, Migration, SchemaDifference, DifferenceKind;
 export 'src/sdk/clients/local/database/engine/schema/schema.dart' show ReferentialAction, Collation, ColumnType;
