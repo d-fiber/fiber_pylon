@@ -33,13 +33,12 @@
 //
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
-//
+
 // A schema-validation check, not a unit test: it opens a real, temporary
 // SQLite file through `sqflite_common_ffi` to prove the raw `CREATE TABLE`
-// statements `SqfliteSyncStore` and `SqfliteMutationStore` write are
-// actually valid SQL and round-trip real data, something no in-memory fake
-// can catch. Kept in its own file, outside the fakes-only suite discipline
-// the rest of pylon's tests hold.
+// statements `SqfliteMutationStore` writes are actually valid SQL and round-trip real
+// data, something no in-memory fake can catch. Kept in its own file, outside
+// the fakes-only suite discipline the rest of pylon's tests hold.
 
 import 'dart:io';
 
@@ -64,37 +63,6 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  group('SqfliteSyncStore', () {
-    test('creates its table and round-trips a real entry', () async {
-      final store = SqfliteSyncStore(name: 'sync_cache.db');
-      await store.open();
-      final entry = CacheEntry(
-        key: 'brand/1',
-        value: '{"name":"Acme"}',
-        version: 'v3',
-        fetchedAt: DateTime(2026, 1, 1),
-      );
-
-      await store.write(entry);
-
-      expect(await store.read('brand/1'), entry);
-      await store.dispose();
-    });
-
-    test('purges a tombstone written to the real table', () async {
-      var now = DateTime(2026, 1, 1);
-      final store = SqfliteSyncStore(name: 'sync_cache_purge.db', now: () => now);
-      await store.open();
-      await store.markDeleted('brand/1');
-
-      now = DateTime(2026, 1, 10);
-      await store.purgeTombstones(olderThan: const Duration(days: 5));
-
-      expect(await store.read('brand/1'), isNull);
-      await store.dispose();
-    });
-  });
-
   group('SqfliteMutationStore', () {
     test('creates its table and preserves enqueue order across a reopen', () async {
       final store = SqfliteMutationStore(name: 'sync_mutations.db');
@@ -108,10 +76,7 @@ void main() {
       await reopened.open();
       final all = await reopened.readAll();
 
-      expect(all.map((m) => m.idempotencyKey), [
-        first.idempotencyKey,
-        second.idempotencyKey,
-      ]);
+      expect(all.map((m) => m.idempotencyKey), [first.idempotencyKey, second.idempotencyKey]);
       expect(all.map((m) => m.payload), ['brand/1|Acme', 'brand/2|Widget']);
       await reopened.dispose();
     });
@@ -125,10 +90,7 @@ void main() {
       await store.update(first.idempotencyKey, 'brand/1|Acme Renamed');
 
       final all = await store.readAll();
-      expect(all.map((m) => m.payload), [
-        'brand/1|Acme Renamed',
-        'brand/2|Widget',
-      ]);
+      expect(all.map((m) => m.payload), ['brand/1|Acme Renamed', 'brand/2|Widget']);
       await store.dispose();
     });
   });
