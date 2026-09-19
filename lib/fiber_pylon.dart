@@ -186,6 +186,7 @@ export 'src/rest/response.dart';
 export 'src/rest/rest.dart';
 export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';
+export 'src/sdk/clients/local/database/database.dart';
 export 'src/sdk/clients/local/local_sdk.dart';
 export 'src/sdk/clients/rest/rest_sdk.dart';
 export 'src/sdk/clients/vendor/vendor_sdk.dart';
