@@ -50,8 +50,8 @@ import 'mutation_store.dart';
 /// in the order it was enqueued, never skip a head that failed for a reason
 /// that will pass, and never guess what a conflict or a permanent failure
 /// means for one particular server — both are asked for, the same
-/// discipline `CallGuard.renewOn` and `CredentialManager.fatalSignals`
-/// already hold.
+/// discipline `CallGuard.renewOn` and `Credentials.renewWith`'s
+/// `fatalSignals` already hold.
 ///
 /// `T` is the project's own mutation type, `S` the adapter's fault signal.
 /// [conflictSignals] and [permanentSignals] partition the signals a replay
@@ -104,7 +104,7 @@ class MutationQueue<T, S extends Object> {
   /// [permanentSignals] names the failures worth no further attempt: a
   /// replay that fails with one of these is dropped from the queue and
   /// reported, never retried. Both sets are required and have no default,
-  /// the same reason `CredentialManager.fatalSignals` has none: pylon
+  /// the same reason `Credentials.renewWith`'s `fatalSignals` has none: pylon
   /// cannot know which of an adapter's signals means which, and guessing
   /// wrong is expensive in both directions.
   ///

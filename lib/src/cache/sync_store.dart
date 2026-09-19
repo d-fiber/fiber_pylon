@@ -46,8 +46,8 @@ const _table = 'sync_cache';
 /// The read half of offline-first: a `CachePolicy` decides whether an entry
 /// is still worth trusting, this decides where it lives. Two implementations
 /// are given, [MemorySyncStore] for a test and [SqfliteSyncStore] for
-/// production, the same split `CredentialStore` already has between
-/// `MemoryCredentialStore` and `StoredCredential`.
+/// production, the same split the credential's own store has between memory
+/// and the vault.
 abstract interface class SyncStore {
   /// The entry stored under [key], or `null` when there is none.
   Future<CacheEntry?> read(String key);
@@ -73,8 +73,8 @@ abstract interface class SyncStore {
 
 /// A [SyncStore] that forgets everything when the process ends.
 ///
-/// What a test runs against, the same role `MemoryCredentialStore` plays for
-/// a credential.
+/// What a test runs against, the same role the credential's in-memory store
+/// plays for a credential.
 class MemorySyncStore implements SyncStore {
   final DateTime Function() _now;
   final Map<String, CacheEntry> _entries = {};

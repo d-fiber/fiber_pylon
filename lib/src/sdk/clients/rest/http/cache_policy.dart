@@ -43,7 +43,7 @@ import 'response.dart';
 /// The direct analogue of `RestClassifier`: pylon has no opinion of its own
 /// about what freshness or a version means for one particular server, so a
 /// project supplies this once, when it wants caching at all, the same
-/// discipline `CredentialManager.fatalSignals` already holds for renewal.
+/// discipline `Credentials.renewWith`'s `fatalSignals` already holds for renewal.
 ///
 /// ```dart
 /// class AdminCachePolicy implements CachePolicy {

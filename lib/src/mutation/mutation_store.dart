@@ -76,8 +76,8 @@ abstract interface class MutationStore {
 
 /// A [MutationStore] that forgets everything when the process ends.
 ///
-/// What a test runs against, the same role `MemoryCredentialStore` plays for
-/// a credential.
+/// What a test runs against, the same role the credential's in-memory store
+/// plays for a credential.
 class MemoryMutationStore implements MutationStore {
   final DateTime Function() _now;
   final Random _random;

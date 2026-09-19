@@ -75,8 +75,8 @@ typedef RestHeaders = Future<Map<String, String>> Function(RestRequest request);
 ///   classifier: const AdminClassifier(),
 ///   guard: guard,
 ///   headers: (request) async => {
-///     if (credentials.value case final session?)
-///       'authorization': 'Bearer ${session.accessToken}',
+///     if (Credentials.value case final credential?)
+///       'authorization': 'Bearer ${credential.token}',
 ///     'x-app-key': appKey,
 ///   },
 /// );

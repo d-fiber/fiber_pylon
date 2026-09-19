@@ -162,7 +162,7 @@ final class RestNode<S extends Object> {
   /// would otherwise refresh the credential if it is stale, and retry once
   /// more after renewing it if the server refuses the call for it. Call this
   /// on the one or two nodes that must not go through that: the endpoint
-  /// that signs in, and the one a `CredentialManager`'s own refresher calls
+  /// that signs in, and the one the exchange given to `Credentials.renewWith` calls
   /// to renew the credential — that one deadlocks waiting on itself if it is
   /// left authenticated, since renewing is exactly what it is in the middle
   /// of doing.
