@@ -69,9 +69,10 @@ bool get _sqlCipherSupported => Platform.isAndroid || Platform.isIOS || Platform
 /// `configureSdk` has run:
 ///
 /// ```dart
-/// await AppStorage.execute('CREATE TABLE IF NOT EXISTS todos (...)');
-/// final id = await AppStorage.insert<Todo>((i) => i.into('todos').values(todo));
-/// final todos = await AppStorage.query<Todo>((q) => q.from('todos').map(Todo.fromRow));
+/// final key = Fingerprint.instance;
+/// await AppStorage.execute(key, 'CREATE TABLE IF NOT EXISTS todos (...)');
+/// final id = await AppStorage.insert<Todo>(key, (i) => i.into('todos').values(todo));
+/// final todos = await AppStorage.query<Todo>(key, (q) => q.from('todos').map(Todo.fromRow));
 /// ```
 ///
 /// Only the calls that talk to the database are here — the same ones
@@ -114,7 +115,27 @@ class AppStorage {
   @disposeMethod
   Future<void> dispose() => _database.dispose();
 
-  static LocalDatabase get _db => GetIt.instance<AppStorage>()._database;
+  /// The app database, for what is inside the package: the typed tables and
+  /// the tenant mechanism, which reach only what they are meant to.
+  ///
+  /// Not for a project. Reading the database as a whole is what the calls below
+  /// are for, and they ask for the app's [Fingerprint].
+  @internal
+  static LocalDatabase get database => GetIt.instance<AppStorage>()._database;
+
+  /// Declares [tables] on the app database, creating what they declare. See
+  /// [LocalDatabase.declare].
+  @internal
+  static Future<void> declare(List<DatabaseTable<Object>> tables) => database.declare(tables);
+
+  /// The database, once [fingerprint] is shown to be the app's own: reading
+  /// the whole database is the whole-database mechanism, and it is closed to a
+  /// caller that cannot present the fingerprint.
+  static LocalDatabase _whole(Fingerprint fingerprint) {
+    final db = database;
+    db.wholeDatabase(fingerprint);
+    return db;
+  }
 
   /// Changes each time `configureSdk` registers a new [AppStorage], so
   /// something that prepared the database once (a table it created, say) can
@@ -122,46 +143,57 @@ class AppStorage {
   @internal
   static Object get generation => GetIt.instance<AppStorage>();
 
-  /// See [LocalDatabase.execute].
-  static Future<void> execute(String sql, [List<DatabaseType>? arguments]) => _db.execute(sql, arguments);
+  /// See [LocalDatabase.execute]. Like every call below, it reaches the whole
+  /// database, every tenant included, and so takes the app's [Fingerprint]
+  /// (`Fingerprint.instance`); a [StateError] answers any other.
+  static Future<void> execute(Fingerprint fingerprint, String sql, [List<DatabaseType>? arguments]) =>
+      _whole(fingerprint).execute(sql, arguments);
 
   /// See [LocalDatabase.insert].
   static Future<int> insert<T extends DatabaseRecord>(
+    Fingerprint fingerprint,
     DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build,
-  ) => _db.insert<T>(build);
+  ) => _whole(fingerprint).insert<T>(build);
 
   /// See [LocalDatabase.query].
-  static Future<List<T>> query<T extends Object>(DatabaseQueryFrom<T> Function(DatabaseQuery<T> query) build) =>
-      _db.query<T>(build);
+  static Future<List<T>> query<T extends Object>(
+    Fingerprint fingerprint,
+    DatabaseQueryFrom<T> Function(DatabaseQuery<T> query) build,
+  ) => _whole(fingerprint).query<T>(build);
 
   /// See [LocalDatabase.rawQuery].
-  static Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType>? arguments]) =>
-      _db.rawQuery(sql, arguments);
+  static Future<List<DatabaseRow>> rawQuery(Fingerprint fingerprint, String sql, [List<DatabaseType>? arguments]) =>
+      _whole(fingerprint).rawQuery(sql, arguments);
 
   /// See [LocalDatabase.update].
-  static Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
-      _db.update<T>(build);
+  static Future<int> update<T extends DatabaseRecord>(
+    Fingerprint fingerprint,
+    DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build,
+  ) => _whole(fingerprint).update<T>(build);
 
   /// See [LocalDatabase.delete].
-  static Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _db.delete(build);
+  static Future<int> delete(Fingerprint fingerprint, DatabaseDeleteFrom Function(DatabaseDelete delete) build) =>
+      _whole(fingerprint).delete(build);
 
   /// See [LocalDatabase.transaction].
-  static Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) => _db.transaction<T>(action);
+  static Future<T> transaction<T>(Fingerprint fingerprint, Future<T> Function(DatabaseTransaction txn) action) =>
+      _whole(fingerprint).transaction<T>(action);
 
   /// See [LocalDatabase.batch].
-  static DatabaseBatch batch() => _db.batch();
+  static DatabaseBatch batch(Fingerprint fingerprint) => _whole(fingerprint).batch();
 
   /// See [LocalDatabase.tableExists].
-  static Future<bool> tableExists(String table) => _db.tableExists(table);
+  static Future<bool> tableExists(Fingerprint fingerprint, String table) => _whole(fingerprint).tableExists(table);
 
   /// See [LocalDatabase.tableNames].
-  static Future<List<String>> tableNames() => _db.tableNames();
+  static Future<List<String>> tableNames(Fingerprint fingerprint) => _whole(fingerprint).tableNames();
 
   /// See [LocalDatabase.columns].
-  static Future<List<DatabaseColumn>> columns(String table) => _db.columns(table);
+  static Future<List<DatabaseColumn>> columns(Fingerprint fingerprint, String table) =>
+      _whole(fingerprint).columns(table);
 
   /// See [LocalDatabase.checkpoint].
-  static Future<void> checkpoint() => _db.checkpoint();
+  static Future<void> checkpoint(Fingerprint fingerprint) => _whole(fingerprint).checkpoint();
 }
 
 /// The file name the app's database gets: [appName] followed by `.db`, with

@@ -363,14 +363,14 @@ class Query<T extends Model> {
     final reach = _reach();
     await _collection._ensure();
     final compiled = _select(reach);
-    final rows = await AppStorage.rawQuery('SELECT $expression AS value FROM (${compiled.sql})', compiled.args);
+    final rows = await AppStorage.database.rawQuery('SELECT $expression AS value FROM (${compiled.sql})', compiled.args);
     return rows.single['value'];
   }
 
   Future<List<QueryDocumentSnapshot<T>>> _fetch(_Reach reach) async {
     await _collection._ensure();
     final compiled = _select(reach);
-    final rows = await AppStorage.rawQuery(compiled.sql, compiled.args);
+    final rows = await AppStorage.database.rawQuery(compiled.sql, compiled.args);
     final docs = [for (final row in rows) _collection._documentOf(row, pinRows: reach.isMany)];
     return _spec.limitToLast ? docs.reversed.toList() : docs;
   }

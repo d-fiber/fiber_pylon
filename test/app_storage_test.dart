@@ -59,7 +59,8 @@ class _Note implements DatabaseRecord {
   DatabaseRow toRow() => {'body': DatabaseType.varchar(body)};
 }
 
-Future<List<String>> _bodies() => AppStorage.query<String>((q) => q.from('notes').map((row) => row['body']!.asString));
+Future<List<String>> _bodies() =>
+    AppStorage.query<String>(Fingerprint.instance, (q) => q.from('notes').map((row) => row['body']!.asString));
 
 void main() {
   late Directory directory;
@@ -264,15 +265,33 @@ void main() {
 
     tearDown(() => GetIt.instance.reset());
 
+    test('the raw calls show the whole database only to the app fingerprint', () async {
+      await AppStorage.execute(Fingerprint.instance, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+
+      expect(await AppStorage.tableNames(Fingerprint.instance), ['notes']);
+      expect(() => AppStorage.tableNames(Fingerprint.generate()), throwsStateError);
+      expect(() => AppStorage.execute(Fingerprint.generate(), 'DROP TABLE notes'), throwsStateError);
+      expect(() => AppStorage.rawQuery(Fingerprint.generate(), 'SELECT 1'), throwsStateError);
+      expect(() => AppStorage.batch(Fingerprint.generate()), throwsStateError);
+      expect(await AppStorage.tableExists(Fingerprint.instance, 'notes'), isTrue);
+    });
+
     test('opens <app>.db once configureSdk has run', () {
       expect(file('Fiber.db').existsSync(), isTrue);
     });
 
     test('reads and writes through static insert, query, update and delete', () async {
-      await AppStorage.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)');
+      await AppStorage.execute(
+        Fingerprint.instance,
+        'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)',
+      );
 
-      final id = await AppStorage.insert<_Note>((i) => i.into('notes').values(const _Note('first')));
+      final id = await AppStorage.insert<_Note>(
+        Fingerprint.instance,
+        (i) => i.into('notes').values(const _Note('first')),
+      );
       await AppStorage.update<_Note>(
+        Fingerprint.instance,
         (u) => u
             .table('notes')
             .set(const _Note('second'))
@@ -280,23 +299,28 @@ void main() {
       );
       expect(await _bodies(), ['second']);
 
-      await AppStorage.delete((d) => d.from('notes'));
+      await AppStorage.delete(Fingerprint.instance, (d) => d.from('notes'));
       expect(await _bodies(), isEmpty);
     });
 
     test('stays open across calls, with no reopening in between', () async {
-      await AppStorage.execute('CREATE TABLE IF NOT EXISTS notes (body TEXT)');
-      await AppStorage.execute('INSERT INTO notes (body) VALUES (?)', [const DatabaseType.varchar('x')]);
+      await AppStorage.execute(Fingerprint.instance, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await AppStorage.execute(Fingerprint.instance, 'INSERT INTO notes (body) VALUES (?)', [
+        const DatabaseType.varchar('x'),
+      ]);
 
-      expect(await AppStorage.tableNames(), ['notes']);
-      expect(await AppStorage.tableExists('notes'), isTrue);
+      expect(await AppStorage.tableNames(Fingerprint.instance), ['notes']);
+      expect(await AppStorage.tableExists(Fingerprint.instance, 'notes'), isTrue);
       expect(await _bodies(), ['x']);
     });
 
     test('commits a transaction', () async {
-      await AppStorage.execute('CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await AppStorage.execute(Fingerprint.instance, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
 
-      await AppStorage.transaction((txn) => txn.insert<_Note>((i) => i.into('notes').values(const _Note('in txn'))));
+      await AppStorage.transaction(
+        Fingerprint.instance,
+        (txn) => txn.insert<_Note>((i) => i.into('notes').values(const _Note('in txn'))),
+      );
 
       expect(await _bodies(), ['in txn']);
     });

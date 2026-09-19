@@ -123,7 +123,7 @@ abstract base class Database extends LocalSdkClient {
   Future<void> initialize() async {
     if (isInitialized) return;
     try {
-      await AppStorage.tableNames();
+      await AppStorage.database.tableNames();
     } on StateError catch (error) {
       throw StateError('$runtimeType needs configureSdk() to have run first: ${error.message}');
     }
@@ -133,7 +133,7 @@ abstract base class Database extends LocalSdkClient {
 
   Future<void> _requireJsonFunctions() async {
     try {
-      final rows = await AppStorage.rawQuery(
+      final rows = await AppStorage.database.rawQuery(
         "SELECT json_extract('{\"a\":1}', '\$.a') AS value, (SELECT count(*) FROM json_each('[1]')) AS each",
       );
       if (rows.single['value']!.asInt == 1 && rows.single['each']!.asInt == 1) return;
@@ -163,7 +163,7 @@ abstract base class Database extends LocalSdkClient {
   /// is no conflict to retry.
   Future<R> runTransaction<R>(Future<R> Function(Transaction transaction) action) async {
     final touched = <Collection<Model>>{};
-    final result = await AppStorage.transaction((txn) => action(Transaction._(_TransactionExecutor(txn), touched)));
+    final result = await AppStorage.database.transaction((txn) => action(Transaction._(_TransactionExecutor(txn), touched)));
     for (final collection in touched) {
       _ChangeBus.notify(collection.name);
     }

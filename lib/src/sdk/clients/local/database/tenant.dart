@@ -112,7 +112,7 @@ abstract final class Tenant {
   static Future<List<String>> list() async {
     final tenants = <String>{};
     for (final table in await _isolatedTables(const _StorageExecutor())) {
-      final rows = await AppStorage.rawQuery("SELECT DISTINCT tenant FROM \"$table\" WHERE tenant != ''");
+      final rows = await AppStorage.database.rawQuery("SELECT DISTINCT tenant FROM \"$table\" WHERE tenant != ''");
       tenants.addAll(rows.map((row) => row['tenant']!.asString));
     }
     return tenants.toList()..sort();

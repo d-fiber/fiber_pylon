@@ -48,11 +48,11 @@ final class _StorageExecutor implements _Executor {
   const _StorageExecutor();
 
   @override
-  Future<void> execute(String sql, [List<DatabaseType> arguments = const []]) => AppStorage.execute(sql, arguments);
+  Future<void> execute(String sql, [List<DatabaseType> arguments = const []]) => AppStorage.database.execute(sql, arguments);
 
   @override
   Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType> arguments = const []]) =>
-      AppStorage.rawQuery(sql, arguments);
+      AppStorage.database.rawQuery(sql, arguments);
 }
 
 final class _TransactionExecutor implements _Executor {
@@ -70,7 +70,7 @@ final class _TransactionExecutor implements _Executor {
 
 /// Runs [action] in one transaction on [AppStorage].
 Future<R> _atomically<R>(Future<R> Function(_Executor executor) action) =>
-    AppStorage.transaction((txn) => action(_TransactionExecutor(txn)));
+    AppStorage.database.transaction((txn) => action(_TransactionExecutor(txn)));
 
 /// A SQL fragment and the values its `?` placeholders stand for, in order.
 typedef _Compiled = ({String sql, List<DatabaseType> args});

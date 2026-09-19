@@ -232,8 +232,8 @@ void main() {
     test('creates its table, and its indexes, in the app database', () async {
       await db.users.doc('ada').get();
 
-      expect(await AppStorage.tableExists('users'), isTrue);
-      final indexes = await AppStorage.rawQuery(
+      expect(await AppStorage.database.tableExists('users'), isTrue);
+      final indexes = await AppStorage.database.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'users'",
       );
       expect(indexes.map((row) => row['name']!.asString), containsAll(['users_age_idx', 'users_address_city_idx']));
@@ -246,7 +246,7 @@ void main() {
     });
 
     test('refuses to take over a table that is not its own', () async {
-      await AppStorage.execute('CREATE TABLE foreign_table (a TEXT, b TEXT)');
+      await AppStorage.database.execute('CREATE TABLE foreign_table (a TEXT, b TEXT)');
       final foreign = Collection<User>('foreign_table', User.fromJson);
 
       await expectLater(foreign.doc('x').get(), throwsA(isA<StateError>()));
@@ -639,13 +639,13 @@ void main() {
       await db.users.clear();
 
       expect(await db.users.count(), 0);
-      expect(await AppStorage.tableExists('users'), isTrue);
+      expect(await AppStorage.database.tableExists('users'), isTrue);
     });
 
     test('drop removes the table, and the collection still works afterwards', () async {
       await db.users.drop();
 
-      expect(await AppStorage.tableExists('users'), isFalse);
+      expect(await AppStorage.database.tableExists('users'), isFalse);
       await db.users.doc('ada').set(const User(name: 'Ada', age: 36));
       expect(await db.users.count(), 1);
     });
@@ -663,10 +663,10 @@ void main() {
     });
 
     test('drop refuses a table that is not the collection\'s own', () async {
-      await AppStorage.execute('CREATE TABLE foreign_table (a TEXT, b TEXT)');
+      await AppStorage.database.execute('CREATE TABLE foreign_table (a TEXT, b TEXT)');
 
       await expectLater(Collection<User>('foreign_table', User.fromJson).drop(), throwsA(isA<StateError>()));
-      expect(await AppStorage.tableExists('foreign_table'), isTrue);
+      expect(await AppStorage.database.tableExists('foreign_table'), isTrue);
     });
   });
 
@@ -1108,18 +1108,18 @@ void main() {
       await db.items.drop();
       await Tenant.purge('a');
 
-      expect(await AppStorage.tableExists('items'), isFalse);
+      expect(await AppStorage.database.tableExists('items'), isFalse);
       expect(await db.users.inTenant('a').count(), 0);
     });
   });
 
   group('tables made before tenants existed', () {
     test('are rebuilt with their documents in the anonymous partition', () async {
-      await AppStorage.execute(
+      await AppStorage.database.execute(
         'CREATE TABLE users (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL, '
         'created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)',
       );
-      await AppStorage.execute('INSERT INTO users VALUES (?, ?, 1, 2)', [
+      await AppStorage.database.execute('INSERT INTO users VALUES (?, ?, 1, 2)', [
         const DatabaseType.varchar('old'),
         const DatabaseType.varchar('{"name":"Old","age":70}'),
       ]);
@@ -1130,7 +1130,7 @@ void main() {
       expect(snapshot.createTime, DateTime.fromMillisecondsSinceEpoch(1, isUtc: true));
       Tenant.use('a');
       expect((await db.users.doc('old').get()).exists, isFalse);
-      final columns = await AppStorage.columns('users');
+      final columns = await AppStorage.database.columns('users');
       expect(columns.map((c) => c.name), containsAll(['tenant', 'id', 'data']));
     });
   });

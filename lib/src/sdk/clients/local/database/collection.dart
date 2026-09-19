@@ -159,7 +159,7 @@ final class Collection<T extends Model> extends Query<T> {
   Future<void> clear() async {
     final tenant = _scope.reach(this).tenant!;
     await _ensure();
-    await AppStorage.execute('DELETE FROM "$name" WHERE tenant = ?', [DatabaseType.varchar(tenant)]);
+    await AppStorage.database.execute('DELETE FROM "$name" WHERE tenant = ?', [DatabaseType.varchar(tenant)]);
     _ChangeBus.notify(name);
   }
 
@@ -171,8 +171,8 @@ final class Collection<T extends Model> extends Query<T> {
   /// empty out.
   Future<void> drop() async {
     await _ensure();
-    await AppStorage.execute('DROP TABLE IF EXISTS "$name"');
-    await AppStorage.execute('DELETE FROM "$_registryTable" WHERE name = ?', [DatabaseType.varchar(name)]);
+    await AppStorage.database.execute('DROP TABLE IF EXISTS "$name"');
+    await AppStorage.database.execute('DELETE FROM "$_registryTable" WHERE name = ?', [DatabaseType.varchar(name)]);
     _prepared = null;
     _preparedFor = null;
     _ChangeBus.notify(name);
@@ -200,7 +200,7 @@ final class Collection<T extends Model> extends Query<T> {
   static const _legacyColumns = {'id', 'data', 'created_at', 'updated_at'};
 
   Future<void> _prepare() async {
-    final columns = {for (final column in await AppStorage.columns(name)) column.name};
+    final columns = {for (final column in await AppStorage.database.columns(name)) column.name};
     if (columns.length == _legacyColumns.length && columns.containsAll(_legacyColumns)) {
       await _migrateLegacyTable();
     } else if (columns.isNotEmpty && !(columns.length == _columns.length && columns.containsAll(_columns))) {
