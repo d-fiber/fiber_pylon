@@ -40,7 +40,9 @@ lib/src/toolkit/               what only an Sdk implementation touches: CallGuar
                                 HealthMonitor, Observable, Reporter, RestClient and
                                 what it needs, ChannelKeeper, SocketChannel, Backoff,
                                 CredentialManager and what it needs, Preferences
-test/                          one file per subject, named after it
+test/src/                      mirrors lib/src/: one file per subject, at the path of the
+                                lib file it covers, named after it with `_test`
+test/public_surface_test.dart  what a project importing the barrel can and cannot write
 ```
 
 A new public member is exported from `lib/fiber_pylon.dart` or it does not exist. A new file
