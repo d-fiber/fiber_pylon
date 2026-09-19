@@ -36,23 +36,25 @@
 
 part of '../database.dart';
 
-/// How one Dart type is stored in one column: the storage class the column
-/// declares, and the two functions that cross between the Dart value and the
-/// [Value] SQLite holds.
+/// How values of the Dart type [V] are stored in a column.
 ///
-/// The columns [Columns] opens carry one already. Write one only for a
-/// type of your own, and hand it to [Columns.custom].
+/// The columns [Columns] opens carry one already. Write one only for a type of
+/// your own, and hand it to [Columns.custom].
 final class ColumnCodec<V extends Object> {
-  /// Codes a [V] through [encode] and [decode], stored as [storage].
+  /// Creates a codec that stores a [V] as [storage], written by [encode] and
+  /// read back by [decode].
   const ColumnCodec({required this.storage, required this.encode, required this.decode});
 
-  /// The storage class a column of this codec declares.
+  /// The storage class of a column that uses this codec.
   final ColumnType storage;
 
-  /// Turns a [V] into the value SQLite stores.
+  /// The function that turns a [V] into the value to store.
   final Value Function(V value) encode;
 
-  /// Turns a stored value, never a [Nil], back into a [V].
+  /// The function that turns a stored value back into a [V].
+  ///
+  /// It is never called with a [Nil]: a NULL is read as `null` before the codec
+  /// is asked, or is an error on a column that does not accept NULL.
   final V Function(Value stored) decode;
 
   ColumnCodec<Object> get _erased =>
@@ -112,9 +114,12 @@ class _FieldDefinition {
     referencesIsolated: referencesIsolated ?? this.referencesIsolated,
   );
 
-  /// The column this definition declares. An isolated table takes the key, the
-  /// uniqueness and the foreign key out of the column itself and states them
-  /// on the table instead, where the tenant column can be part of them.
+  /// The column this definition declares, without its primary key, its
+  /// uniqueness or its foreign key when [keepPrimary], [keepUnique] or
+  /// [keepReference] is false.
+  ///
+  /// An isolated table turns them off and states them on the table instead,
+  /// where the tenant column can be part of them.
   ColumnBuilder<dynamic, Value> builder(
     ColumnFactory factory, {
     bool keepPrimary = true,
@@ -148,16 +153,16 @@ class _FieldDefinition {
   }
 }
 
-/// One column of one declared table, carrying its table, its name, the Dart
-/// type [V] it holds and how that type is stored.
+/// One column of one declared table, holding values of the Dart type [V].
 ///
-/// [V] is the Dart type a row gives back, so a column that accepts NULL is a
-/// `Field<Date?>` and one that does not is a `Field<Date>`.
-/// Every filter and every assignment a field builds takes a [V], which is why
+/// [V] is the type a row gives back, so a column that accepts NULL is a
+/// `Field<Date?>` and one that does not is a `Field<Date>`. Every filter and
+/// every assignment a field builds takes a [V], which is why
 /// `todos.done.isEqualTo('yes')` does not compile and `todos.done.isEqualTo(true)`
-/// does. Fields are opened by [Columns], never constructed directly.
+/// does.
 ///
-/// Two fields are equal when they name the same column of the same table.
+/// Fields are opened by [Columns], never constructed directly. Two fields are
+/// equal when they name the same column of the same table.
 base class Field<V> extends Equatable {
   const Field._(this.table, this.name, this._definition);
 
@@ -167,6 +172,7 @@ base class Field<V> extends Equatable {
   /// The name of this column in its table.
   final String name;
 
+  /// How this column is declared: its storage, its constraints and its default.
   final _FieldDefinition _definition;
 
   /// Whether this column accepts NULL.
@@ -179,44 +185,56 @@ base class Field<V> extends Equatable {
   Field<V?> nullable() => Field<V?>._(table, name, _definition.copyWith(isNullable: true));
 
   /// This column, refusing a second row that holds the same value.
+  ///
+  /// On an isolated table the check is made within one tenant's rows.
   Field<V> unique() => Field<V>._(table, name, _definition.copyWith(isUnique: true));
 
-  /// This column as the primary key of its table. The table must then be a
-  /// [KeyedTable] whose [KeyedTable.key] is this column.
+  /// This column as the primary key of its table.
+  ///
+  /// A [KeyedTable] needs exactly one such column, which is then its
+  /// [KeyedTable.keyField].
   Field<V> primaryKey() => Field<V>._(table, name, _definition.copyWith(isPrimary: true));
 
-  /// This column, taking [value] for a row that writes none. A column that
-  /// refuses NULL needs one to be added to a table that already holds rows.
-  Field<V> defaultsTo(V value) =>
-      Field<V>._(table, name, _definition.copyWith(defaultValue: _encode(value)));
+  /// This column, taking [value] for a row that writes none.
+  ///
+  /// A column that refuses NULL needs one to be added to a table that already
+  /// holds rows.
+  Field<V> defaultsTo(V value) => Field<V>._(table, name, _definition.copyWith(defaultValue: _encode(value)));
 
   /// This column as a foreign key to [target], which must hold the same Dart
-  /// type. [onDelete] says what happens to a row here when the row it points
-  /// at is deleted, and it refuses the deletion by default.
-  Field<V> references(Field<V> target, {ReferentialAction onDelete = ReferentialAction.restrict}) =>
-      Field<V>._(
-        table,
-        name,
-        _definition.copyWith(
-          reference: ColumnReference(table: target.table, column: target.name, onDelete: onDelete),
-          referencesIsolated: target._definition.isolated,
-        ),
-      );
+  /// type.
+  ///
+  /// [onDelete] says what happens to a row here when the row it points at is
+  /// deleted. By default the deletion is refused.
+  Field<V> references(Field<V> target, {ReferentialAction onDelete = ReferentialAction.restrict}) => Field<V>._(
+    table,
+    name,
+    _definition.copyWith(
+      reference: ColumnReference(table: target.table, column: target.name, onDelete: onDelete),
+      referencesIsolated: target._definition.isolated,
+    ),
+  );
 
-  /// This column paired with [value], to be written by an insert, an upsert
-  /// or an update.
+  /// This column paired with [value], to be written by an insert, an upsert or
+  /// an update.
   Assignment to(V value) => Assignment._(this, _encode(value));
 
-  /// Rows where this column equals [value]. A null [value] on a nullable
-  /// column matches the rows holding NULL, which a plain SQL `=` would not.
+  /// Rows where this column equals [value].
+  ///
+  /// A null [value] on a nullable column matches the rows holding NULL, which a
+  /// plain SQL `=` would not.
   Filter isEqualTo(V value) => _of(_FilterComparison(name, _Comparison.equal, _encode(value)));
 
   /// Rows where this column differs from [value], the rows holding NULL
   /// included, since a NULL differs from every value.
+  ///
+  /// A null [value] on a nullable column matches the rows holding a value.
   Filter isNotEqualTo(V value) => _of(_FilterComparison(name, _Comparison.notEqual, _encode(value)));
 
-  /// Rows where this column equals one of [values]. A null among them matches
-  /// the rows holding NULL. Matches nothing when [values] is empty.
+  /// Rows where this column equals one of [values].
+  ///
+  /// A null among them matches the rows holding NULL. Nothing matches when
+  /// [values] is empty.
   Filter isIn(List<V> values) => _of(_FilterIn(name, values.map(_encode).toList()));
 
   /// Rows where this column equals one of the values [subquery] selects.
@@ -243,8 +261,10 @@ base class Field<V> extends Equatable {
     return _of(_FilterNull(name, false));
   }
 
-  /// The values of this column in the rows [filter] matches, for
-  /// [isInSelect]. [filter] must be built from fields of this column's table.
+  /// The values of this column in the rows [filter] matches, for [isInSelect].
+  ///
+  /// Throws an [ArgumentError] when [filter] reads another table than this
+  /// column's.
   Subquery<V> where(Filter filter) => Subquery<V>._(this, filter);
 
   /// This column as a term of an ordering, smallest first.
@@ -285,18 +305,20 @@ base class Field<V> extends Equatable {
 final class KeyField<K extends Object> extends Field<K> {
   const KeyField._(super.table, super.name, super._definition) : super._();
 
-  /// This key paired with [value], or nothing at all when [value] is null, in
-  /// which case the engine assigns the key on insert. A record whose key has
-  /// not been assigned yet holds a null.
-  Assignment toOrGenerate(K? value) =>
-      value == null ? Assignment._(this, null) : Assignment._(this, _encode(value));
+  /// This key paired with [value], or with nothing when [value] is null, in
+  /// which case an insert lets the engine assign the key.
+  ///
+  /// It is meant for a record whose key is null until it is first saved. An
+  /// update leaves the key as it is when [value] is null.
+  Assignment toOrGenerate(K? value) => value == null ? Assignment._(this, null) : Assignment._(this, _encode(value));
 
   Value? _generate() => _definition.generator?.call();
 }
 
-/// A column value paired with the column it is written to, built by
-/// [Field.to]. Only the column that was given it accepts it: the Dart
-/// type of the value was checked when it was built.
+/// A value paired with the column it is written to, built by [Field.to].
+///
+/// The Dart type of the value was checked against the column when it was built,
+/// so no other column accepts it.
 final class Assignment {
   const Assignment._(this.field, this._value) : _isIncrement = false;
 
@@ -305,6 +327,7 @@ final class Assignment {
   /// The column this value is written to.
   final Field<Object?> field;
 
+  /// The value to write, or `null` when the engine decides.
   final Value? _value;
 
   /// Whether [_value] is an amount to add to what the column holds, rather than
@@ -316,12 +339,12 @@ final class Assignment {
 /// is a number.
 extension NumericField<V extends num> on Field<V?> {
   /// This column paired with [amount] to add to what it holds, to be written by
-  /// an update: `SET column = COALESCE(column, 0) + amount`, so a NULL counts as
-  /// zero, and a negative [amount] subtracts.
+  /// an update.
   ///
-  /// It is done by the database in one statement, not read and written back,
-  /// so two updates at once never lose one of the two. An insert and an upsert
-  /// refuse it, since a new row has nothing to add to.
+  /// A NULL counts as zero, and a negative [amount] subtracts. The addition is
+  /// made by the database, not read and written back, so two updates at once
+  /// never lose one of the two. An insert and an upsert throw a [StateError]
+  /// when given it, since a new row has nothing to add to.
   Assignment incrementBy(V amount) => Assignment._increment(this, _encode(amount));
 }
 
@@ -342,7 +365,10 @@ final class Subquery<V> {
     }
   }
 
+  /// The column whose values are selected.
   final Field<V> _field;
+
+  /// The filter that keeps the rows.
   final Filter _filter;
 
   (String, List<Value>) _render() {
@@ -351,17 +377,16 @@ final class Subquery<V> {
   }
 }
 
-/// Ordering filters, available only on a column whose Dart type has an order
-/// that matches the order SQLite sorts its stored form in.
+/// Ordering filters, available only on a column whose Dart type is [Comparable]
+/// and orders the way its stored form does.
 ///
 /// An enum, a UUID, a list and a JSON value have no such order, so those
-/// columns offer no `isGreaterThan`. A boolean has none either, since `bool`
+/// columns offer none of these filters. A boolean has none either, since `bool`
 /// is not [Comparable]. The argument is never null, even on a nullable column.
 extension OrderedField<V extends Comparable<Object?>> on Field<V?> {
   /// Rows where this column is strictly greater than [value]. A row holding
   /// NULL never matches.
-  Filter isGreaterThan(V value) =>
-      _of(_FilterComparison(name, _Comparison.greaterThan, _encode(value)));
+  Filter isGreaterThan(V value) => _of(_FilterComparison(name, _Comparison.greaterThan, _encode(value)));
 
   /// Rows where this column is greater than [value] or equal to it.
   Filter isGreaterThanOrEqualTo(V value) =>
@@ -371,16 +396,16 @@ extension OrderedField<V extends Comparable<Object?>> on Field<V?> {
   Filter isLessThan(V value) => _of(_FilterComparison(name, _Comparison.lessThan, _encode(value)));
 
   /// Rows where this column is less than [value] or equal to it.
-  Filter isLessThanOrEqualTo(V value) =>
-      _of(_FilterComparison(name, _Comparison.lessThanOrEqual, _encode(value)));
+  Filter isLessThanOrEqualTo(V value) => _of(_FilterComparison(name, _Comparison.lessThanOrEqual, _encode(value)));
 
   /// Rows where this column lies between [low] and [high], both included.
   Filter isBetween(V low, V high) => isGreaterThanOrEqualTo(low) & isLessThanOrEqualTo(high);
 }
 
-/// Text filters, available only on a text column. The text is matched as
-/// written, `%` and `_` in it standing for themselves, and SQLite ignores the
-/// case of ASCII letters.
+/// Text filters, available only on a text column.
+///
+/// The text is matched as written, `%` and `_` in it standing for themselves,
+/// and the case of ASCII letters is ignored.
 extension StringField<V extends String?> on Field<V> {
   /// Rows where this column holds [text] somewhere in it.
   Filter contains(String text) => _of(_FilterLike(name, '%${_escapeLike(text)}%'));
@@ -391,9 +416,9 @@ extension StringField<V extends String?> on Field<V> {
   /// Rows where this column ends with [text].
   Filter endsWith(String text) => _of(_FilterLike(name, '%${_escapeLike(text)}'));
 
-  /// This column, comparing and sorting text under [collation]. With
-  /// [Collation.noCase], `Ada` and `ADA` are one value, unique columns
+  /// This column, comparing and sorting text under [collation].
+  ///
+  /// With [Collation.noCase], `Ada` and `ADA` are one value, unique columns
   /// included.
-  Field<V> collatedBy(Collation collation) =>
-      Field<V>._(table, name, _definition.copyWith(collation: collation));
+  Field<V> collatedBy(Collation collation) => Field<V>._(table, name, _definition.copyWith(collation: collation));
 }

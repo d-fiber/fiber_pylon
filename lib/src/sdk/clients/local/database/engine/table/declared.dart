@@ -36,11 +36,19 @@
 
 part of '../database.dart';
 
-/// One upgrade of the schema version, run by [LocalDatabase.declared] inside
-/// the transaction that upgrades the file. It receives the transaction and
-/// must not reach for the [LocalDatabase] itself.
+/// One upgrade of a database file from one schema version to the next.
+///
+/// Runs inside the transaction that upgrades the file, so a migration that
+/// throws leaves the file at the version it had. It receives that transaction
+/// as [TransactionScope] and must work through it: a call on the
+/// [LocalDatabase] itself would wait for a transaction that cannot finish until
+/// the migration does.
+///
+/// Passed in the `migrations` list of [LocalDatabase.declaredForTesting].
 typedef Migration = Future<void> Function(TransactionScope txn);
 
+/// Turns on write-ahead journaling, which SQLite leaves off unless asked, except
+/// on a read only file, whose journal mode cannot be changed.
 OnDatabaseConfigureFn? _configureDeclared(bool readOnly) =>
     readOnly ? null : (db) => db.rawQuery('PRAGMA journal_mode = WAL');
 
@@ -49,6 +57,8 @@ Future<Set<String>> _names(DatabaseExecutor executor, String sql) async {
   return {for (final row in rows) row['name']! as String};
 }
 
+/// Brings the file in line with the declared tables and migrations in a single
+/// transaction, so that a failure leaves the file as it was.
 Future<void> _synchronizeSchema(LocalDatabase database, Database native) {
   final declared = [...?database._tables?.map((table) => table.declaration), ...database._declarations];
   DeclaredTable.checkTogether(declared);

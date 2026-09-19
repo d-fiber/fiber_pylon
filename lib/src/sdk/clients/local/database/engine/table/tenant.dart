@@ -38,9 +38,11 @@ part of '../database.dart';
 
 /// How a [TypedTable] keeps its rows apart between accounts.
 enum Tunnel {
-  /// Every tenant has rows of its own. What one tenant writes is invisible to
-  /// every other — under the same key, with the same content, or not — and
-  /// switching [Tenant] switches what the table holds.
+  /// Every tenant has rows of its own.
+  ///
+  /// What one tenant writes is invisible to every other, whether it uses the
+  /// same key and the same content or not, and switching [Tenant] switches what
+  /// the table holds.
   ///
   /// Without a current [Tenant] such a table holds the anonymous, signed-out
   /// rows.
@@ -51,44 +53,51 @@ enum Tunnel {
   shared,
 }
 
-/// What [WholeAccess.transfer] and [LocalDatabase.adoptAnonymousRows]
+/// What [WholeAccess.transfer] and [LocalDatabaseTenants.adoptAnonymousRows]
 /// do when a row being moved collides with one already at the target, on the
 /// key or on a unique constraint.
 enum TransferConflict {
-  /// The row already at the target stays; the source one is dropped.
+  /// The row already at the target stays and the source one is dropped.
   keepTarget,
 
   /// The source row replaces the one at the target.
   keepSource,
 }
 
-/// Whose rows the [TypedTable]s of the [Tunnel.isolated] tunnel hold right
-/// now — the signed-in account, in an app that has one.
+/// Whose rows the [Tunnel.isolated] tables of a [LocalDatabase] hold right now:
+/// the signed-in account, in an app that has one.
 ///
 /// There are two mechanisms, and they do not mix. Reading through [TypedTable.on]
 /// is the tenant mechanism: it reaches the current tenant's rows and nothing
-/// else, and no call on what it returns can reach another tenant's — not a
-/// row, not a count, not the name of a tenant. Reading the whole database is
-/// another mechanism, [TypedTable.onWholeDatabase] and
-/// [LocalDatabase.wholeDatabase], which you pick on purpose and which reaches
-/// every tenant.
+/// else, and no call on what it returns can reach another tenant's, not a row,
+/// not a count, not the name of a tenant. Reading the whole database is another
+/// mechanism, [TypedTable.onWholeDatabase] and
+/// [LocalDatabaseTenants.wholeDatabase], which you pick on purpose and which
+/// reaches every tenant.
 ///
 /// ```dart
-/// Tenant.use(account.id);  // on sign-in: every isolated table now holds this account's rows
-/// Tenant.leave();          // on sign-out: back to the anonymous ones, never the previous account's
+/// Tenant.use(account.id);
+/// Tenant.leave();
 /// ```
 ///
-/// Pylon holds no opinion about what a tenant id is: an account id, a profile
-/// name, a workspace. The current tenant is not remembered across launches; the
+/// After [use], on sign-in, every isolated table holds that account's rows.
+/// After [leave], on sign-out, they hold the anonymous rows again and never the
+/// previous account's.
+///
+/// A tenant id is any non-empty string: an account id, a profile name, a
+/// workspace. The current tenant is not remembered across launches, so the
 /// project that knows who is signed in calls [use] at startup, or hands that to
 /// the credential it already keeps with [follow].
 ///
 /// An operation started while one tenant is current finishes on that tenant,
-/// even if [use] is called before it does, and a `watch()` on an isolated
-/// table is handed the new tenant's rows from scratch — the previous tenant's
-/// are never carried over into it.
+/// even if [use] is called before it does. A `watch()` on an isolated table is
+/// handed the new tenant's rows from scratch, and the previous tenant's are
+/// never carried over into it.
 abstract final class Tenant {
+  /// Backs [current].
   static String? _current;
+
+  /// Backs [changes].
   static final StreamController<String?> _changes = StreamController<String?>.broadcast();
 
   /// The current tenant, or `null` when there is none.
@@ -118,15 +127,16 @@ abstract final class Tenant {
   /// Makes the current tenant the account [credentials] holds, for as long as
   /// the returned subscription is not cancelled.
   ///
-  /// [idOf] reads the tenant id out of a credential, since pylon does not know
-  /// what one looks like. The tenant is [use]d for each credential the manager's
-  /// `stream` publishes, and left when it publishes `null`, which is what a
-  /// sign-in and a sign-out come down to. A renewal keeps the same account and
-  /// changes nothing.
+  /// [idOf] reads the tenant id out of a credential, since the package does not
+  /// know what one looks like. The tenant is [use]d for each credential the
+  /// manager's `stream` publishes, and left when it publishes `null`, which is
+  /// what a sign-in and a sign-out come down to. A renewal keeps the same
+  /// account and changes nothing.
   ///
   /// Before [CredentialManager.start] has read the storage nothing is known, so
   /// nothing is touched: the restored credential, or the lack of one, is what
-  /// sets the tenant.
+  /// sets the tenant. Once it has, the credential in force is applied before
+  /// this returns.
   ///
   /// ```dart
   /// Tenant.follow(credentials, idOf: (ticket) => ticket.accountId);
@@ -142,9 +152,6 @@ abstract final class Tenant {
   }) {
     void apply(C? credential) => credential == null ? leave() : use(idOf(credential));
 
-    // Applied now rather than through the subscription, whose first value, the
-    // credential in force, only arrives a moment after it starts. While pending
-    // that value is only the absence of a credential not looked for yet.
     if (credentials.status.value != CredentialStatus.pending) apply(credentials.value);
     return credentials.stream.skip(1).listen(apply);
   }
@@ -154,8 +161,9 @@ void _checkTenantId(String id) {
   if (id.isEmpty) throw ArgumentError.value(id, 'id', 'cannot be empty');
 }
 
-/// The column an isolated table gains to hold whose each row is. Reserved: a
-/// table cannot declare a column of this name.
+/// The hidden column an isolated table gains to hold the tenant of each row.
+///
+/// Reserved: a table cannot declare a column of this name.
 const String _tenantColumn = '__tenant';
 
 /// Whose rows a read or write of a table reaches.
@@ -232,36 +240,41 @@ final class _Reach {
 /// the rows of the current tenant and of the anonymous session, which never
 /// read or touch another tenant's.
 extension LocalDatabaseTenants on LocalDatabase {
-  /// Moves every anonymous row — what was saved before anyone signed in — to
-  /// the current tenant, in every isolated table, and answers how many moved.
-  /// Nothing is left anonymous afterwards.
+  /// Moves every anonymous row to the current tenant, in every isolated table,
+  /// and answers how many moved.
   ///
-  /// The usual step of a first sign-in. [onConflict] decides what happens to a
-  /// row the tenant already holds under the same key. Throws a [StateError]
-  /// when there is no current [Tenant].
+  /// The anonymous rows are what was saved before anyone signed in, so this is
+  /// the usual step of a first sign-in. Nothing is left anonymous afterwards.
+  /// [onConflict] decides what happens to a row the tenant already holds under
+  /// the same key or the same unique value, and a row dropped that way is not
+  /// counted.
+  ///
+  /// Throws a [StateError] when there is no current [Tenant].
   Future<int> adoptAnonymousRows({TransferConflict onConflict = TransferConflict.keepTarget}) {
     final tenant = Tenant.current;
     if (tenant == null) throw StateError('adoptAnonymousRows needs a current tenant: call Tenant.use first.');
     return _moveRows(null, tenant, onConflict);
   }
 
-  /// Removes every row of the current tenant, in every isolated table: the
-  /// account is deleted. Throws a [StateError] when there is no current
-  /// [Tenant].
+  /// Deletes every row of the current tenant from every isolated table, for when
+  /// the account is deleted.
+  ///
+  /// The anonymous rows and the shared tables are not touched. Throws a
+  /// [StateError] when there is no current [Tenant].
   Future<void> purgeCurrentTenant() {
     final tenant = Tenant.current;
     if (tenant == null) throw StateError('purgeCurrentTenant needs a current tenant: call Tenant.use first.');
     return _purgeRows(tenant);
   }
 
-  /// The whole-database mechanism for what is not one tenant's business:
+  /// The whole-database mechanism, for what is not one tenant's business:
   /// listing the tenants, removing one's rows, moving rows from one tenant to
-  /// another. A separate entry point on purpose; nothing reachable through
-  /// [TypedTable.on] leads here.
-  ///
-  /// It takes the app's [Fingerprint], which must be the one this database was
-  /// opened with: throws a [StateError] when it was opened with none, or with
   /// another.
+  ///
+  /// It is a separate entry point on purpose, and nothing reachable through
+  /// [TypedTable.on] leads here. It takes the app's [Fingerprint], which must be
+  /// the one this database was opened with. Throws a [StateError] when it was
+  /// opened with none, or with another.
   WholeAccess wholeDatabase(Fingerprint fingerprint) {
     _requireFingerprint(fingerprint);
     return WholeAccess._(this);
@@ -272,13 +285,16 @@ extension LocalDatabaseTenants on LocalDatabase {
       if (table.tunnel == Tunnel.isolated) table.tableName,
   ];
 
+  /// Moves every row [from] holds to [to] in every isolated table, `null` being
+  /// the anonymous rows.
+  ///
+  /// The foreign keys are checked when the transaction commits, since a row and
+  /// the rows that point at it change tenant one statement apart.
   Future<int> _moveRows(String? from, String? to, TransferConflict onConflict) {
     final source = Value.varchar(from ?? '');
     final target = Value.varchar(to ?? '');
     final tables = _isolatedTableNames.toList();
     return runTransaction((txn) async {
-      // A row and the rows that point at it change tenant one statement apart:
-      // the foreign keys are checked once the transaction commits.
       await txn._txn.execute('PRAGMA defer_foreign_keys = ON');
       var moved = 0;
       for (final table in tables) {
@@ -296,6 +312,10 @@ extension LocalDatabaseTenants on LocalDatabase {
     });
   }
 
+  /// Deletes every row [tenantId] holds from every isolated table.
+  ///
+  /// The foreign keys are checked when the transaction commits, since the tables
+  /// are emptied one after the other.
   Future<void> _purgeRows(String tenantId) {
     final tables = _isolatedTableNames.toList();
     return runTransaction((txn) async {
@@ -311,12 +331,12 @@ extension LocalDatabaseTenants on LocalDatabase {
   }
 }
 
-/// The whole-database mechanism on a [LocalDatabase], opened by
-/// [LocalDatabaseTenants.wholeDatabase], which asks for the app's fingerprint:
-/// what concerns every tenant at once.
+/// The operations that concern every tenant of a [LocalDatabase] at once,
+/// opened by [LocalDatabaseTenants.wholeDatabase].
 final class WholeAccess {
   const WholeAccess._(this._database);
 
+  /// The database these operations run on.
   final LocalDatabase _database;
 
   /// Every tenant that holds at least one row in an isolated table, sorted.
@@ -333,20 +353,27 @@ final class WholeAccess {
     return tenants.toList()..sort();
   }
 
-  /// Removes every row [tenant] holds, in every isolated table, and nothing
-  /// else. Shared tables are not touched.
+  /// Deletes every row [tenant] holds from every isolated table, and nothing
+  /// else.
+  ///
+  /// The shared tables and the anonymous rows are not touched. Throws an
+  /// [ArgumentError] when [tenant] is empty.
   Future<void> purge(String tenant) {
     _checkTenantId(tenant);
     return _database._purgeRows(tenant);
   }
 
-  /// Moves every row [from] holds, in every isolated table, to [to], and
-  /// answers how many moved. Nothing is left under [from].
+  /// Moves every row [from] holds to [to], in every isolated table, and answers
+  /// how many moved.
   ///
-  /// A `null` [from] or [to] is the anonymous rows. This is the one call that
-  /// mixes two tenants' data, which is why it lives here and not on the tenant
-  /// mechanism. Shared tables are not touched. [onConflict] decides what
-  /// happens to a row [to] already holds under the same key.
+  /// A `null` [from] or [to] is the anonymous rows. Nothing is left under
+  /// [from], and the shared tables are not touched. [onConflict] decides what
+  /// happens to a row [to] already holds under the same key or the same unique
+  /// value, and a row dropped that way is not counted.
+  ///
+  /// This is the one call that mixes two tenants' data, which is why it lives
+  /// here and not on the tenant mechanism. Throws an [ArgumentError] when [from]
+  /// or [to] is empty, or when they are the same.
   Future<int> transfer({String? from, String? to, TransferConflict onConflict = TransferConflict.keepTarget}) {
     if (from != null) _checkTenantId(from);
     if (to != null) _checkTenantId(to);

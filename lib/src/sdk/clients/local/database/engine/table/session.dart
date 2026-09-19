@@ -36,16 +36,18 @@
 
 part of '../database.dart';
 
-/// Where a table is read and written: either a [LocalDatabase] or the
+/// A place where tables are read and written: either a [LocalDatabase] or the
 /// [TransactionScope] one of its transactions hands to your callback.
 ///
-/// Both accept `todos.on(session)`, so a function that takes a
+/// Both can be passed to [TypedTable.on], so a function that takes a
 /// [Connection] runs the same way inside and outside a transaction.
 sealed class Connection {
   DatabaseExecutor _executor();
 
   LocalDatabase get _database;
 
+  /// Runs [action] as one unit: in a new transaction on a [LocalDatabase], and
+  /// in the transaction already open on a [TransactionScope].
   Future<T> _atomically<T>(Future<T> Function(Connection session) action);
 
   Future<T> _run<T>(Future<T> Function(DatabaseExecutor executor) action) => _guarded(() => action(_executor()));
@@ -68,9 +70,13 @@ String _whereSql(Filter? filter, List<Value> arguments) {
   return ('INSERT INTO $target ($names) VALUES ($placeholders)', _toNativeArgs(row.values.toList()));
 }
 
-/// The rows of one table, narrowed by a filter, an order and a page, read
-/// through one [Connection]. Every method that narrows answers a new
-/// value, so a half built query can be kept and extended.
+/// The rows of one table, narrowed by a filter, an order and a page, read and
+/// written through one [Connection].
+///
+/// Every method that narrows answers a new value, so a half-built query can be
+/// kept and extended. Nothing runs until a method that reads or writes is
+/// called. On an isolated table only the rows of the tenant that was current
+/// when that method was called are reached.
 ///
 /// ```dart
 /// final open = await todos
@@ -81,9 +87,9 @@ String _whereSql(Filter? filter, List<Value> arguments) {
 ///     .list();
 /// ```
 ///
-/// A filter or an order built from a column of another table is refused, so
-/// a column shared by name between two tables cannot be read from the wrong
-/// one. Reading with no [orderBy] gives no promised order.
+/// A filter built from a column of another table is refused, so a column shared
+/// by name between two tables cannot be read from the wrong one. Reading with
+/// no [orderBy] gives no promised order.
 base class Rows<R extends Object> {
   const Rows._(
     this._session,
@@ -95,33 +101,41 @@ base class Rows<R extends Object> {
     this._scope = const _CurrentScope(),
   ]);
 
+  /// The connection every operation runs on.
   final Connection _session;
+
+  /// The table these rows belong to.
   final TypedTable<R> _table;
+
+  /// The condition set through [where], or null when none was.
   final Filter? _filter;
+
+  /// The order set through [orderBy], empty when none was.
   final List<Sort> _orders;
+
+  /// The most rows to read, or null for no limit.
   final int? _limit;
+
+  /// How many matching rows to skip, or null for none.
   final int? _offset;
+
+  /// Whose rows this reaches: the current tenant, unless the whole-database
+  /// mechanism said otherwise.
   final _Scope _scope;
 
   Rows<R> _copy({Filter? filter, List<Sort>? orders, int? limit, int? offset}) =>
-      Rows<R>._(
-        _session,
-        _table,
-        filter ?? _filter,
-        orders ?? _orders,
-        limit ?? _limit,
-        offset ?? _offset,
-        _scope,
-      );
+      Rows<R>._(_session, _table, filter ?? _filter, orders ?? _orders, limit ?? _limit, offset ?? _offset, _scope);
 
-  /// Whose rows this reaches, resolved now. Every operation reads it once,
-  /// before it awaits anything, so it finishes on the tenant that was current
-  /// when it started.
+  /// Whose rows this reaches, resolved now.
+  ///
+  /// Every operation reads it once, before it awaits anything, so it finishes
+  /// on the tenant that was current when it started.
   _Reach _reach() => _scope.reach(_table);
 
-  /// The filter every read and write of this table starts from: on an
-  /// isolated table, the tenant condition comes first and no method of this
-  /// class can leave it out.
+  /// The filter every read and write runs with.
+  ///
+  /// On an isolated table it always includes the tenant condition, so no method
+  /// of this class can leave it out.
   Filter? _scopedFilter(_Reach reach) {
     if (_table.tunnel == Tunnel.shared) return _filter;
     final quoted = _quotedIdentifier(_tenantColumn);
@@ -140,8 +154,10 @@ base class Rows<R extends Object> {
     return _filter == null ? partition : partition & _filter;
   }
 
-  /// Keeps only the rows [filter] matches. Calling it again keeps the rows
-  /// both filters match, rather than replacing the first.
+  /// Keeps only the rows [filter] matches.
+  ///
+  /// Calling it again keeps the rows both filters match, rather than replacing
+  /// the first.
   ///
   /// Throws an [ArgumentError] when [filter] uses a column of another table.
   Rows<R> where(Filter filter) {
@@ -174,6 +190,11 @@ base class Rows<R extends Object> {
   /// Every row kept, as records.
   Future<List<R>> list() async => [for (final row in await _selectRows()) _table._fromRow(row)];
 
+  /// Reads the rows kept, with the tenant of each when [withTenant] is set.
+  ///
+  /// Across several tenants an ordered read breaks the remaining ties by tenant,
+  /// so the order is the same on every call. SQLite accepts an offset only after
+  /// a limit, so an offset alone reads with a limit of -1, which is no limit.
   Future<List<RawRow>> _selectRows({bool withTenant = false}) {
     final reach = _reach();
     return _session._run((executor) async {
@@ -202,15 +223,20 @@ base class Rows<R extends Object> {
   /// todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.due.asc()]).watch().listen(show);
   /// ```
   ///
-  /// The first event is the current rows, and one more follows each write to
-  /// the table — an insert, an update, a delete, a batch, a committed
-  /// transaction — after which the rows kept differ from the last ones sent. A
-  /// write that leaves them as they were sends nothing. Nothing is read until
-  /// the stream is listened to, and it stops when the listener cancels.
+  /// The first event is the current rows. One more follows each write to the
+  /// table (an insert, an update, a delete, a batch or a committed transaction)
+  /// after which the rows kept differ from the last ones sent, and a write that
+  /// leaves them as they were sends nothing. On an isolated table, switching
+  /// [Tenant] sends the rows of the new tenant, even when they equal the last
+  /// ones. Nothing is read until the stream is listened to, and it stops when
+  /// the listener cancels.
   ///
-  /// Throws a [StateError] on a session that is a [TransactionScope]: it
-  /// ends before anything could change, so a stream over it would never send a
-  /// second event.
+  /// A read that fails is an error event, not the end of the stream: the next
+  /// write reads again.
+  ///
+  /// Throws a [StateError] when these rows are read through a
+  /// [TransactionScope]: a transaction ends before anything could change, so
+  /// the stream would never send a second event.
   Stream<List<R>> watch() => _watchRows().map((rows) => [for (final row in rows) _table._fromRow(row)]);
 
   /// The first row kept, or null when none is, now and again after each write
@@ -288,11 +314,13 @@ base class Rows<R extends Object> {
     });
   }
 
-  /// Writes [assignments] over every row kept, and answers how many changed.
+  /// Writes [assignments] over every row kept, and answers how many rows it
+  /// changed.
   ///
   /// Throws a [StateError] when no [where] narrowed the rows, which would
   /// rewrite the whole table: say so with [updateAll]. Also throws when a
-  /// [limit] or an [offset] was set, which an update would ignore.
+  /// [limit] or an [offset] was set, which an update would ignore, and when
+  /// [assignments] sets no column.
   Future<int> update(List<Assignment> assignments) async {
     if (_filter == null) {
       throw StateError('update on ${_table.tableName} has no where. Use updateAll to rewrite every row.');
@@ -303,7 +331,7 @@ base class Rows<R extends Object> {
   /// Writes [assignments] over every row of the table.
   ///
   /// Throws a [StateError] when a [where] narrowed the rows, which [update]
-  /// is for.
+  /// is for, and in the other cases [update] does.
   Future<int> updateAll(List<Assignment> assignments) async {
     if (_filter != null) throw StateError('updateAll on ${_table.tableName} has a where. Use update.');
     return _write(assignments);
@@ -324,7 +352,7 @@ base class Rows<R extends Object> {
   /// Removes every row of the table.
   ///
   /// Throws a [StateError] when a [where] narrowed the rows, which [delete]
-  /// is for.
+  /// is for, and in the other cases [delete] does.
   Future<int> deleteAll() async {
     if (_filter != null) throw StateError('deleteAll on ${_table.tableName} has a where. Use delete.');
     return _remove();
@@ -378,8 +406,10 @@ base class Rows<R extends Object> {
 }
 
 /// A table read and written through one [Connection], opened by
-/// [TypedTable.on]. Everything [Rows] reads and edits is here too,
-/// over the whole table, and inserting is added.
+/// [TypedTable.on].
+///
+/// Everything [Rows] reads and edits is here too, over the whole table, and
+/// inserting is added.
 base class TableAccess<R extends Object> extends Rows<R> {
   const TableAccess._(Connection session, TypedTable<R> table, [_Scope scope = const _CurrentScope()])
     : super._(session, table, null, const [], null, null, scope);
@@ -391,8 +421,11 @@ base class TableAccess<R extends Object> extends Rows<R> {
   /// collides with a row already there. Nothing is replaced silently.
   Future<R> insert(R record) async => (await insertAll([record])).single;
 
-  /// Inserts every record of [records], in order, as one unit: either every
-  /// row lands or none does. Answers the records the database now holds.
+  /// Inserts every record of [records], in order, and answers the records the
+  /// database now holds.
+  ///
+  /// It is one unit: either every row lands or none does. Throws as [insert]
+  /// does when one record collides.
   Future<List<R>> insertAll(List<R> records) {
     if (records.isEmpty) return Future.value(const []);
     final tenant = _table.tunnel == Tunnel.isolated ? _reach().tenant! : null;
@@ -410,6 +443,8 @@ base class TableAccess<R extends Object> extends Rows<R> {
     });
   }
 
+  /// Reads the rows [rowIds] point at, in chunks because SQLite limits how many
+  /// variables one statement binds.
   Future<List<R>> _readByRowId(DatabaseExecutor executor, List<int> rowIds) async {
     final found = <int, R>{};
     for (var start = 0; start < rowIds.length; start += 500) {
@@ -428,8 +463,10 @@ base class TableAccess<R extends Object> extends Rows<R> {
 }
 
 /// A keyed table read and written through one [Connection], opened by
-/// [KeyedTable.on]. It adds what a key makes possible: reading, writing
-/// and removing one row by its key.
+/// [KeyedTable.on].
+///
+/// It adds what a key makes possible: reading, writing and removing one row by
+/// its key.
 final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<R> {
   const KeyedAccess._(super.session, KeyedTable<R, K> super.table, [super.scope]) : super._();
 
@@ -451,8 +488,10 @@ final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<
   /// The row is updated in place. It is never deleted and reinserted, so the
   /// rows of other tables that point at it are untouched. A record with no key
   /// yet is inserted, and the engine assigns one.
+  ///
+  /// It runs as one unit, on the tenant that was current when it was called,
+  /// even if [Tenant] changes while it runs.
   Future<R> upsert(R record) {
-    // Held from here: the whole upsert runs on the tenant it started on.
     final scope = _table.tunnel == Tunnel.isolated ? _PinnedScope(_reach().tenant!) : const _CurrentScope();
     return _session._atomically((session) => _upsertOn(KeyedAccess<R, K>._(session, _keyed, scope), record));
   }
@@ -462,10 +501,7 @@ final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<
     final key = _keyed._key;
     final keyValue = row.remove(key.name);
     if (keyValue == null) return access.insert(record);
-    final sameKey = _FilterOfTable(
-      _FilterComparison(key.name, _Comparison.equal, keyValue),
-      _table.tableName,
-    );
+    final sameKey = _FilterOfTable(_FilterComparison(key.name, _Comparison.equal, keyValue), _table.tableName);
     final changed = row.isEmpty
         ? (await access.where(sameKey).exists() ? 1 : 0)
         : await access.where(sameKey)._writeValues(row);
@@ -478,12 +514,13 @@ final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<
 /// opened by [TypedTable.onWholeDatabase].
 ///
 /// It is not the tenant mechanism with a wider view. [TypedTable.on] never
-/// reaches another tenant's rows, whatever is called on what it returns; this
-/// is a separate entry point, picked on purpose, that reaches all of them —
-/// for a support tool, a backup, a migration, anything that is about the
-/// whole database rather than about one account. It reads, and it edits or
-/// removes the rows a filter keeps, wherever they belong; it inserts nothing,
-/// since a new row belongs to one tenant, which is [TypedTable.on]'s to say.
+/// reaches another tenant's rows, whatever is called on what it returns. This
+/// is a separate entry point, picked on purpose, that reaches all of them, for
+/// a support tool, a backup, a migration, anything that is about the whole
+/// database rather than about one account. It reads, and it edits or removes
+/// the rows a filter keeps, wherever they belong. It inserts nothing, since a
+/// new row belongs to one tenant, and [TypedTable.on] is what places it in the
+/// current one.
 ///
 /// A shared table has no tenants, so here it is simply all of its rows.
 final class WholeRows<R extends Object> extends Rows<R> {
@@ -498,16 +535,15 @@ final class WholeRows<R extends Object> extends Rows<R> {
   ]) : super._();
 
   @override
-  WholeRows<R> _copy({Filter? filter, List<Sort>? orders, int? limit, int? offset}) =>
-      WholeRows<R>._(
-        _session,
-        _table,
-        filter ?? _filter,
-        orders ?? _orders,
-        limit ?? _limit,
-        offset ?? _offset,
-        _scope,
-      );
+  WholeRows<R> _copy({Filter? filter, List<Sort>? orders, int? limit, int? offset}) => WholeRows<R>._(
+    _session,
+    _table,
+    filter ?? _filter,
+    orders ?? _orders,
+    limit ?? _limit,
+    offset ?? _offset,
+    _scope,
+  );
 
   @override
   WholeRows<R> where(Filter filter) => super.where(filter) as WholeRows<R>;
@@ -521,7 +557,10 @@ final class WholeRows<R extends Object> extends Rows<R> {
   @override
   WholeRows<R> offset(int count) => super.offset(count) as WholeRows<R>;
 
-  /// Only the rows of [tenants]. Throws an [ArgumentError] when it is empty.
+  /// Narrows these rows to those of [tenants], leaving the anonymous rows out.
+  ///
+  /// A shared table has no tenants, so it is left as it was. Throws an
+  /// [ArgumentError] when [tenants] is empty or holds an empty id.
   WholeRows<R> ofTenants(Iterable<String> tenants) {
     final only = tenants.toSet();
     if (only.isEmpty) throw ArgumentError.value(tenants, 'tenants', 'cannot be empty');
@@ -529,9 +568,10 @@ final class WholeRows<R extends Object> extends Rows<R> {
     return WholeRows<R>._(_session, _table, _filter, _orders, _limit, _offset, _AllScope(only));
   }
 
-  /// Every row kept, with the tenant each belongs to — `null` for the
-  /// anonymous rows and for a shared table's — since one key can now come back
-  /// once per tenant.
+  /// Every row kept, each with the tenant it belongs to.
+  ///
+  /// The tenant is `null` for the anonymous rows and for every row of a shared
+  /// table. It is returned because one key can now come back once per tenant.
   Future<List<({String? tenant, R record})>> listWithTenants() async {
     final rows = await _selectRows(withTenant: true);
     return [

@@ -37,12 +37,17 @@
 part of '../database.dart';
 
 /// Reads [read] now and again after every write to [table], answering each
-/// result [same] does not call equal to the one before it.
+/// result unless [same] calls it equal to the one before it.
 ///
 /// Nothing runs until the stream is listened to, and it stops when the
 /// listener cancels. A read that fails is an error event, not the end of the
 /// stream: the next write reads again. A write that lands while a read is
 /// running is not lost: the read is repeated once the running one is done.
+///
+/// With [followsTenant], a read that ends after [Tenant.current] changed is
+/// discarded and repeated, and the first result after a change is answered
+/// whether or not [same] calls it equal, so that one tenant's rows are never
+/// carried over into another's.
 Stream<T> _watchTable<T>(
   LocalDatabase database,
   String table,
@@ -72,7 +77,6 @@ Stream<T> _watchTable<T>(
         final current = await read();
         if (controller.isClosed) return;
         if (followsTenant && tenant != Tenant.current) {
-          // the tenant changed while reading: what came back is not theirs
           startOver = dirty = true;
           continue;
         }

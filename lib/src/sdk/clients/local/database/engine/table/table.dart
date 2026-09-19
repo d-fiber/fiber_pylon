@@ -90,15 +90,18 @@ final ColumnCodec<UuidValue> _uuidCodec = ColumnCodec<UuidValue>(
   decode: (stored) => stored.asUuid,
 );
 
-/// Opens the columns of one table, through [TypedTable.column]. Each method
-/// takes the name the column has in the database, and answers a
-/// [Field] typed with the Dart type that column holds.
+/// The columns of one table, opened through [TypedTable.column].
 ///
-/// A column refuses NULL until [Field.nullable] says otherwise.
+/// Each method takes the name the column has in the database, and answers a
+/// [Field] typed with the Dart type that column holds. A column refuses NULL
+/// until [Field.nullable] says otherwise.
 final class Columns {
   const Columns._(this._table, this._isolated);
 
+  /// The name of the table the columns belong to.
   final String _table;
+
+  /// Whether that table is [Tunnel.isolated].
   final bool _isolated;
 
   /// An integer primary key the database numbers itself, and never numbers
@@ -114,12 +117,7 @@ final class Columns {
   KeyField<UuidValue> uuidKey([String name = 'id']) => KeyField<UuidValue>._(
     _table,
     name,
-    _FieldDefinition(
-      codec: _uuidCodec._erased,
-      isPrimary: true,
-      generator: Value.randomUuid,
-      isolated: _isolated,
-    ),
+    _FieldDefinition(codec: _uuidCodec._erased, isPrimary: true, generator: Value.randomUuid, isolated: _isolated),
   );
 
   /// A whole number of up to 64 bits.
@@ -134,11 +132,10 @@ final class Columns {
   /// Raw bytes.
   Field<Uint8List> blob(String name) => custom(name, _blobCodec);
 
-  /// A boolean, stored as `1` or `0`.
+  /// A boolean.
   Field<bool> boolean(String name) => custom(name, _booleanCodec);
 
-  /// An instant, stored as milliseconds since the Unix epoch and read back as
-  /// a UTC [DateTime].
+  /// An instant, kept to the millisecond and read back as a UTC [DateTime].
   Field<DateTime> timestamp(String name) => custom(name, _timestampCodec);
 
   /// A calendar date with no time of day, the same on every device.
@@ -147,7 +144,7 @@ final class Columns {
   /// A time of day with no calendar date.
   Field<Time> time(String name) => custom(name, _timeCodec);
 
-  /// A UUID, stored as its canonical text.
+  /// A UUID.
   Field<UuidValue> uuid(String name) => custom(name, _uuidCodec);
 
   /// One member of [values], stored by name, so that reordering the enum never
@@ -157,13 +154,13 @@ final class Columns {
     ColumnCodec<E>(storage: ColumnType.text, encode: Value.enum_, decode: (stored) => stored.asEnum(values)),
   );
 
-  /// A list of native JSON values, stored as JSON text.
+  /// A list of native JSON values.
   Field<List<T>> list<T>(String name) => custom(
     name,
     ColumnCodec<List<T>>(storage: ColumnType.text, encode: Value.list, decode: (stored) => stored.asList<T>()),
   );
 
-  /// A value of your own type, stored as JSON text through [json].
+  /// A value of your own type, converted through [json].
   Field<T> json<T extends Object>(String name, Json<T> json) =>
       custom(name, ColumnCodec<T>(storage: ColumnType.text, encode: json.encode, decode: json.decode));
 
@@ -180,7 +177,10 @@ final class Columns {
 final class Reader {
   const Reader._(this._table, this._row);
 
+  /// The name of the table this row was read from.
   final String _table;
+
+  /// The columns this row was read with, as the database returned them.
   final RawRow _row;
 
   /// The value [field] holds in this row.
@@ -195,8 +195,9 @@ final class Reader {
   }
 }
 
-/// A table of the database and the record type [R] its rows map to. A
-/// project declares one subclass per table, and that is all the schema and
+/// A table of the database and the record type [R] its rows map to.
+///
+/// A project declares one subclass per table, and that is all the schema and
 /// the mapping it writes.
 ///
 /// ```dart
@@ -222,7 +223,7 @@ final class Reader {
 /// final todos = Todos();
 /// ```
 ///
-/// Declare the table once, at top level, hand it to [LocalDatabase.declared],
+/// Declare the table once, at top level, hand it to [LocalDatabase.declare],
 /// and read and write it through [on]. The names [tableName], [column],
 /// [columns], [primaryKey], [uniques], [indexes], [read], [write], [on] and
 /// [declaration] belong to this class, so a column cannot be a field called
@@ -243,16 +244,18 @@ abstract class TypedTable<R extends Object> {
   ///
   /// An isolated table gains a hidden column that holds the tenant of each row,
   /// and the engine adds it to every read and write, so no query can reach
-  /// another tenant's rows by leaving a condition out. The key of such a table
-  /// is unique per tenant, not across them, and so are its unique columns; an
-  /// index and a foreign key to another isolated table are per tenant too.
+  /// another tenant's rows by leaving a condition out. Its unique columns, and
+  /// its key unless the database numbers it ([Columns.key]), are unique per
+  /// tenant, not across them; an auto-numbered key is unique across all of them.
+  /// An index and a foreign key to another isolated table are per tenant too.
   /// Changing the tunnel of a table that already holds rows needs a migration.
   Tunnel get tunnel => Tunnel.shared;
 
   /// Every column of this table, in the order they are created.
   ///
-  /// A column missing from here is not created, and any read, write or filter
-  /// that uses it throws a [StateError] naming it.
+  /// A column missing from here is not created. Writing it, or reading it
+  /// through a [Reader], throws a [StateError] naming it, and a filter on it
+  /// fails when the query runs.
   List<Field<Object?>> get columns;
 
   /// The columns that together make the primary key, for a table with no
@@ -275,6 +278,9 @@ abstract class TypedTable<R extends Object> {
 
   /// This table read and written through [session], a [LocalDatabase] or the
   /// [TransactionScope] of one of its transactions.
+  ///
+  /// Throws a [StateError] when the database was declared with tables and this
+  /// one is not among them.
   TableAccess<R> on(Connection session) {
     session._database._requireDeclared(this);
     return TableAccess<R>._(session, this);
@@ -285,14 +291,19 @@ abstract class TypedTable<R extends Object> {
   /// wider view of it. See [WholeRows].
   ///
   /// Reaching the whole database takes the app's [Fingerprint], which must be
-  /// the one the database was opened with: throws a [StateError] otherwise.
+  /// the one the database was opened with. Throws a [StateError] otherwise, and
+  /// as [on] does when this table is not declared.
   WholeRows<R> onWholeDatabase(Connection session, Fingerprint fingerprint) {
     session._database._requireDeclared(this);
     session._database._requireFingerprint(fingerprint);
     return WholeRows<R>._(session, this);
   }
 
-  /// The `CREATE TABLE` this class declares, as the schema library renders it.
+  /// The schema this table declares.
+  ///
+  /// Throws a [StateError] when the declaration is inconsistent: a column listed
+  /// twice or owned by another table, a column called `__tenant` on an isolated
+  /// table, or a foreign key from a shared table to an isolated one.
   late final DeclaredTable declaration = _declare();
 
   Field<Object?>? get _keyField => null;
@@ -340,10 +351,13 @@ abstract class TypedTable<R extends Object> {
     return builder.columns((c) => {for (final field in columns) field.name: field._definition.builder(c)});
   }
 
-  /// The table as an isolated one is created: a hidden tenant column joins
-  /// the key, every unique constraint, every index and every foreign key to
-  /// another isolated table, so that two tenants never collide, and a row can
-  /// never point at another tenant's.
+  /// The schema of this table as an isolated one.
+  ///
+  /// A hidden tenant column joins the key, every unique constraint, every index
+  /// and every foreign key to another isolated table, so that two tenants never
+  /// collide and a row never points at another tenant's. An auto-numbered key
+  /// stays alone as the primary key, since SQLite only numbers a single-column
+  /// one, and the tenant joins a unique constraint that foreign keys point at.
   DeclaredTable _declareIsolated(Set<String> names) {
     if (names.contains(_tenantColumn)) {
       throw StateError('$tableName declares a column called $_tenantColumn, which an isolated table reserves.');
@@ -353,9 +367,6 @@ abstract class TypedTable<R extends Object> {
         if (field.isPrimary) field,
     ];
     final autoKey = keyColumns.any((field) => field._definition.isAutoincrement);
-    // An auto-numbered key stays alone the primary key, since SQLite only
-    // numbers a single-column one: the numbers are then unique across tenants,
-    // and the tenant joins a unique constraint that foreign keys can point at.
     final composedKey = <String>[
       if (!autoKey && keyColumns.isNotEmpty) ...keyColumns.map((field) => field.name),
       if (!autoKey && keyColumns.isEmpty) ...primaryKey.map((field) => field.name),
@@ -504,9 +515,9 @@ abstract class TypedTable<R extends Object> {
 /// record and deleting a row by its key.
 ///
 /// The key is the one column of [columns] opened as a key, through
-/// [Columns.key], [Columns.uuidKey] or [Field.primaryKey],
-/// and its Dart type must be [K]. Both are checked when the schema is
-/// declared, which is the first time the database opens.
+/// [Columns.key], [Columns.uuidKey] or [Field.primaryKey], and its Dart type
+/// must be [K]. Both are checked when [declaration] is first read, which is
+/// when the table is declared on a database.
 abstract class KeyedTable<R extends Object, K extends Object> extends TypedTable<R> {
   /// A keyed table called [tableName] in the database.
   KeyedTable(super.tableName);
@@ -523,16 +534,19 @@ abstract class KeyedTable<R extends Object, K extends Object> extends TypedTable
   /// The column that is the key of this table, so a filter can name it.
   Field<K> get keyField => _key;
 
-  /// The key [record] carries, or null when it carries none yet — a record
-  /// whose key the engine will assign on insert.
+  /// The key [record] carries, or null when it carries none yet, which is a
+  /// record whose key the engine will assign on insert.
   K? keyOf(R record) {
     final value = _rowOf(record, generateKey: false)[_key.name];
     return value == null ? null : _key._decode(value) as K?;
   }
 
-  /// This table as [session] reaches it, on [tenant] — `null` for the anonymous
-  /// rows — whichever tenant is current: how an operation that spans several
-  /// calls, a batch or a transaction, keeps to the tenant it started on.
+  /// This table as [session] reaches it, on [tenant] whichever tenant is
+  /// current, with `null` meaning the anonymous rows.
+  ///
+  /// It is how an operation that spans several calls, a batch or a transaction,
+  /// keeps to the tenant it started on. A shared table has no tenants, so it
+  /// ignores [tenant].
   ///
   /// Not for a project: the tenant mechanism never names a tenant. Only the
   /// package holds one, and only the one that was current when it began.
