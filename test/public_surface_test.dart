@@ -175,7 +175,7 @@ abstract base class Overriding extends Repository<int, int, String, int> {
 
 abstract base class Reading extends Repository<int, int, String, int> {
   @override
-  bool get observesConnection => false;
+  bool get requiresConnection => false;
 
   @override
   Stream<int?> stream() => const Stream<int?>.empty();

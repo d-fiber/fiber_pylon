@@ -104,11 +104,11 @@ final class StatusSucceeded<E> extends Status<E> {
 
 /// The last refresh made no request because the network is out of reach.
 ///
-/// Decided before the request, by a repository that observes the connection when
+/// Decided before the request, by a repository that requires a connection when
 /// `Network` says it is out. What is stored is still what the repository reads.
 ///
 /// It stays here until the connection is back, and answers a refresh without a
-/// request in the meantime. A repository that does not observe the connection
+/// request in the meantime. A repository that does not require a connection
 /// never ends here: it tries the request, and a failure is a [StatusFailed] whose
 /// error the project chose.
 final class StatusOffline<E> extends Status<E> {

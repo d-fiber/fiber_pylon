@@ -601,9 +601,9 @@ the database already holds, and then every outcome is announced once, to whoever
 for a refresh that went through, `Running`, `Failed(error)`, `Idle` for one that did not. Two
 states do not let go at once. `StatusRunning` lasts until what it is doing is done, and only
 then does the outcome replace it. `StatusOffline` lasts until the connection is back, for a
-repository that observes it: it watches `Network`, answers a `refresh` without a request
+repository that requires a connection: it watches `Network`, answers a `refresh` without a request
 while it says the network is out, and goes idle when it says it is back. A repository that does
-not observe the connection never ends offline: it tries the request, and a failure is a
+not require a connection never ends offline: it tries the request, and a failure is a
 `StatusFailed` with the error `resolve` chose.
 
 ```dart
@@ -621,7 +621,7 @@ credential was held to make it (`isAuthenticated` and `Credentials`), and whethe
 was reachable (`Network`).
 
 Two settings say what a repository is, and both are `true` unless it overrides them.
-`isAuthenticated` says it reads an account's data and carries the credential. `observesConnection`
+`isAuthenticated` says it reads an account's data and carries the credential. `requiresConnection`
 says a refresh looks at the connection before asking: a REST read wants that, since with no
 connection there is nothing to ask, and it ends `StatusOffline` without a request. A REST write
 overrides it to `false`, since the request is worth trying and its own failure is the honest

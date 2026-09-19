@@ -48,14 +48,14 @@ enum HouseError { signedOut, unknown }
 final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSignal> {
   Shelf({
     this.authenticated = false,
-    this.observes = false,
+    this.requires = false,
     this.readFails = false,
     this.holdsNothing = false,
     List<int> stored = const [],
   }) : stored = [...stored];
 
   final bool authenticated;
-  final bool observes;
+  final bool requires;
   final bool readFails;
   final bool holdsNothing;
   final List<int> stored;
@@ -71,7 +71,7 @@ final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSign
   bool get isAuthenticated => authenticated;
 
   @override
-  bool get observesConnection => observes;
+  bool get requiresConnection => requires;
 
   @override
   Stream<List<int>?> stream() {
@@ -327,9 +327,9 @@ void main() {
       await shelf.dispose();
     });
 
-    test('makes no request while the device has no connection, once it observes the connection', () async {
+    test('makes no request while the device has no connection, once it requires a connection', () async {
       await connect(reachable: false);
-      final shelf = Shelf(observes: true);
+      final shelf = Shelf(requires: true);
 
       expect(await shelf.refresh(), const StatusOffline<HouseError>());
       expect(shelf.fetches, 0);
@@ -343,7 +343,7 @@ void main() {
         await Network.forTesting(reachable: false, changes: changes.stream),
         dispose: (network) => network.dispose(),
       );
-      final shelf = Shelf(observes: true);
+      final shelf = Shelf(requires: true);
       expect(await shelf.refresh(), const StatusOffline<HouseError>());
 
       changes.add(true);
@@ -355,7 +355,7 @@ void main() {
       await changes.close();
     });
 
-    test('tries the request without a connection when it does not observe the connection', () async {
+    test('tries the request without a connection when it does not require a connection', () async {
       await connect(reachable: false);
       final shelf = Shelf();
 
@@ -364,7 +364,7 @@ void main() {
       await shelf.dispose();
     });
 
-    test('ends failed, and never offline, when it does not observe the connection', () async {
+    test('ends failed, and never offline, when it does not require a connection', () async {
       await connect(reachable: false);
       final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
 
@@ -532,7 +532,7 @@ void main() {
 
     test('stays offline while the connection is out, and goes idle when it is back', () async {
       final changes = await reachability(reachable: false);
-      final shelf = Shelf(observes: true);
+      final shelf = Shelf(requires: true);
       await pumpEventQueue();
 
       await shelf.refresh();
@@ -548,7 +548,7 @@ void main() {
 
     test('answers a refresh at once, without a request or a change, while it stays offline', () async {
       await reachability(reachable: false);
-      final shelf = Shelf(observes: true);
+      final shelf = Shelf(requires: true);
       await shelf.refresh();
       final seen = await watching(shelf);
 
@@ -710,7 +710,7 @@ void main() {
         await Network.forTesting(reachable: false),
         dispose: (network) => network.dispose(),
       );
-      final shelf = Shelf(authenticated: true, observes: true);
+      final shelf = Shelf(authenticated: true, requires: true);
       await shelf.refresh();
       await pumpEventQueue();
       expect(shelf.status.value, const StatusOffline<HouseError>());

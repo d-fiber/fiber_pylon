@@ -106,7 +106,7 @@ final class NotesList extends Repository<List<Note>, List<Note>, HouseError, Hou
   bool get isAuthenticated => false;
 
   @override
-  bool get observesConnection => true;
+  bool get requiresConnection => true;
 
   @override
   Future<List<Note>> fetch() async => answer;

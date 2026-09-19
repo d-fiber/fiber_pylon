@@ -63,7 +63,7 @@ import 'status.dart';
 /// once, to whoever follows it, and then it is [StatusIdle] again. Two states
 /// do not let go at once: [StatusRunning] lasts until what it is doing is done,
 /// and [StatusOffline] lasts until the connection is back, when the repository
-/// [observesConnection].
+/// [requiresConnection].
 ///
 /// A repository that [isAuthenticated] listens to the database only while a
 /// credential is held. It starts when someone signs in, and when they sign out it
@@ -153,7 +153,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// account's.
   bool get isAuthenticated => true;
 
-  /// Whether a refresh looks at the connection before it asks.
+  /// Whether a refresh needs the connection to be there before it asks.
   ///
   /// When it does and `Network` says the device is offline, no request is made
   /// and the refresh ends [StatusOffline]. When it does not, the request is
@@ -164,7 +164,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// attempting it without a connection is worth a request and a failure is the
   /// honest answer. A call to a vendor's own package, over bluetooth or a local
   /// network, needs no internet and says `false` too.
-  bool get observesConnection => true;
+  bool get requiresConnection => true;
 
   /// The database's own stream for this repository: what it holds now, first,
   /// then every change to it.
@@ -219,7 +219,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// outcome, then [StatusIdle]. The outcome is only there for whoever follows
   /// `status.stream` at the moment it is announced, and `status.value` is
   /// already [StatusIdle] by then. The exception is [StatusOffline], which stays
-  /// while the repository [observesConnection] and the connection is out.
+  /// while the repository [requiresConnection] and the connection is out.
   ///
   /// Starts loading [data] if it has not started, which it does on its own right
   /// after the repository is made.
@@ -303,7 +303,7 @@ abstract base class Repository<R, T, E, S extends Object> {
 
   bool get _busy => _running != null || _holdsOffline;
 
-  bool get _holdsOffline => _status.value is StatusOffline<E> && observesConnection;
+  bool get _holdsOffline => _status.value is StatusOffline<E> && requiresConnection;
 
   bool get _isOffline => !Network.isReachable.value;
 
@@ -350,7 +350,7 @@ abstract base class Repository<R, T, E, S extends Object> {
 
   Future<Status<E>> _attempt() async {
     if (isAuthenticated && !Credentials.isHeld) return StatusUnauthenticated<E>();
-    if (observesConnection && _isOffline) return StatusOffline<E>();
+    if (requiresConnection && _isOffline) return StatusOffline<E>();
 
     try {
       await response(await fetch());
