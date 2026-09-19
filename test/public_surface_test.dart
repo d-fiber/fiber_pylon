@@ -45,7 +45,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-const _refusedWarnings = {'INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER'};
+const _refusedWarnings = {'INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER', 'INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER'};
 
 const _prelude = '''
 import 'package:fiber_pylon/fiber_pylon.dart';
@@ -156,6 +156,30 @@ Network.isReachable.stream.listen((reachable) => print(reachable));
 ''', compiles: true),
   _Program('building the connection state by hand', 'Network.forTesting(reachable: true);', compiles: false),
   _Program('reading a connectivity report by hand', 'Network.reads(const []);', compiles: false),
+  _Program('overriding the data a repository hands out', '''
+}
+
+abstract base class Overriding extends Repository<int, int, String, int> {
+  @override
+  Observable<int?> get data => throw UnimplementedError();
+''', compiles: false),
+  _Program('overriding the status a repository hands out', '''
+}
+
+abstract base class Overriding extends Repository<int, int, String, int> {
+  @override
+  Observable<Status<String>> get status => throw UnimplementedError();
+''', compiles: false),
+  _Program('a repository that overrides only what it is meant to', '''
+}
+
+abstract base class Reading extends Repository<int, int, String, int> {
+  @override
+  bool get observesConnection => false;
+
+  @override
+  Stream<int?> stream() => const Stream<int?>.empty();
+''', compiles: true),
   _Program('the app credential through the singleton', '''
 await Credentials.set(const Credential(token: 'abc', refreshToken: 'again'));
 print(Credentials.isHeld);

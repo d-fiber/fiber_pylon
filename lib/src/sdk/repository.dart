@@ -36,6 +36,8 @@
 
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import '../common/fault.dart';
 import '../common/network.dart';
 import '../common/observable.dart';
@@ -199,6 +201,10 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// The repository has been listening to the database since it was made, so a
   /// screen that asks later finds the stored value already here. One that asks
   /// within the first moments gets `null` first, then the value.
+  ///
+  /// Only there to be consumed: a subclass cannot override it, since the
+  /// repository is what feeds it.
+  @nonVirtual
   Observable<T?> get data {
     _follow();
     return _data;
@@ -217,6 +223,10 @@ abstract base class Repository<R, T, E, S extends Object> {
   ///
   /// Starts loading [data] if it has not started, which it does on its own right
   /// after the repository is made.
+  ///
+  /// Only there to be consumed: a subclass cannot override it, since the
+  /// repository is what moves it.
+  @nonVirtual
   Observable<Status<E>> get status {
     _follow();
     return _status;
