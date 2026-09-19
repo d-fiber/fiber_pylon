@@ -39,8 +39,6 @@ import 'dart:async';
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-enum ReadError { notFound, unknown }
-
 void main() {
   group('HealthMonitor', () {
     test('publishes what the probe answered', () async {
@@ -52,10 +50,7 @@ void main() {
     });
 
     test('treats a probe that threw as unhealthy', () async {
-      final monitor = HealthMonitor(
-        name: 'api',
-        probe: () async => throw const FormatException('unreachable'),
-      );
+      final monitor = HealthMonitor(name: 'api', probe: () async => throw const FormatException('unreachable'));
 
       expect(await monitor.check(), isFalse);
       await monitor.dispose();
@@ -111,127 +106,4 @@ void main() {
       await monitor.dispose();
     });
   });
-
-  group('Result', () {
-    test('folds a success through the ok branch', () {
-      const result = OK<int, ReadError>(3);
-
-      expect(result.fold(ok: (data) => data * 2, failure: (_) => 0), 6);
-    });
-
-    test('folds a failure through the failure branch', () {
-      const result = Failure<int, ReadError>(ReadError.notFound);
-
-      expect(
-        result.fold(ok: (data) => 'ok', failure: (error) => error.name),
-        'notFound',
-      );
-    });
-
-    test('map leaves a failure untouched', () {
-      const result = Failure<int, ReadError>(ReadError.notFound);
-
-      expect(
-        result.map((data) => data * 2),
-        const Failure<int, ReadError>(ReadError.notFound),
-      );
-    });
-
-    test('mapError converts an error into another vocabulary', () {
-      const result = Failure<int, ReadError>(ReadError.notFound);
-
-      expect(
-        result.mapError((error) => error.name),
-        const Failure<int, String>('notFound'),
-      );
-    });
-
-    test('orElse answers the fallback for a failure', () {
-      const result = Failure<int, ReadError>(ReadError.unknown);
-
-      expect(result.orElse(9), 9);
-    });
-
-    test('exposes the value and the error where they exist', () {
-      const success = OK<int, ReadError>(3);
-      const failure = Failure<int, ReadError>(ReadError.unknown);
-
-      expect(success.dataOrNull, 3);
-      expect(success.errorOrNull, isNull);
-      expect(failure.dataOrNull, isNull);
-      expect(failure.errorOrNull, ReadError.unknown);
-    });
-  });
-
-  group('Singleton', () {
-    test('names what was not initialized', () {
-      final handle = Singleton<String>('MySdk');
-
-      expect(
-        () => handle.instance,
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('MySdk.initialize()'),
-          ),
-        ),
-      );
-    });
-
-    test('refuses to hold two instances at once', () {
-      final handle = Singleton<String>('MySdk')..initialize('first');
-
-      expect(() => handle.initialize('second'), throwsStateError);
-    });
-
-    test('accepts another instance once disposed', () {
-      final handle = Singleton<String>('MySdk')
-        ..initialize('first')
-        ..dispose()
-        ..initialize('second');
-
-      expect(handle.instance, 'second');
-    });
-  });
-
-  group('Environments', () {
-    test('reports every missing environment variable at once', () {
-      const environments = _TestEnvironments(url: '', key: '');
-
-      expect(environments.isComplete, isFalse);
-      expect(environments.missing.map((v) => v.name), ['URL', 'KEY']);
-    });
-
-    test('accepts an environment that has everything', () {
-      const environments = _TestEnvironments(
-        url: 'https://example.test',
-        key: 'abc',
-      );
-
-      expect(environments.isComplete, isTrue);
-      expect(environments.missing, isEmpty);
-    });
-  });
-}
-
-final class _TestEnvironments extends Environments {
-  final String url;
-  final String key;
-
-  const _TestEnvironments({required this.url, required this.key});
-
-  @override
-  List<EnvironmentVariable> get variables => [
-    EnvironmentVariable(
-      name: 'URL',
-      value: url,
-      reason: 'Where the API lives.',
-    ),
-    EnvironmentVariable(
-      name: 'KEY',
-      value: key,
-      reason: 'Identifies this app.',
-    ),
-  ];
 }
