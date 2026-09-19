@@ -35,154 +35,121 @@
 // LICENSE file, the LICENSE file governs.
 
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
-class Ticket {
-  final String value;
-  final DateTime expiresAt;
+enum HouseSignal { rejected }
 
-  const Ticket(this.value, this.expiresAt);
+Credential credentialOf(String holder, {Duration lifetime = const Duration(hours: 1)}) =>
+    Credential(token: 'token-$holder', refreshToken: 'again', expiresAt: DateTime.now().add(lifetime), holder: holder);
+
+Future<void> hold([Credential? credential]) async {
+  await GetIt.instance.reset();
+  GetIt.instance.registerSingleton<Credentials>(
+    await Credentials.forTesting(MemoryCredentialStore<Credential>(credential)),
+    dispose: (credentials) => credentials.dispose(),
+  );
 }
-
-Ticket ticketLasting(Duration lifetime, {String value = 'first'}) => Ticket(value, DateTime.now().add(lifetime));
-
-enum HouseSignal { rejected, unreachable }
-
-class ScriptedRefresher implements CredentialRefresher<Ticket> {
-  final List<Object> script;
-  final List<Ticket> received = [];
-  int _index = 0;
-
-  ScriptedRefresher(this.script);
-
-  int get callCount => received.length;
-
-  @override
-  Future<Ticket> refresh(Ticket current) async {
-    received.add(current);
-    final step = script[_index < script.length ? _index++ : script.length - 1];
-    if (step is Fault) throw step;
-    return step as Ticket;
-  }
-}
-
-CredentialManager<Ticket, HouseSignal> managerFor(
-  CredentialRefresher<Ticket> refresher, {
-  Ticket? stored,
-  Duration buffer = const Duration(minutes: 10),
-  Duration retryDelay = const Duration(milliseconds: 50),
-}) => CredentialManager<Ticket, HouseSignal>(
-  store: MemoryCredentialStore<Ticket>(stored),
-  refresher: refresher,
-  expiresAt: (ticket) => ticket.expiresAt,
-  fatalSignals: const {HouseSignal.rejected},
-  buffer: buffer,
-  retryDelay: retryDelay,
-);
 
 void main() {
+  tearDown(() async {
+    Tenant.leave();
+    await GetIt.instance.reset();
+  });
+
   group('Tenant.follow', () {
-    tearDown(Tenant.leave);
+    test('takes the holder of a credential that was restored before it started', () async {
+      await hold(credentialOf('ada'));
 
-    String accountOf(Ticket ticket) => ticket.value;
+      final subscription = Tenant.follow();
 
-    test('uses the restored account once the storage has been read', () async {
-      final manager = managerFor(ScriptedRefresher([]), stored: ticketLasting(const Duration(hours: 1), value: 'ada'));
-      final subscription = Tenant.follow(manager, idOf: accountOf);
+      expect(Tenant.current, 'ada');
+      await subscription.cancel();
+    });
+
+    test('leaves the tenant when no credential is held', () async {
+      await hold();
+      Tenant.use('stale');
+
+      final subscription = Tenant.follow();
+
       expect(Tenant.current, isNull);
-
-      await manager.start();
-
-      expect(Tenant.current, 'ada');
       await subscription.cancel();
-      await manager.dispose();
-    });
-
-    test('takes the account of a manager that is already started', () async {
-      final manager = managerFor(ScriptedRefresher([]), stored: ticketLasting(const Duration(hours: 1), value: 'ada'));
-      await manager.start();
-
-      final subscription = Tenant.follow(manager, idOf: accountOf);
-
-      expect(Tenant.current, 'ada');
-      await subscription.cancel();
-      await manager.dispose();
-    });
-
-    test('touches nothing while the storage has not been read', () async {
-      final manager = managerFor(ScriptedRefresher([]));
-      Tenant.use('set-by-hand');
-
-      final subscription = Tenant.follow(manager, idOf: accountOf);
-
-      expect(Tenant.current, 'set-by-hand');
-      await subscription.cancel();
-      await manager.dispose();
     });
 
     test('switches with a sign-in and leaves with a sign-out', () async {
-      final manager = managerFor(ScriptedRefresher([]));
-      await manager.start();
-      final subscription = Tenant.follow(manager, idOf: accountOf);
+      await hold();
+      final subscription = Tenant.follow();
 
-      await manager.grant(ticketLasting(const Duration(hours: 1), value: 'ada'));
+      await Credentials.set(credentialOf('ada'));
       expect(Tenant.current, 'ada');
 
-      await manager.grant(ticketLasting(const Duration(hours: 1), value: 'bob'));
+      await Credentials.set(credentialOf('bob'));
       expect(Tenant.current, 'bob');
 
-      await manager.revoke();
+      await Credentials.clear();
       expect(Tenant.current, isNull);
-
       await subscription.cancel();
-      await manager.dispose();
+    });
+
+    test('leaves the tenant for a credential that names nobody', () async {
+      await hold(credentialOf('ada'));
+      final subscription = Tenant.follow();
+
+      await Credentials.set(const Credential(token: 'anonymous'));
+
+      expect(Tenant.current, isNull);
+      await subscription.cancel();
     });
 
     test('keeps the tenant through a renewal', () async {
-      final refresher = ScriptedRefresher([ticketLasting(const Duration(hours: 1), value: 'ada')]);
-      final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2), value: 'ada'));
-      await manager.start();
-      final subscription = Tenant.follow(manager, idOf: accountOf);
+      await hold(credentialOf('ada', lifetime: const Duration(minutes: 2)));
+      var renewals = 0;
+      Credentials.renewWith(
+        refresh: (current) async {
+          renewals++;
+          return credentialOf('ada');
+        },
+        fatalSignals: const {HouseSignal.rejected},
+      );
+      final subscription = Tenant.follow();
       final seen = <String?>[];
       final watching = Tenant.changes.listen(seen.add);
 
-      await manager.renew();
+      await Credentials.renew();
       await pumpEventQueue();
 
-      expect(refresher.callCount, 1);
+      expect(renewals, 1);
       expect(seen, isEmpty);
       expect(Tenant.current, 'ada');
       await watching.cancel();
       await subscription.cancel();
-      await manager.dispose();
     });
 
     test('leaves the tenant when the backend rejects the credential', () async {
-      final manager = managerFor(
-        ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.rejected)]),
-        stored: ticketLasting(const Duration(minutes: 2), value: 'ada'),
+      await hold(credentialOf('ada', lifetime: const Duration(minutes: 2)));
+      Credentials.renewWith(
+        refresh: (current) async => throw const Fault<HouseSignal>(HouseSignal.rejected),
+        fatalSignals: const {HouseSignal.rejected},
       );
-      await manager.start();
-      final subscription = Tenant.follow(manager, idOf: accountOf);
+      final subscription = Tenant.follow();
       expect(Tenant.current, 'ada');
 
-      await manager.renew();
+      await Credentials.renew();
 
       expect(Tenant.current, isNull);
       await subscription.cancel();
-      await manager.dispose();
     });
 
     test('stops following once cancelled', () async {
-      final manager = managerFor(ScriptedRefresher([]));
-      await manager.start();
-      final subscription = Tenant.follow(manager, idOf: accountOf);
+      await hold();
+      final subscription = Tenant.follow();
       await subscription.cancel();
 
-      await manager.grant(ticketLasting(const Duration(hours: 1), value: 'ada'));
+      await Credentials.set(credentialOf('ada'));
 
       expect(Tenant.current, isNull);
-      await manager.dispose();
     });
   });
 }

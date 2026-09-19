@@ -41,12 +41,14 @@ import 'package:rxdart/rxdart.dart';
 import '../common/fault.dart';
 import '../common/observable.dart';
 import '../common/reporter.dart';
-import 'credential.dart';
 import 'refresher.dart';
 import 'store.dart';
 
 /// Keeps a credential alive, and is the reason a backend only has to write one
 /// method.
+///
+/// Internal: a project reaches it through `Credentials`, which builds one over
+/// the vault and is the only thing exported.
 ///
 /// This is the policy half of authentication, and it is the same policy whether
 /// the credential comes from an HTTP endpoint, from Firebase, or from a fake in
@@ -86,7 +88,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   /// from re-entering the subject.
   final BehaviorSubject<C?> _subject = BehaviorSubject<C?>.seeded(null, sync: true);
 
-  final _StatusObservable _status = _StatusObservable();
+  final _HeldObservable _held = _HeldObservable();
 
   C? _current;
   Timer? _renewTimer;
@@ -150,10 +152,10 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   ///
   /// Nothing tells a renewal from a sign-in here, since a consumer that wants
   /// the credential wants the new one either way. A consumer that only wants to
-  /// know whether someone is signed in follows [status].
+  /// know whether one is held follows [held].
   ///
   /// A listener runs before [start], [grant], [revoke] or the renewal that
-  /// caused the change returns, and before [status] moves. What must be in
+  /// caused the change returns, and before [held] moves. What must be in
   /// place once the credential is known, such as the tenant that `Tenant.follow`
   /// sets, therefore is by the time anyone can ask. A listener must not wait on
   /// this manager, which is still finishing the operation.
@@ -168,21 +170,15 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   ///
   /// True for an expired credential that can still be renewed: it has not been
   /// revoked, so a screen must not send the holder back to a sign-in form.
-  ///
-  /// False before [start] has finished as well, which is why a router asks
-  /// [status] instead: it tells that moment apart from an absent credential.
   bool get isHeld => _current != null;
 
-  /// Whether a credential is in force, read with `status.value` and followed
-  /// with `status.stream`.
+  /// [isHeld], read with `held.value` and followed with `held.stream`.
   ///
-  /// [CredentialStatus.pending] until [start] has read the storage, then
-  /// [CredentialStatus.held] or [CredentialStatus.absent] for as long as this
-  /// manager lives. Renewing a credential does not change it, so following it
-  /// wakes a listener only when someone signs in or out.
+  /// Renewing a credential does not change it, so following it wakes a
+  /// listener only when someone signs in or out.
   ///
   /// Read-only for a consumer: only this manager publishes to it.
-  Observable<CredentialStatus> get status => _status;
+  Observable<bool> get held => _held;
 
   /// How long before expiry renewal starts.
   Duration get buffer => _buffer;
@@ -199,8 +195,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
 
   /// Restores the stored credential and schedules its renewal.
   ///
-  /// Moves [status] out of [CredentialStatus.pending] whether or not something
-  /// was found. Calling this twice does nothing the second time.
+  /// Calling this twice does nothing the second time.
   Future<void> start() async {
     if (_started || _disposed) return;
     _started = true;
@@ -235,6 +230,17 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
     _current = null;
     await _store.clear();
     _publish(null);
+  }
+
+  /// Schedules the renewal of the credential in force again.
+  ///
+  /// For a refresher that was plugged in after the credential was restored: the
+  /// renewal that [start] could not schedule then is scheduled now, at once when
+  /// the credential is already stale.
+  void rearm() {
+    final current = _current;
+    if (current == null || _disposed) return;
+    _schedule(current);
   }
 
   /// Renews the credential when it is close enough to expiry to be worth it.
@@ -276,14 +282,14 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
     unawaited(_renew());
   }
 
-  /// Stops every timer and closes [stream] and [status].
+  /// Stops every timer and closes [stream] and [held].
   ///
   /// The credential is left in storage: disposing is the app shutting down, not
   /// the holder signing out.
   Future<void> dispose() async {
     _disposed = true;
     _cancelTimers();
-    await _status.dispose();
+    await _held.dispose();
     await _subject.close();
   }
 
@@ -297,7 +303,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
 
   void _publish(C? credential) {
     if (!_subject.isClosed) _subject.add(credential);
-    _status.publish(credential == null ? CredentialStatus.absent : CredentialStatus.held);
+    _held.publish(credential != null);
   }
 
   void _cancelTimers() {
@@ -311,7 +317,9 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
     _renewTimer?.cancel();
     if (_disposed) return;
     if (!_isRenewable(credential)) return;
-    _renewTimer = Timer(_delayFor(credential), () => unawaited(_renew()));
+    final delay = _delayFor(credential);
+    if (delay > _farAway) return;
+    _renewTimer = Timer(delay, () => unawaited(_renew()));
   }
 
   Duration _delayFor(C credential) {
@@ -389,27 +397,29 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
 
 bool _alwaysRenewable(Object credential) => true;
 
-/// The [Observable] behind [CredentialManager.status].
-final class _StatusObservable extends Observable<CredentialStatus> {
-  final BehaviorSubject<CredentialStatus> _subject = BehaviorSubject<CredentialStatus>.seeded(
-    CredentialStatus.pending,
-    sync: true,
-  );
+/// Past this a renewal is not scheduled at all, since a timer this long overflows
+/// on the web. [CredentialManager.ensureFresh] renews such a credential when a
+/// request needs it, which is when it matters.
+const Duration _farAway = Duration(days: 24);
+
+/// The [Observable] behind [CredentialManager.held].
+final class _HeldObservable extends Observable<bool> {
+  final BehaviorSubject<bool> _subject = BehaviorSubject<bool>.seeded(false, sync: true);
 
   @override
-  CredentialStatus get value => _subject.value;
+  bool get value => _subject.value;
 
-  /// The current status, same as [value].
-  CredentialStatus call() => _subject.value;
-
-  @override
-  Stream<CredentialStatus> get stream => _subject.stream;
+  /// Whether a credential is in force, same as [value].
+  bool call() => _subject.value;
 
   @override
-  Stream<CredentialStatus> get values => stream;
+  Stream<bool> get stream => _subject.stream;
 
-  /// Publishes [next], unless it is the status already held.
-  void publish(CredentialStatus next) {
+  @override
+  Stream<bool> get values => stream;
+
+  /// Publishes [next], unless it is what is already held.
+  void publish(bool next) {
     if (next == _subject.value || _subject.isClosed) return;
     _subject.add(next);
   }

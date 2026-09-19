@@ -50,8 +50,8 @@ import 'package:sqflite_sqlcipher/sqflite.dart' as cipher show databaseFactory;
 import 'package:sqflite_sqlcipher/sqlite_api.dart' show SqlCipherOpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
-import '../../../../../credential/credential.dart' show CredentialStatus;
-import '../../../../../credential/manager.dart' show CredentialManager;
+import '../../../../../credential/credential.dart' show Credential;
+import '../../../../../credential/credentials.dart' show Credentials;
 import '../../../../../storage/secure_storage.dart' show Fingerprint, SecureStorage;
 import 'schema/schema.dart';
 import 'query/sort_order.dart';

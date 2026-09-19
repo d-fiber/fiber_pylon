@@ -39,7 +39,7 @@
 /// Pylon exists so that unplugging a backend and plugging in another changes one
 /// line of wiring and nothing else. It is built on one refusal: **pylon
 /// understands neither side.** It does not know what a brand is, what a route
-/// is, what a credential looks like, or what can go wrong. It knows how to let
+/// is, what is inside a token, or what can go wrong. It knows how to let
 /// something through, or not.
 ///
 /// Everything here is therefore either a shape a project fills in, or a policy
@@ -61,7 +61,7 @@
 ///
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
-/// needs, [CredentialManager], [CallGuard], [SocketChannel], [ChannelKeeper],
+/// needs, [Credentials] and the [Credential] it holds, [CallGuard], [SocketChannel], [ChannelKeeper],
 /// [HealthMonitor], [PreferencesStorage], [Observable], [Reporter], [Backoff]. Each
 /// is a mechanism every backend would otherwise rewrite, and rewrite worse
 /// the second time.
@@ -133,7 +133,7 @@
 /// declares, through a switch the project wrote, with both sides typed and
 /// checked by the compiler. Where pylon needs to act on a failure, it is
 /// handed a set of signals rather than left to interpret one:
-/// [CredentialManager] is told which signals mean the credential is dead,
+/// [Credentials.renewWith] is told which signals mean the credential is dead,
 /// [CallGuard] which are worth renewing for, and even the refusal [CallGuard]
 /// issues for a duplicate call is named by the project.
 ///
@@ -142,7 +142,8 @@
 ///
 /// ## What is deliberately absent
 ///
-/// No token format, no notion of a session, no list of error kinds, no envelope
+/// No token format, since a [Credential] carries one opaque string and never
+/// looks inside it, no notion of a session beyond it, no list of error kinds, no envelope
 /// around a response body, no rule about which status means what, no environment
 /// reading, no code generation, no automatic retry, no request cancellation, no
 /// response cache, no offline queue. Every one of those belongs to one server,
@@ -164,6 +165,7 @@ export 'src/credential/credential.dart';
 export 'src/credential/manager.dart';
 export 'src/credential/refresher.dart';
 export 'src/credential/store.dart';
+export 'src/credential/credentials.dart';
 export 'src/mutation/mutation.dart';
 export 'src/mutation/mutation_queue.dart';
 export 'src/mutation/mutation_store.dart';

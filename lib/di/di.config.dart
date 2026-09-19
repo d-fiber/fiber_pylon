@@ -10,6 +10,7 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 
+import 'package:fiber_pylon/src/credential/credentials.dart' as _i940;
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart'
     as _i63;
 import 'package:fiber_pylon/src/storage/preferences_storage.dart' as _i425;
@@ -32,6 +33,11 @@ extension GetItInjectableX on _i174.GetIt {
     await gh.singletonAsync<_i425.PreferencesStorage>(
       () => _i425.PreferencesStorage.initialize(),
       preResolve: true,
+    );
+    await gh.singletonAsync<_i940.Credentials>(
+      () => _i940.Credentials.initialize(gh<_i134.SecureStorage>()),
+      preResolve: true,
+      dispose: (i) => i.dispose(),
     );
     await gh.singletonAsync<_i63.LocalDatabase>(
       () => _i63.LocalDatabase.initialize(gh<_i134.SecureStorage>()),

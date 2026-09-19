@@ -124,36 +124,32 @@ abstract final class Tenant {
     _changes.add(null);
   }
 
-  /// Makes the current tenant the account [credentials] holds, for as long as
-  /// the returned subscription is not cancelled.
+  /// Makes the current tenant the holder of the app's `Credentials`, for as long
+  /// as the returned subscription is not cancelled.
   ///
-  /// [idOf] reads the tenant id out of a credential, since the package does not
-  /// know what one looks like. The tenant is [use]d for each credential the
-  /// manager's `stream` publishes, and left when it publishes `null`, which is
-  /// what a sign-in and a sign-out come down to. A renewal keeps the same
-  /// account and changes nothing.
-  ///
-  /// Before [CredentialManager.start] has read the storage nothing is known, so
-  /// nothing is touched: the restored credential, or the lack of one, is what
-  /// sets the tenant. Once it has, the credential in force is applied before
-  /// this returns.
+  /// The tenant is [use]d for each credential that names a `holder`, and left
+  /// when the credential is cleared or names nobody, which is what a sign-in and
+  /// a sign-out come down to. A renewal that keeps the same holder changes
+  /// nothing. The credential in force is taken at once, so a credential restored
+  /// from the vault before `configureSdk` returned already sets the tenant.
   ///
   /// ```dart
-  /// Tenant.follow(credentials, idOf: (ticket) => ticket.accountId);
-  /// await credentials.start();
+  /// await configureSdk();
+  /// Tenant.follow();
   /// ```
   ///
-  /// Throws an [ArgumentError], from inside the subscription, when [idOf]
-  /// answers an empty id: the previous account's rows must not stay visible
-  /// because of it.
-  static StreamSubscription<void> follow<C extends Object, S extends Object>(
-    CredentialManager<C, S> credentials, {
-    required String Function(C credential) idOf,
-  }) {
-    void apply(C? credential) => credential == null ? leave() : use(idOf(credential));
+  /// Needs `configureSdk` to have run, since that is what makes `Credentials`
+  /// available.
+  static StreamSubscription<void> follow() {
+    void apply(Credential? credential) {
+      final holder = credential?.holder;
+      holder == null ? leave() : use(holder);
+    }
 
-    if (credentials.status.value != CredentialStatus.pending) apply(credentials.value);
-    return credentials.stream.skip(1).listen(apply);
+    // Applied now rather than through the subscription, whose first value, the
+    // credential in force, only arrives a moment after it starts.
+    apply(Credentials.value);
+    return Credentials.stream.skip(1).listen(apply);
   }
 }
 

@@ -37,6 +37,9 @@
 import 'dart:async';
 
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/credential/manager.dart';
+import 'package:fiber_pylon/src/credential/refresher.dart';
+import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class Ticket {
@@ -104,7 +107,7 @@ void main() {
       await pumpEventQueue();
 
       expect(seen, [null, null]);
-      expect(manager.status.value, CredentialStatus.absent);
+      expect(manager.held.value, isFalse);
       expect(manager.isHeld, isFalse);
       await manager.dispose();
     });
@@ -204,6 +207,53 @@ void main() {
       await manager.dispose();
     });
 
+    test('schedules with rearm the renewal that start could not', () async {
+      var pluggedIn = false;
+      final renewed = ticketLasting(const Duration(hours: 1), value: 'second');
+      final refresher = ScriptedRefresher([renewed]);
+      final manager = CredentialManager<Ticket, HouseSignal>(
+        store: MemoryCredentialStore<Ticket>(ticketLasting(const Duration(milliseconds: 120))),
+        refresher: refresher,
+        expiresAt: (ticket) => ticket.expiresAt,
+        fatalSignals: const {HouseSignal.rejected},
+        isRenewable: (ticket) => pluggedIn,
+        buffer: const Duration(milliseconds: 100),
+      );
+      await manager.start();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(refresher.callCount, 0);
+
+      pluggedIn = true;
+      manager.rearm();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(refresher.callCount, 1);
+      expect(manager.value, same(renewed));
+      await manager.dispose();
+    });
+
+    test('schedules no timer for a credential too far from expiry, and one for a nearer', () async {
+      final durations = <Duration>[];
+      final spec = ZoneSpecification(
+        createTimer: (self, parent, zone, duration, callback) {
+          durations.add(duration);
+          return parent.createTimer(zone, duration, callback);
+        },
+      );
+
+      Future<void> startWith(Duration lifetime) => runZoned(() async {
+        final manager = managerFor(ScriptedRefresher([]), stored: ticketLasting(lifetime));
+        await manager.start();
+        await manager.dispose();
+      }, zoneSpecification: spec);
+
+      await startWith(const Duration(days: 30));
+      expect(durations, isEmpty);
+
+      await startWith(const Duration(hours: 2));
+      expect(durations.single, lessThan(const Duration(hours: 2)));
+    });
+
     test('never renews a credential it was told is not renewable', () async {
       final refresher = ScriptedRefresher([]);
       final manager = CredentialManager<Ticket, HouseSignal>(
@@ -294,15 +344,15 @@ void main() {
     });
   });
 
-  group('CredentialManager status', () {
-    test('is pending until the storage has been read', () async {
+  group('CredentialManager held', () {
+    test('is not held while nothing has been restored or granted', () async {
       final manager = managerFor(ScriptedRefresher([]));
 
-      expect(manager.status.value, CredentialStatus.pending);
+      expect(manager.held.value, isFalse);
 
       await manager.start();
 
-      expect(manager.status.value, CredentialStatus.absent);
+      expect(manager.held.value, isFalse);
       await manager.dispose();
     });
 
@@ -311,21 +361,21 @@ void main() {
 
       await manager.start();
 
-      expect(manager.status.value, CredentialStatus.held);
+      expect(manager.held.value, isTrue);
       await manager.dispose();
     });
 
     test('follows a sign-in and a sign-out', () async {
       final manager = managerFor(ScriptedRefresher([]));
-      final seen = <CredentialStatus>[];
-      manager.status.values.listen(seen.add);
+      final seen = <bool>[];
+      manager.held.values.listen(seen.add);
       await manager.start();
 
       await manager.grant(ticketLasting(const Duration(hours: 1)));
       await manager.revoke();
       await pumpEventQueue();
 
-      expect(seen, [CredentialStatus.pending, CredentialStatus.absent, CredentialStatus.held, CredentialStatus.absent]);
+      expect(seen, [false, true, false]);
       await manager.dispose();
     });
 
@@ -333,8 +383,8 @@ void main() {
       final refresher = ScriptedRefresher([ticketLasting(const Duration(hours: 1), value: 'second')]);
       final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2)));
       await manager.start();
-      final seen = <CredentialStatus>[];
-      manager.status.stream.skip(1).listen(seen.add);
+      final seen = <bool>[];
+      manager.held.stream.skip(1).listen(seen.add);
 
       await manager.renew();
       await pumpEventQueue();
@@ -344,7 +394,7 @@ void main() {
       await manager.dispose();
     });
 
-    test('becomes absent when the backend rejects the credential', () async {
+    test('is dropped when the backend rejects the credential', () async {
       final manager = managerFor(
         ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.rejected)]),
         stored: ticketLasting(const Duration(minutes: 2)),
@@ -353,7 +403,7 @@ void main() {
 
       await manager.renew();
 
-      expect(manager.status.value, CredentialStatus.absent);
+      expect(manager.held.value, isFalse);
       await manager.dispose();
     });
 
@@ -367,7 +417,7 @@ void main() {
 
       await manager.renew();
 
-      expect(manager.status.value, CredentialStatus.held);
+      expect(manager.held.value, isTrue);
       await manager.dispose();
     });
   });

@@ -34,24 +34,82 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-/// Whether a [CredentialManager] holds a credential, as a screen deciding where
-/// to route asks it.
+import 'dart:convert';
+
+import 'package:equatable/equatable.dart';
+import 'package:meta/meta.dart';
+
+/// What a call carries to prove who makes it, and what keeps it alive.
 ///
-/// Three values rather than a boolean, because the moment before the storage has
-/// been read is neither of the other two: a router that took it for "absent"
-/// would flash a sign-in form at someone who is in fact signed in.
-enum CredentialStatus {
-  /// The storage has not been read yet, so nothing is known.
+/// [token] is the one string a request presents, and pylon reads nothing inside
+/// it: a JWT, an opaque key and a session id are all the same here. The other
+/// fields say only what renewing it takes, and each is optional so that a
+/// credential that never expires, or cannot be exchanged, says so by leaving it
+/// out rather than by inventing a value.
+///
+/// Held and followed through `Credentials`, which is also what keeps it in the
+/// operating system's vault.
+final class Credential extends Equatable {
+  /// A credential presenting [token], asserted to be a string that says something.
   ///
-  /// Lasts until [CredentialManager.start] finishes, or until a credential is
-  /// granted or revoked.
-  pending,
+  /// [refreshToken] is what the backend exchanges for a fresh credential, and
+  /// without it this one is never renewed. [expiresAt] is when [token] stops
+  /// being accepted, and without it nothing is renewed ahead of time. [holder]
+  /// names whose credential this is, for `Tenant.follow` to keep each account's
+  /// rows apart.
+  const Credential({required this.token, this.refreshToken, this.expiresAt, this.holder})
+    : assert(token != '', 'a credential presents a token'),
+      assert(holder != '', 'a holder is named or left out, never empty');
 
-  /// A credential is in force, possibly an expired one that can still be
-  /// renewed.
-  held,
+  /// What a request presents to be let through.
+  final String token;
 
-  /// There is no credential: none was stored, the holder signed out, or the
-  /// backend refused to renew it.
-  absent,
+  /// What the backend exchanges for a fresh credential, or `null` when this one
+  /// cannot be renewed.
+  final String? refreshToken;
+
+  /// When [token] stops being accepted, or `null` when it never does.
+  final DateTime? expiresAt;
+
+  /// Whose credential this is, or `null` when it belongs to nobody in
+  /// particular. Pylon never reads it except to pick the tenant.
+  final String? holder;
+
+  /// The text the vault keeps for this credential.
+  @internal
+  String encode() => jsonEncode({
+    'token': token,
+    'refreshToken': refreshToken,
+    'expiresAt': expiresAt?.toUtc().toIso8601String(),
+    'holder': holder,
+  });
+
+  /// The credential [raw] holds, as [encode] wrote it.
+  ///
+  /// Throws a [FormatException] when [raw] is not one. What it says never
+  /// includes [raw], which is a secret and ends up in an error report.
+  @internal
+  factory Credential.decode(String raw) {
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      final expiresAt = json['expiresAt'] as String?;
+      return Credential(
+        token: json['token'] as String,
+        refreshToken: json['refreshToken'] as String?,
+        expiresAt: expiresAt == null ? null : DateTime.parse(expiresAt),
+        holder: json['holder'] as String?,
+      );
+    } catch (_) {
+      throw const FormatException('the vault holds something that is not a credential');
+    }
+  }
+
+  /// Describes this credential without ever showing the tokens.
+  @override
+  String toString() => 'Credential(hidden)';
+
+  /// Compares the instant of [expiresAt] rather than the date object, which a
+  /// local time and a UTC time of the same instant do not share.
+  @override
+  List<Object?> get props => [token, refreshToken, expiresAt?.microsecondsSinceEpoch, holder];
 }
