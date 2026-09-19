@@ -151,9 +151,6 @@
 /// side would stop being a wall.
 library;
 
-export 'src/cache/cache.dart';
-export 'src/cache/local_storage.dart';
-export 'src/cache/sync_store.dart';
 export 'src/common/fault.dart';
 export 'src/common/network.dart';
 export 'src/common/observable.dart';

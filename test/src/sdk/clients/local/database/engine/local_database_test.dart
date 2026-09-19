@@ -39,8 +39,7 @@
 // pass-through to insert/query/update/delete/transaction/batch actually
 // round-trips against real SQL, something no in-memory fake can catch. Kept
 // in its own file, outside the fakes-only suite discipline the rest of
-// pylon's tests hold — the same reason test/src/cache/sqflite_sync_store_test.dart is
-// separate.
+// pylon's tests hold.
 
 import 'dart:io';
 

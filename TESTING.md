@@ -38,7 +38,7 @@ and there should not be one.
 - A `SocketLink` backed by a `StreamController` drives `SocketChannel`, including the cases
   a real server will not produce on demand: a link that goes quiet without closing, a join
   the server refuses, two opens at once.
-- `MemoryKeyValueStore` and the credential's in-memory store stand in for storage.
+- The credential's in-memory store stands in for the vault.
 
 If something can only be tested against a live server, that is usually a sign the seam is
 in the wrong place.
