@@ -147,7 +147,7 @@ call?.status.stream.listen((status) => switch (status) {
   StatusUnauthenticated() => 4,
   StatusFailed(:final error) => error,
 });
-call?.stream.listen((value) => value + 1);
+call?.data.stream.listen((value) => (value ?? 0) + 1);
 await call?.refresh();
 ''', compiles: true),
   _Program('the connection through the singleton', '''

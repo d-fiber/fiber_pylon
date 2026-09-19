@@ -97,7 +97,7 @@ final class NotesDatabase extends pylon.Database {
 }
 
 final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, HouseSignal> {
-  NotesList(this._database, this.answer) : super(initial: const [], offlineSignals: const {HouseSignal.noRoute});
+  NotesList(this._database, this.answer) : super(offlineSignals: const {HouseSignal.noRoute});
 
   final NotesDatabase _database;
   List<Note> answer;
@@ -119,14 +119,20 @@ final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, 
   });
 
   @override
-  Stream<List<Note>> watchLocal() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).watch();
+  Future<List<Note>?> initial() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).select();
+
+  @override
+  Stream<List<Note>> stream() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).watch();
 
   @override
   HouseError resolve(Fault<HouseSignal> fault) => HouseError.unknown;
 }
 
-Future<List<Note>> becomes(NotesList call, bool Function(List<Note> notes) test) =>
-    call.stream.firstWhere(test).timeout(const Duration(seconds: 5));
+Future<List<Note>> becomes(NotesList call, bool Function(List<Note> notes) test) => call.data.stream
+    .where((notes) => notes != null)
+    .map((notes) => notes!)
+    .firstWhere(test)
+    .timeout(const Duration(seconds: 5));
 
 void main() {
   setUpAll(() {
@@ -174,7 +180,7 @@ void main() {
 
       expect(status, const StatusSucceeded<HouseError>());
       expect(await becomes(call, (notes) => notes.isNotEmpty), [const Note(id: 'a', title: 'first')]);
-      expect(call.value, [const Note(id: 'a', title: 'first')]);
+      expect(call.data.value, [const Note(id: 'a', title: 'first')]);
     });
 
     test('reads what an earlier launch stored before any refresh', () async {
@@ -182,7 +188,7 @@ void main() {
       final call = NotesList(database, []);
       addTearDown(call.dispose);
 
-      expect(call.value, isEmpty);
+      expect(call.data.value, isNull);
 
       expect(await becomes(call, (notes) => notes.isNotEmpty), [const Note(id: 'old', title: 'kept')]);
       expect(call.status.value, const StatusIdle<HouseError>());
@@ -197,7 +203,7 @@ void main() {
       final status = await call.refresh();
 
       expect(status, const StatusOffline<HouseError>());
-      expect(call.value, [const Note(id: 'old', title: 'kept')]);
+      expect(call.data.value, [const Note(id: 'old', title: 'kept')]);
     });
 
     test('reads the rows of whoever is signed in, and swaps them with the tenant', () async {

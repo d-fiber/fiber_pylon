@@ -36,8 +36,6 @@
 
 import 'dart:async';
 
-import 'package:rxdart/rxdart.dart';
-
 import '../common/fault.dart';
 import '../common/health_monitor.dart';
 import '../common/network.dart';
@@ -49,26 +47,39 @@ import 'status.dart';
 /// brings up to date from the network.
 ///
 /// The app never reads the network. It reads the local database, always, through
-/// [value] and [stream], and a refresh only ever brings the database up to date:
-/// [refresh] asks the network with [fetch], writes the answer with [response],
-/// and the database's own [watchLocal] is what makes [stream] move. One way, so
-/// the screen has no second source to reconcile with the first.
+/// [data], and a refresh only ever brings the database up to date: [refresh]
+/// asks the network with [fetch], writes the answer with [response], and the
+/// database's own [stream] is what makes [data] move. One way, so the screen
+/// has no second source to reconcile with the first.
 ///
-/// It reads like a `Preference`: [value], a call and [stream]. What
-/// the last refresh did is a second one, [status], and it is independent: when a
-/// refresh fails or the network is out, [value] is still what is stored, and
-/// [status] says why it may not be up to date.
+/// [data] is an [Observable]: `data.value` and `data.stream`, the way a
+/// `Preference` reads. What is happening to it is a second one, [status], and it
+/// is independent: when a refresh fails or the network is out, [data] still
+/// holds what is stored, and [status] says why it may not be up to date.
 ///
-/// A repository carries its parameters in its own fields, so a project writes one
-/// small class per piece of data it shows and makes one where it needs it:
+/// [status] is a signal more than a state. It starts as [StatusRunning], while
+/// [data] loads what the database already holds, and every outcome is announced
+/// once, to whoever follows it, and then it is [StatusIdle] again. Two states
+/// do not let go at once: [StatusRunning] lasts until what it is doing is done,
+/// and [StatusOffline] lasts until the connection is back, when the repository
+/// [observesConnection].
+///
+/// A repository stands for one piece of data, not for a kind of data, so what
+/// tells it which one is in its own fields, fixed when it is made. A project
+/// writes one small class per piece of data it shows and makes one where a
+/// screen needs it:
 ///
 /// ```dart
-/// final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
-///   UsersList(this._database, this._rest)
-///     : super(initial: const [], offlineSignals: const {RestSignal.noRoute});
+/// final class AdultsList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
+///   AdultsList(this._database, this._rest, {required this.minAge})
+///     : super(offlineSignals: const {RestSignal.noRoute});
 ///
 ///   final OwnDatabase _database;
 ///   final RestUsers _rest;
+///   final int minAge;
+///
+///   Rows<User> get _adults =>
+///       _database.from(_database.users).where(_database.users.age.isGreaterThanOrEqualTo(minAge));
 ///
 ///   @override
 ///   bool get isAuthenticated => true;
@@ -77,7 +88,7 @@ import 'status.dart';
 ///   bool get observesConnection => true;
 ///
 ///   @override
-///   Future<List<User>> fetch() => _rest.list();
+///   Future<List<User>> fetch() => _rest.list(minAge: minAge);
 ///
 ///   @override
 ///   Future<void> response(List<User> users) => _database.runTransaction((tx) async {
@@ -87,7 +98,10 @@ import 'status.dart';
 ///   });
 ///
 ///   @override
-///   Stream<List<User>> watchLocal() => _database.from(_database.users).watch();
+///   Future<List<User>?> initial() => _adults.select();
+///
+///   @override
+///   Stream<List<User>> stream() => _adults.watch();
 ///
 ///   @override
 ///   UsersError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
@@ -97,12 +111,23 @@ import 'status.dart';
 /// }
 /// ```
 ///
+/// [fetch], [response], [initial] and [stream] all read the same fields, so what
+/// is asked of the network is exactly what is read from the database, and they
+/// cannot drift apart. Write the query once and use it in both [initial] and
+/// [stream]: were they to read different slices, [data] would change shape at
+/// its first change. Two repositories with different parameters do not disturb
+/// each other, and a refresh is only joined within one of them.
+///
+/// When a parameter changes while the screen is open, a search text or the next
+/// page, make another repository and [dispose] the first. Nothing can be changed
+/// in one that exists, so [data] never changes shape under a screen.
+///
 /// `R` is what [fetch] brings back, and it is the only thing that differs
 /// between a REST call and a vendor's: [response] receives it. `T` is what the
 /// screen reads, `E` the project's own error, and `S` the signal of the adapter
 /// [fetch] fails with.
-abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<T> {
-  /// A repository reading as [initial] until the database has answered.
+abstract base class SdkRepository<R, T, E, S extends Object> {
+  /// A repository whose [data] is empty until it has read what the database holds.
   ///
   /// [offlineSignals] lists the signals that mean the network is out of reach. A
   /// [Fault] carrying one of them makes the refresh [StatusOffline] rather than
@@ -113,19 +138,19 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   /// [health], when given, is consulted along with `Network` before a refresh
   /// that [observesConnection], so a device known to be offline does not spend a
   /// request discovering what it already knows.
-  SdkRepository({required T initial, required Set<S> offlineSignals, HealthMonitor? health})
-    : _initial = initial,
-      _offlineSignals = offlineSignals,
+  SdkRepository({required Set<S> offlineSignals, HealthMonitor? health})
+    : _offlineSignals = offlineSignals,
       _health = health;
 
-  final T _initial;
+  final MutableObservable<T?> _data = MutableObservable<T?>(null);
   final Set<S> _offlineSignals;
   final HealthMonitor? _health;
-  final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusIdle<E>());
+  final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusRunning<E>());
 
-  BehaviorSubject<T>? _mirror;
-  StreamSubscription<T>? _local;
+  final List<StreamSubscription<bool>> _waiting = [];
+  StreamSubscription<T>? _following;
   Future<Status<E>>? _running;
+  bool _started = false;
   bool _disposed = false;
 
   /// Whether the request this makes carries the credential.
@@ -149,11 +174,21 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   /// says `true`.
   bool get observesConnection;
 
-  /// What the database holds for this repository, and every change to it.
+  /// Asks the database for what it holds for this repository, once, and answers
+  /// it.
   ///
-  /// The first thing it emits is what is stored now. It is what [value] follows,
-  /// and it is subscribed to once, the first time [value] or [stream] is used.
-  Stream<T> watchLocal();
+  /// It is what [data] starts from, in place of a value the project would have
+  /// to invent: it may hold something or nothing, and answers `null` for nothing
+  /// when there is no such thing as an empty list of it. Called the first time
+  /// [data] or [status] is read, while [status] is [StatusRunning].
+  Future<T?> initial();
+
+  /// The database's own stream for this repository: what it holds now, then every
+  /// change to it.
+  ///
+  /// It is what [data] follows once [initial] has answered, and it is subscribed
+  /// to once.
+  Stream<T> stream();
 
   /// Asks the network, and only the network.
   ///
@@ -162,7 +197,7 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   Future<R> fetch();
 
   /// Writes what [fetch] brought back into the database, which is what moves
-  /// [stream].
+  /// [data].
   Future<void> response(R response);
 
   /// Turns the [Fault] a refresh failed with into the project's own error.
@@ -170,79 +205,141 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   /// Not called for a signal listed in `offlineSignals`.
   E resolve(Fault<S> fault);
 
-  /// What the database holds, or the initial value until it has answered.
+  /// What the database holds, read with `data.value` and followed with
+  /// `data.stream`, which gives a new listener the current value first.
   ///
-  /// Follows the database a moment after a refresh completes, not before: it is
-  /// [stream] that a screen follows.
-  @override
-  T get value => _follow.value;
-
-  /// What the database holds, same as [value], so that `users()` reads as well
-  /// as `users.value`.
-  T call() => value;
-
-  /// What the database holds for each new listener, followed by every change.
-  @override
-  Stream<T> get stream => _follow.stream;
-
-  /// What the last refresh did, read with `status.value` and followed with
-  /// `status.stream`.
+  /// `null` until [initial] has answered, and after it when the database holds
+  /// nothing. It follows the database a moment after a refresh completes, not
+  /// before: it is `data.stream` that a screen follows.
   ///
-  /// [StatusIdle] until a refresh has run.
-  Observable<Status<E>> get status => _status;
+  /// Reading it for the first time asks the database, which is why nothing
+  /// touches it until a screen asks.
+  Observable<T?> get data {
+    _follow();
+    return _data;
+  }
+
+  /// What is happening to this repository, read with `status.value` and followed
+  /// with `status.stream`.
+  ///
+  /// [StatusRunning] while [data] loads what the database holds, then that
+  /// load is announced with [StatusSucceeded] and it is [StatusIdle]. Each
+  /// refresh goes the same way: [StatusRunning] until it is done, then its
+  /// outcome, then [StatusIdle]. The outcome is only there for whoever follows
+  /// `status.stream` at the moment it is announced, and `status.value` is
+  /// already [StatusIdle] by then. The exception is [StatusOffline], which stays
+  /// while the repository [observesConnection] and the connection is out.
+  ///
+  /// Reading it for the first time starts loading [data], like [data] does.
+  Observable<Status<E>> get status {
+    _follow();
+    return _status;
+  }
 
   /// Brings the database up to date and answers how it went.
   ///
   /// A caller arriving while a refresh is under way waits on that same one, so
   /// six screens asking at once make one request. It never throws for a
-  /// [Fault]: the status it returns is the outcome, and [status] carries the same.
-  /// An error that is not a [Fault] is a bug: it propagates, and [status] goes
-  /// back to [StatusIdle].
+  /// [Fault]: the status it returns is the outcome, which [status] announces to
+  /// whoever follows it. While the repository is [StatusOffline] and the
+  /// connection is still out it answers so at once, without a request and
+  /// without moving [status]. An error that is not a [Fault] is a bug: it
+  /// propagates, and [status] goes back to [StatusIdle].
   Future<Status<E>> refresh() {
     if (_disposed) return Future<Status<E>>.value(_status.value);
+    _follow();
     final running = _running;
     if (running != null) return running;
+    if (_holdsOffline && _isOffline) return Future<Status<E>>.value(_status.value);
 
     final started = _run();
     _running = started;
     return started.whenComplete(() => _running = null);
   }
 
-  /// Stops following the database and closes [stream] and [status].
+  /// Stops following the database and closes [data] and [status].
   ///
-  /// [value] stays readable, as what was last stored.
+  /// `data.value` stays readable, as what was last stored.
   Future<void> dispose() async {
     _disposed = true;
-    await _local?.cancel();
-    _local = null;
-    await _mirror?.close();
+    _release();
+    await _following?.cancel();
+    _following = null;
+    await _data.dispose();
     await _status.dispose();
   }
 
-  BehaviorSubject<T> get _follow => _mirror ??= _open();
-
-  BehaviorSubject<T> _open() {
-    final subject = BehaviorSubject<T>.seeded(_initial);
-    if (_disposed) {
-      unawaited(subject.close());
-      return subject;
-    }
-    _local = watchLocal().listen(subject.add, onError: subject.addError);
-    return subject;
+  void _follow() {
+    if (_started || _disposed) return;
+    _started = true;
+    unawaited(_load());
   }
+
+  Future<void> _load() async {
+    var read = true;
+    try {
+      _data.value = await initial();
+    } catch (error, stackTrace) {
+      read = false;
+      _data.emitError(error, stackTrace);
+    }
+    if (_disposed) return;
+    _following = stream().listen((stored) => _data.value = stored, onError: _data.emitError);
+    if (_busy) return;
+    if (read) {
+      _announce(StatusSucceeded<E>());
+    } else {
+      _status.value = StatusIdle<E>();
+    }
+  }
+
+  bool get _busy => _running != null || _holdsOffline;
+
+  bool get _holdsOffline => _status.value is StatusOffline<E> && observesConnection;
 
   bool get _isOffline => !Network.isReachable.value || (_health != null && !_health.isHealthy);
 
   Future<Status<E>> _run() async {
+    _release();
     _status.value = StatusRunning<E>();
     try {
       final outcome = await _attempt();
-      _status.value = outcome;
+      _conclude(outcome);
       return outcome;
     } catch (_) {
       _status.value = StatusIdle<E>();
       rethrow;
     }
+  }
+
+  void _conclude(Status<E> outcome) {
+    if (outcome is StatusOffline<E> && observesConnection) return _holdOffline(outcome);
+    _announce(outcome);
+  }
+
+  void _announce(Status<E> outcome) {
+    _status.value = outcome;
+    _status.value = StatusIdle<E>();
+  }
+
+  void _holdOffline(StatusOffline<E> outcome) {
+    _status.value = outcome;
+    _waiting.add(Network.isReachable.stream.skip(1).listen((_) => _reconsider()));
+    final health = _health;
+    if (health != null) _waiting.add(health.healthy.stream.skip(1).listen((_) => _reconsider()));
+  }
+
+  void _reconsider() {
+    if (_isOffline) return;
+    _release();
+    _status.value = StatusIdle<E>();
+  }
+
+  void _release() {
+    for (final waiting in _waiting) {
+      unawaited(waiting.cancel());
+    }
+    _waiting.clear();
   }
 
   Future<Status<E>> _attempt() async {

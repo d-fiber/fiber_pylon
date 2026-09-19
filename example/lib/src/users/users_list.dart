@@ -46,11 +46,11 @@ enum UsersError { signedOut, unknown }
 /// The users of the account, read from the local database and refreshed from the
 /// network.
 ///
-/// A screen reads `value` and follows `stream`, which are always what is stored,
-/// and calls `refresh()` to bring it up to date. `status` says how the last
+/// A screen reads `data.value` and follows `data.stream`, which are always what is stored,
+/// and calls `refresh()` to bring it up to date. `status` announces how each
 /// refresh went, and the users stay readable whatever it says.
 final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
-  UsersList() : super(initial: const [], offlineSignals: const {RestSignal.noRoute});
+  UsersList() : super(offlineSignals: const {RestSignal.noRoute});
 
   @override
   bool get isAuthenticated => true;
@@ -72,9 +72,14 @@ final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, 
   }
 
   @override
-  Stream<List<User>> watchLocal() {
+  Future<List<User>?> initial() => _users.select();
+
+  @override
+  Stream<List<User>> stream() => _users.watch();
+
+  Rows<User> get _users {
     final database = OwnDatabase.I;
-    return database.from(database.users).orderBy([database.users.name.asc()]).watch();
+    return database.from(database.users).orderBy([database.users.name.asc()]);
   }
 
   @override

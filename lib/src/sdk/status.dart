@@ -36,13 +36,17 @@
 
 import 'package:equatable/equatable.dart';
 
-/// Where the last refresh of an [SdkRepository] stands.
+/// What is happening to an [SdkRepository].
 ///
 /// A closed list, so that a screen can `switch` over it and be told by the
 /// compiler about the case it forgot. It holds only what pylon can decide by
 /// itself: the life of the refresh, whether a credential was there to make it, and
 /// whether the network was. What went wrong beyond that belongs to the project,
 /// which names it in its own error type `E` and gets it back in [StatusFailed].
+///
+/// It is announced rather than kept: an outcome reaches whoever follows the
+/// status once, and the status is [StatusIdle] again. [StatusRunning] and
+/// [StatusOffline] are the two that last.
 ///
 /// ```dart
 /// repository.status.stream.listen((status) => switch (status) {
@@ -60,7 +64,10 @@ sealed class Status<E> extends Equatable {
   List<Object?> get props => const [];
 }
 
-/// Nothing has been asked yet, or an error that was not a `Fault` cut the last
+/// Nothing is happening: what the database holds is loaded and the last outcome
+/// has been announced.
+///
+/// Also what an error that was not a `Fault` leaves behind when it cuts a
 /// refresh short.
 final class StatusIdle<E> extends Status<E> {
   /// The repository is at rest.
@@ -70,20 +77,25 @@ final class StatusIdle<E> extends Status<E> {
   String toString() => 'StatusIdle';
 }
 
-/// A refresh is under way.
+/// A refresh is under way, or the repository is loading what the database already
+/// holds, which is what it starts as.
+///
+/// Lasts until what it is doing is done, and only then does the outcome replace
+/// it.
 final class StatusRunning<E> extends Status<E> {
-  /// A refresh is being made.
+  /// Something is being done.
   const StatusRunning();
 
   @override
   String toString() => 'StatusRunning';
 }
 
-/// The last refresh fetched an answer and stored it.
+/// A refresh fetched an answer and stored it, or the repository has loaded what
+/// the database holds.
 ///
-/// Stays until the next refresh starts.
+/// Announced once, and the status is [StatusIdle] again at once.
 final class StatusSucceeded<E> extends Status<E> {
-  /// The refresh went through.
+  /// It went through.
   const StatusSucceeded();
 
   @override
@@ -96,6 +108,11 @@ final class StatusSucceeded<E> extends Status<E> {
 /// `Network` or its health monitor says it is out, and after it when the request
 /// failed with a signal the project listed as meaning the network is out of
 /// reach. What is stored is still what the repository reads.
+///
+/// A repository that observes the connection stays here until the connection is
+/// back, and answers a refresh without a request in the meantime. One that does
+/// not cannot know when it returns, so it announces this once, like any other
+/// outcome.
 final class StatusOffline<E> extends Status<E> {
   /// The network was out of reach.
   const StatusOffline();
@@ -104,8 +121,9 @@ final class StatusOffline<E> extends Status<E> {
   String toString() => 'StatusOffline';
 }
 
-/// The last refresh needed a credential and none was held, so no request was
-/// made.
+/// A refresh needed a credential and none was held, so no request was made.
+///
+/// Announced once, and the status is [StatusIdle] again at once.
 final class StatusUnauthenticated<E> extends Status<E> {
   /// There was no credential to make the request with.
   const StatusUnauthenticated();
@@ -114,7 +132,9 @@ final class StatusUnauthenticated<E> extends Status<E> {
   String toString() => 'StatusUnauthenticated';
 }
 
-/// The last refresh failed for a reason the project names.
+/// A refresh failed for a reason the project names.
+///
+/// Announced once, and the status is [StatusIdle] again at once.
 final class StatusFailed<E> extends Status<E> {
   /// The refresh failed with [error], as the project's own resolver turned the
   /// fault into.

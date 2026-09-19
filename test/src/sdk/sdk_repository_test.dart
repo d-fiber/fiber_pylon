@@ -46,12 +46,20 @@ enum HouseSignal { unauthorized, noRoute, unknown }
 enum HouseError { signedOut, unknown }
 
 final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseSignal> {
-  Shelf({this.authenticated = false, this.observes = false, super.health, List<int> stored = const []})
-    : stored = [...stored],
-      super(initial: const [], offlineSignals: const {HouseSignal.noRoute});
+  Shelf({
+    this.authenticated = false,
+    this.observes = false,
+    this.readFails = false,
+    this.holdsNothing = false,
+    super.health,
+    List<int> stored = const [],
+  }) : stored = [...stored],
+       super(offlineSignals: const {HouseSignal.noRoute});
 
   final bool authenticated;
   final bool observes;
+  final bool readFails;
+  final bool holdsNothing;
   final List<int> stored;
   final StreamController<List<int>> _changes = StreamController<List<int>>.broadcast();
 
@@ -59,6 +67,7 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
   Object? failure;
   Completer<List<int>>? gate;
   int fetches = 0;
+  int reads = 0;
   int watches = 0;
 
   @override
@@ -68,11 +77,18 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
   bool get observesConnection => observes;
 
   @override
-  Stream<List<int>> watchLocal() {
+  Future<List<int>?> initial() async {
+    reads++;
+    if (readFails) throw StateError('the database failed');
+    return holdsNothing ? null : [...stored];
+  }
+
+  @override
+  Stream<List<int>> stream() {
     watches++;
     return Stream<List<int>>.multi((controller) {
-      controller.add([...stored]);
-      final subscription = _changes.stream.listen(controller.add);
+      if (!holdsNothing) controller.add([...stored]);
+      final subscription = _changes.stream.listen(controller.add, onError: controller.addError);
       controller.onCancel = subscription.cancel;
     });
   }
@@ -116,67 +132,109 @@ Future<void> hold([Credential? credential]) async {
   );
 }
 
+Future<List<Status<HouseError>>> watching(Shelf shelf) async {
+  final seen = <Status<HouseError>>[];
+  shelf.status.stream.listen(seen.add);
+  await pumpEventQueue();
+  seen.clear();
+  return seen;
+}
+
 void main() {
   setUp(() => GetIt.instance.reset());
 
   tearDown(() => GetIt.instance.reset());
 
   group('SdkRepository reading', () {
-    test('reads as its initial value until the database has answered', () async {
+    test('holds nothing until the database has answered', () async {
       final shelf = Shelf(stored: [7]);
 
-      expect(shelf.value, isEmpty);
+      expect(shelf.data.value, isNull);
 
       await pumpEventQueue();
 
-      expect(shelf.value, [7]);
+      expect(shelf.data.value, [7]);
       await shelf.dispose();
     });
 
     test('does not read the database until it is asked to', () async {
       final shelf = Shelf();
+      expect(shelf.reads, 0);
       expect(shelf.watches, 0);
 
-      shelf.value;
-      shelf.stream;
-      shelf();
+      shelf.data;
+      shelf.data.value;
+      shelf.data.stream;
+      await pumpEventQueue();
 
+      expect(shelf.reads, 1);
       expect(shelf.watches, 1);
       await shelf.dispose();
     });
 
-    test('reads the same through a call as through value', () async {
+    test('reads what the database holds once, and then follows it', () async {
       final shelf = Shelf(stored: [7]);
+
+      shelf.data;
+      expect(shelf.reads, 1);
+      expect(shelf.watches, 0);
       await pumpEventQueue();
 
-      expect(shelf(), shelf.value);
+      expect(shelf.watches, 1);
+      expect(shelf.data.value, [7]);
       await shelf.dispose();
     });
 
-    test('gives a new listener the initial value, then what the database holds and each change', () async {
+    test('holds nothing, and says the read went through, when the database holds nothing', () async {
+      final shelf = Shelf(holdsNothing: true);
+      final seen = <Status<HouseError>>[];
+      shelf.status.stream.listen(seen.add);
+
+      await pumpEventQueue();
+
+      expect(shelf.data.value, isNull);
+      expect(seen, const [StatusRunning<HouseError>(), StatusSucceeded<HouseError>(), StatusIdle<HouseError>()]);
+      await shelf.dispose();
+    });
+
+    test('gives a new listener nothing at first, then what the database holds and each change', () async {
       final shelf = Shelf(stored: [7]);
-      final seen = <List<int>>[];
-      shelf.stream.listen(seen.add);
+      final seen = <List<int>?>[];
+      shelf.data.stream.listen(seen.add);
       await pumpEventQueue();
 
       await shelf.refresh();
       await pumpEventQueue();
 
-      expect(seen.first, isEmpty);
+      expect(seen.first, isNull);
       expect(seen[1], [7]);
       expect(seen.last, [1, 2, 3]);
       await shelf.dispose();
     });
 
+    test('hands an error of the database stream to whoever follows data, and keeps the value', () async {
+      final shelf = Shelf(stored: [7]);
+      final errors = <Object>[];
+      shelf.data.stream.listen((_) {}, onError: errors.add);
+      await pumpEventQueue();
+
+      shelf._changes.addError(StateError('the database failed'));
+      await pumpEventQueue();
+
+      expect(errors.single, isA<StateError>());
+      expect(shelf.data.value, [7]);
+      await shelf.dispose();
+    });
+
     test('keeps reading what is stored when a refresh fails', () async {
       final shelf = Shelf(stored: [7])..failure = const Fault<HouseSignal>(HouseSignal.unknown);
-      shelf.value;
+      shelf.data.value;
       await pumpEventQueue();
 
       await shelf.refresh();
       await pumpEventQueue();
 
-      expect(shelf.value, [7]);
+      expect(shelf.data.value, [7]);
       await shelf.dispose();
     });
   });
@@ -184,13 +242,13 @@ void main() {
   group('SdkRepository refresh', () {
     test('writes what the network answered, which moves the value', () async {
       final shelf = Shelf();
-      shelf.value;
+      shelf.data.value;
 
       final status = await shelf.refresh();
       await pumpEventQueue();
 
       expect(status, const StatusSucceeded<HouseError>());
-      expect(shelf.value, [1, 2, 3]);
+      expect(shelf.data.value, [1, 2, 3]);
       await shelf.dispose();
     });
 
@@ -347,60 +405,226 @@ void main() {
   });
 
   group('SdkRepository status', () {
-    test('is idle until a refresh has run', () async {
+    test('starts loading what the database holds', () async {
       final shelf = Shelf();
+
+      expect(shelf.status.value, const StatusRunning<HouseError>());
+      await shelf.dispose();
+    });
+
+    test('announces the first load once, then goes idle', () async {
+      final shelf = Shelf(stored: [7]);
+      final seen = <Status<HouseError>>[];
+      shelf.status.stream.listen(seen.add);
+
+      await pumpEventQueue();
+
+      expect(seen, const [StatusRunning<HouseError>(), StatusSucceeded<HouseError>(), StatusIdle<HouseError>()]);
+      expect(shelf.status.value, const StatusIdle<HouseError>());
+      await shelf.dispose();
+    });
+
+    test('says nothing of the first load while a refresh is under way, and waits for it', () async {
+      final shelf = Shelf()..gate = Completer<List<int>>();
+      final seen = <Status<HouseError>>[];
+      shelf.status.stream.listen(seen.add);
+
+      final refreshing = shelf.refresh();
+      await pumpEventQueue();
+      expect(seen, const [StatusRunning<HouseError>()]);
+
+      shelf.gate!.complete([1]);
+      await refreshing;
+      await pumpEventQueue();
+
+      expect(seen, const [StatusRunning<HouseError>(), StatusSucceeded<HouseError>(), StatusIdle<HouseError>()]);
+      await shelf.dispose();
+    });
+
+    test('goes back to idle when the database fails the first read', () async {
+      final shelf = Shelf(readFails: true);
+      final errors = <Object>[];
+      shelf.data.stream.listen((_) {}, onError: errors.add);
+
+      await pumpEventQueue();
+
+      expect(errors.single, isA<StateError>());
+      expect(shelf.status.value, const StatusIdle<HouseError>());
+      await shelf.dispose();
+    });
+
+    test('announces the success of a refresh once, then goes back to idle', () async {
+      final shelf = Shelf();
+      final seen = await watching(shelf);
+
+      await shelf.refresh();
+      await pumpEventQueue();
+
+      expect(seen, const [StatusRunning<HouseError>(), StatusSucceeded<HouseError>(), StatusIdle<HouseError>()]);
+      expect(shelf.status.value, const StatusIdle<HouseError>());
+      await shelf.dispose();
+    });
+
+    test('stays running until the network has answered, and only then announces the outcome', () async {
+      final shelf = Shelf()..gate = Completer<List<int>>();
+      final seen = await watching(shelf);
+
+      final refreshing = shelf.refresh();
+      await pumpEventQueue();
+      expect(shelf.status.value, const StatusRunning<HouseError>());
+      expect(seen, const [StatusRunning<HouseError>()]);
+
+      shelf.gate!.complete([1]);
+      await refreshing;
+      await pumpEventQueue();
+
+      expect(seen, const [StatusRunning<HouseError>(), StatusSucceeded<HouseError>(), StatusIdle<HouseError>()]);
+      await shelf.dispose();
+    });
+
+    test('announces a failure with the project error, then goes back to idle', () async {
+      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.unknown);
+      final seen = await watching(shelf);
+
+      await shelf.refresh();
+      await pumpEventQueue();
+
+      expect(seen, const [
+        StatusRunning<HouseError>(),
+        StatusFailed<HouseError>(HouseError.unknown),
+        StatusIdle<HouseError>(),
+      ]);
+      await shelf.dispose();
+    });
+
+    test('announces the same failure again when the next refresh fails the same way', () async {
+      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.unknown);
+      final seen = await watching(shelf);
+
+      await shelf.refresh();
+      await shelf.refresh();
+      await pumpEventQueue();
+
+      expect(seen.whereType<StatusFailed<HouseError>>(), hasLength(2));
+      await shelf.dispose();
+    });
+
+    test('announces that no credential was held, then goes back to idle', () async {
+      await hold();
+      final shelf = Shelf(authenticated: true);
+      final seen = await watching(shelf);
+
+      await shelf.refresh();
+      await pumpEventQueue();
+
+      expect(seen, const [StatusRunning<HouseError>(), StatusUnauthenticated<HouseError>(), StatusIdle<HouseError>()]);
+      await shelf.dispose();
+    });
+  });
+
+  group('SdkRepository offline status', () {
+    Future<StreamController<bool>> reachability({required bool reachable}) async {
+      final changes = StreamController<bool>.broadcast();
+      await GetIt.instance.reset();
+      GetIt.instance.registerSingleton<Network>(
+        await Network.forTesting(reachable: reachable, changes: changes.stream),
+        dispose: (network) => network.dispose(),
+      );
+      addTearDown(changes.close);
+      return changes;
+    }
+
+    test('stays offline while the connection is out, and goes idle when it is back', () async {
+      final changes = await reachability(reachable: false);
+      final shelf = Shelf(observes: true);
+      await pumpEventQueue();
+
+      await shelf.refresh();
+      await pumpEventQueue();
+      expect(shelf.status.value, const StatusOffline<HouseError>());
+
+      changes.add(true);
+      await pumpEventQueue();
 
       expect(shelf.status.value, const StatusIdle<HouseError>());
       await shelf.dispose();
     });
 
-    test('goes from running to succeeded, and stays there', () async {
-      final shelf = Shelf();
-      final seen = <Status<HouseError>>[];
-      shelf.status.stream.listen(seen.add);
-
+    test('answers a refresh at once, without a request or a change, while it stays offline', () async {
+      await reachability(reachable: false);
+      final shelf = Shelf(observes: true);
       await shelf.refresh();
+      final seen = await watching(shelf);
+
+      final status = await shelf.refresh();
       await pumpEventQueue();
 
-      expect(seen, const [StatusIdle<HouseError>(), StatusRunning<HouseError>(), StatusSucceeded<HouseError>()]);
-      expect(shelf.status.value, const StatusSucceeded<HouseError>());
+      expect(status, const StatusOffline<HouseError>());
+      expect(shelf.fetches, 0);
+      expect(seen, isEmpty);
       await shelf.dispose();
     });
 
-    test('reports running while the network is being asked', () async {
-      final shelf = Shelf()..gate = Completer<List<int>>();
+    test(
+      'stays offline after a request that failed on its own signal, until the connection drops and returns',
+      () async {
+        final changes = await reachability(reachable: true);
+        final shelf = Shelf(observes: true)..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
+        await shelf.refresh();
+        await pumpEventQueue();
+        expect(shelf.status.value, const StatusOffline<HouseError>());
 
-      final refreshing = shelf.refresh();
-      await pumpEventQueue();
-      expect(shelf.status.value, const StatusRunning<HouseError>());
+        changes.add(false);
+        await pumpEventQueue();
+        expect(shelf.status.value, const StatusOffline<HouseError>());
 
-      shelf.gate!.complete([1]);
-      await refreshing;
-      await shelf.dispose();
-    });
+        changes.add(true);
+        await pumpEventQueue();
 
-    test('carries the project error of a failure until the next refresh', () async {
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.unknown);
+        expect(shelf.status.value, const StatusIdle<HouseError>());
+        await shelf.dispose();
+      },
+    );
 
+    test('tries again when the connection is not what kept it offline', () async {
+      await reachability(reachable: true);
+      final shelf = Shelf(observes: true)..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
       await shelf.refresh();
-      expect(shelf.status.value, const StatusFailed<HouseError>(HouseError.unknown));
-
       shelf.failure = null;
-      await shelf.refresh();
-      expect(shelf.status.value, const StatusSucceeded<HouseError>());
+
+      final status = await shelf.refresh();
+
+      expect(status, const StatusSucceeded<HouseError>());
+      expect(shelf.fetches, 2);
       await shelf.dispose();
     });
 
-    test('does not repeat a status it already holds', () async {
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
+    test('stays offline while the health monitor says the backend is out', () async {
+      await reachability(reachable: true);
+      final health = HealthMonitor(name: 'backend', initial: false);
+      final shelf = Shelf(observes: true, health: health);
       await shelf.refresh();
-      final seen = <Status<HouseError>>[];
-      shelf.status.stream.skip(1).listen(seen.add);
+      await pumpEventQueue();
+      expect(shelf.status.value, const StatusOffline<HouseError>());
+
+      health.report(healthy: true);
+      await pumpEventQueue();
+
+      expect(shelf.status.value, const StatusIdle<HouseError>());
+      await shelf.dispose();
+      await health.dispose();
+    });
+
+    test('announces offline once and goes idle when it does not observe the connection', () async {
+      await reachability(reachable: false);
+      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
+      final seen = await watching(shelf);
 
       await shelf.refresh();
       await pumpEventQueue();
 
-      expect(seen, const [StatusRunning<HouseError>(), StatusOffline<HouseError>()]);
+      expect(seen, const [StatusRunning<HouseError>(), StatusOffline<HouseError>(), StatusIdle<HouseError>()]);
+      expect(shelf.status.value, const StatusIdle<HouseError>());
       await shelf.dispose();
     });
   });
@@ -413,14 +637,14 @@ void main() {
 
       final status = await shelf.refresh();
 
-      expect(status, const StatusSucceeded<HouseError>());
+      expect(status, const StatusIdle<HouseError>());
       expect(shelf.fetches, 1);
     });
 
     test('keeps the last value readable and stops following the database', () async {
       final shelf = Shelf(stored: [7]);
       await pumpEventQueue();
-      shelf.value;
+      shelf.data.value;
       await pumpEventQueue();
 
       await shelf.dispose();
@@ -428,12 +652,12 @@ void main() {
       shelf._changes.add([7, 8]);
       await pumpEventQueue();
 
-      expect(shelf.value, [7]);
+      expect(shelf.data.value, [7]);
     });
 
     test('closes the streams it handed out', () async {
       final shelf = Shelf();
-      final done = shelf.stream.toList();
+      final done = shelf.data.stream.toList();
       final statusDone = shelf.status.stream.toList();
 
       await shelf.dispose();
@@ -447,7 +671,8 @@ void main() {
 
       await shelf.dispose();
 
-      expect(shelf.value, isEmpty);
+      expect(shelf.data.value, isNull);
+      expect(shelf.reads, 0);
       expect(shelf.watches, 0);
     });
   });
