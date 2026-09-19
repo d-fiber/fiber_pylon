@@ -32,13 +32,13 @@
 // KIND OF LEGAL CLAIM.
 //
 // This header is a summary written for convenience. Where it differs from the
+// LICENSE file, the LICENSE file governs.
 
 part of '../database.dart';
 
-/// What kind of disagreement a [SchemaDifference] reports.
+/// A kind of disagreement a [SchemaDifference] reports.
 enum DifferenceKind {
-  /// The declaration has foreign keys and this connection does not enforce
-  /// them.
+  /// The declaration has foreign keys and this connection does not enforce them.
   foreignKeysDisabled,
 
   /// The declared table does not exist in the database.
@@ -50,8 +50,8 @@ enum DifferenceKind {
   /// The table on disk has a column the declaration does not.
   unexpectedColumn,
 
-  /// A column exists on both sides with another type, nullability, primary
-  /// key position, default or generation.
+  /// A column exists on both sides with another type, nullability, primary key
+  /// position, default or generation.
   columnDiffers,
 
   /// The `UNIQUE` and `PRIMARY KEY` constraints on disk are not the declared
@@ -80,10 +80,10 @@ enum DifferenceKind {
   definitionDiffers,
 }
 
-/// One way a table on disk no longer matches the [DeclaredTable] that is
-/// meant to have created it.
+/// One way a table in the database no longer matches the [DeclaredTable] that is
+/// meant to have created it, as [LocalDatabase.differences] reports it.
 final class SchemaDifference extends Equatable {
-  /// Wraps every field [LocalDatabase.differences] compared.
+  /// Creates a difference of [kind] found on [table].
   const SchemaDifference({
     required this.table,
     required this.kind,
@@ -92,14 +92,14 @@ final class SchemaDifference extends Equatable {
     this.subject,
   });
 
-  /// The declared table this difference belongs to.
+  /// The name of the declared table this difference belongs to.
   final String table;
 
-  /// What kind of disagreement this is.
+  /// The kind of disagreement this is.
   final DifferenceKind kind;
 
-  /// The column or index this difference is about. Null when it concerns the
-  /// table as a whole.
+  /// The name of the column or index this difference is about. Null when it
+  /// concerns the table as a whole.
   final String? subject;
 
   /// What the declaration says, or null when it says nothing about it.
@@ -137,6 +137,8 @@ final class SchemaDifference extends Equatable {
   List<Object?> get props => [table, kind, subject, expected, actual];
 }
 
+/// Everything [_compareFacts] reads about one table, kept as text so that two
+/// databases compare with plain equality.
 typedef _TableFacts = ({
   List<ColumnInfo> columns,
   Set<String> keys,
@@ -150,6 +152,7 @@ extension _SchemaComparison on LocalDatabase {
   Future<List<Map<String, Object?>>> _pragma(DatabaseExecutor db, String pragma, String table) =>
       db.rawQuery('PRAGMA $pragma(${_quotedIdentifier(table)})');
 
+  /// Falls back to `table_info` on a SQLite too old to know `table_xinfo`.
   Future<List<ColumnInfo>> _columnsOf(DatabaseExecutor db, String table) async {
     final extended = await _pragma(db, 'table_xinfo', table);
     final rows = extended.isNotEmpty ? extended : await _pragma(db, 'table_info', table);
@@ -207,6 +210,8 @@ extension _SchemaComparison on LocalDatabase {
     );
   }
 
+  /// Creates [declared] in a scratch in-memory database and reads it back, so
+  /// that SQLite itself decides what an equal type, default or key is.
   Future<_TableFacts> _factsOfDeclared(DeclaredTable declared) async {
     final scratch = await _factory.openDatabase(
       inMemoryDatabasePath,
@@ -231,6 +236,9 @@ String _describeColumn(ColumnInfo column) => [
   if (column.generated != null) 'GENERATED ${column.generated!.name.toUpperCase()}',
 ].join(' ');
 
+/// Compares the stored `CREATE TABLE` text last, and only when everything else
+/// agrees, so that [DifferenceKind.definitionDiffers] never repeats a difference
+/// already reported.
 List<SchemaDifference> _compareFacts(String table, _TableFacts expected, _TableFacts actual) {
   final differences = <SchemaDifference>[];
   final expectedColumns = {for (final column in expected.columns) column.name: column};

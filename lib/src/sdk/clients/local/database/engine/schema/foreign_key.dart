@@ -36,11 +36,10 @@
 
 part of 'schema.dart';
 
-/// A table-level `FOREIGN KEY` constraint spanning one or several columns at
-/// once.
+/// A table-level `FOREIGN KEY` constraint that spans one or several columns.
 final class TableForeignKey extends Equatable {
-  /// Built only by [TableForeignKeyBuilder], never by hand: a value assembled
-  /// here could hold a combination the builder refuses.
+  /// Built only by [TableForeignKeyBuilder], which refuses a key that points at
+  /// nothing.
   const TableForeignKey._({
     required this.columns,
     required this.referencedTable,
@@ -51,102 +50,127 @@ final class TableForeignKey extends Equatable {
     this.name,
   });
 
-  /// The columns of this table that, together, form the key.
+  /// The columns of the declared table that, together, hold the reference.
   final List<String> columns;
 
   /// The table [columns] points at.
   final String referencedTable;
 
-  /// The columns of [referencedTable] this key points at, in the same order
-  /// as [columns]. Its primary key when left out.
+  /// The columns of [referencedTable] this key points at, in the same order as
+  /// [columns]. Its primary key when left out.
   final List<String>? referencedColumns;
 
-  /// What happens to this row when the referenced row is deleted. Nothing
-  /// special when left out.
+  /// What happens to a row of the declared table when the row it points at is
+  /// deleted. SQLite applies [ReferentialAction.noAction] when left out.
   final ReferentialAction? onDelete;
 
-  /// What happens to this row when the referenced row's key changes.
-  /// Nothing special when left out.
+  /// What happens to a row of the declared table when the key of the row it
+  /// points at changes. SQLite applies [ReferentialAction.noAction] when left
+  /// out.
   final ReferentialAction? onUpdate;
 
   /// When this constraint is checked, if it may be checked later than the
   /// statement that broke it. Not deferrable when left out.
   final Deferral? deferral;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// The name of this constraint. Unnamed when left out.
   final String? name;
 
   @override
   List<Object?> get props => [columns, referencedTable, referencedColumns, onDelete, onUpdate, deferral, name];
 }
 
-/// Opens a table-level `FOREIGN KEY` constraint, closed once
-/// [TableForeignKeyBuilder.references] has named the table it points at and
-/// [TableBuilder.foreignKeys]' own callback returns.
+/// The starting point of a table-level `FOREIGN KEY` constraint, handed to the
+/// callback of [TableBuilderBase.foreignKeys].
 final class TableForeignKeyFactory {
-  /// Opens no constraint on its own; [columns] does.
+  /// Creates a factory, which [TableBuilderBase.foreignKeys] already supplies to
+  /// its callback.
   const TableForeignKeyFactory();
 
-  /// The columns of this table that, together, form the key.
+  /// Starts a foreign key held by [columns], columns of the table being
+  /// declared.
+  ///
+  /// The key is not complete until [TableForeignKeyBuilder.references] names the
+  /// table it points at.
   TableForeignKeyBuilder columns(List<String> columns) => TableForeignKeyBuilder._(columns);
 }
 
-/// A table-level `FOREIGN KEY` constraint under construction, opened by
-/// [TableForeignKeyFactory.columns].
+/// A table-level `FOREIGN KEY` constraint under construction, started by
+/// [TableForeignKeyFactory.columns] and read by [TableBuilderBase.foreignKeys]
+/// once its callback returns.
 final class TableForeignKeyBuilder {
   TableForeignKeyBuilder._(this._columns);
 
+  /// Backs [TableForeignKey.columns].
   final List<String> _columns;
+
+  /// Backs [TableForeignKey.referencedTable].
   String? _referencedTable;
+
+  /// Backs [TableForeignKey.referencedColumns].
   List<String>? _referencedColumns;
+
+  /// Backs [TableForeignKey.onDelete].
   ReferentialAction? _onDelete;
+
+  /// Backs [TableForeignKey.onUpdate].
   ReferentialAction? _onUpdate;
+
+  /// Backs [TableForeignKey.deferral].
   Deferral? _deferral;
+
+  /// Backs [TableForeignKey.name].
   String? _name;
 
-  /// The table [TableForeignKeyFactory.columns] points at, and which of its
-  /// columns, in the same order. Its primary key when [referencedColumns]
-  /// is left out.
+  /// Points this key at [table], and at [referencedColumns] of it, matched to
+  /// the key's own columns in order.
+  ///
+  /// The primary key of [table] when [referencedColumns] is left out. Required:
+  /// [TableBuilderBase.foreignKeys] throws a [StateError] for a key that never
+  /// called it.
   TableForeignKeyBuilder references(String table, [List<String>? referencedColumns]) {
     _referencedTable = table;
     _referencedColumns = referencedColumns;
     return this;
   }
 
-  /// What happens to this row when the referenced row is deleted. Nothing
-  /// special when left out.
+  /// Sets what happens to a row of the declared table when the row it points at
+  /// is deleted.
+  ///
+  /// SQLite applies [ReferentialAction.noAction] when this is not called.
   TableForeignKeyBuilder onDelete(ReferentialAction action) {
     _onDelete = action;
     return this;
   }
 
-  /// What happens to this row when the referenced row's key changes.
-  /// Nothing special when left out.
+  /// Sets what happens to a row of the declared table when the key of the row it
+  /// points at changes.
+  ///
+  /// SQLite applies [ReferentialAction.noAction] when this is not called.
   TableForeignKeyBuilder onUpdate(ReferentialAction action) {
     _onUpdate = action;
     return this;
   }
 
-  /// Lets this constraint be checked later than the statement that broke it,
-  /// as [deferral] says.
+  /// Lets this constraint be checked later than the statement that broke it, at
+  /// the moment [deferral] says.
   TableForeignKeyBuilder deferrable(Deferral deferral) {
     _deferral = deferral;
     return this;
   }
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// Names this constraint.
+  ///
+  /// It stays unnamed when this is not called.
   TableForeignKeyBuilder name(String name) {
     _name = name;
     return this;
   }
 
-  /// This constraint, exactly as [TableBuilder.foreignKeys] reads it once
-  /// its own callback returns.
+  /// The finished constraint.
   ///
-  /// Throws a [StateError] when [references] was never called: a foreign
-  /// key with nothing to point at is refused here, not once
+  /// Throws a [StateError] when [references] was never called, so that a key
+  /// with nothing to point at is refused here and not once
   /// [DeclaredTable.statements] tries to render it.
   TableForeignKey _build() {
     final table = _referencedTable ?? (throw StateError('TableForeignKeyBuilder.references was never called.'));

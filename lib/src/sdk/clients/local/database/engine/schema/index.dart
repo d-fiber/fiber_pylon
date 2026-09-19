@@ -36,32 +36,32 @@
 
 part of 'schema.dart';
 
-/// One column an index covers, with the collation and sort order it carries.
+/// One entry of an index, with the collation and sort order it carries.
 ///
-/// Built through one of two factories, so a name and a raw SQL expression
-/// can never be mistaken for one another: [IndexColumn.named] takes a column
-/// name and quotes it, [IndexColumn.expression] takes SQL and leaves it as
-/// written. A `switch` over an [IndexColumn] is exhaustive with
-/// [NamedIndexColumn] and [ExpressionIndexColumn].
+/// A name and a piece of raw SQL are told apart by how the entry is built:
+/// [IndexColumn.named] takes a column name and quotes it, [IndexColumn.expression]
+/// takes SQL and writes it as given. A `switch` over an [IndexColumn] is
+/// exhaustive with [NamedIndexColumn] and [ExpressionIndexColumn].
 sealed class IndexColumn extends Equatable {
   const IndexColumn._({this.collation, this.order});
 
-  /// The column called [name], quoted the way SQLite expects an identifier.
+  /// An entry covering the column called [name].
   const factory IndexColumn.named(String name, {Collation? collation, SortOrder? order}) = NamedIndexColumn._;
 
-  /// The raw SQL [sql], most often an expression over columns such as
-  /// `lower(email)`.
+  /// An entry covering the SQL expression [sql], most often an expression over
+  /// columns such as `lower(email)`.
   ///
-  /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
-  /// makes for raw SQL no closed vocabulary covers.
+  /// The text is written into the statement as given and is not checked, so a
+  /// mistake in it is reported by SQLite when the statement runs.
   const factory IndexColumn.expression(String sql, {Collation? collation, SortOrder? order}) = ExpressionIndexColumn._;
 
-  /// The collating sequence this entry sorts and compares under. SQLite's
-  /// own default for its type when left out.
+  /// The collation this entry sorts and compares under.
+  ///
+  /// Left out, a named column keeps the collation it was declared with and an
+  /// expression compares as [Collation.binary].
   final Collation? collation;
 
-  /// The order this entry sorts in. [SortOrder.asc], SQLite's own default,
-  /// when left out.
+  /// The order this entry sorts in. [SortOrder.asc] when left out.
   final SortOrder? order;
 }
 
@@ -87,80 +87,98 @@ final class ExpressionIndexColumn extends IndexColumn {
   List<Object?> get props => [sql, collation, order];
 }
 
-/// An index exactly as a [TableIndexBuilder] resolved it, read by
-/// [DeclaredTable] to render its own `CREATE INDEX`.
+/// An index as a [TableIndexBuilder] resolved it, which [DeclaredTable] renders
+/// as a `CREATE INDEX` statement.
 final class TableIndex extends Equatable {
-  /// Built only by [TableIndexBuilder], never by hand: a value assembled
-  /// here could hold a combination the builder refuses.
+  /// Built only by [TableIndexBuilder], which refuses an index that covers
+  /// nothing.
   const TableIndex._({required this.name, required this.columns, this.unique = false, this.where});
 
   /// The name this index is created under.
   final String name;
 
-  /// The columns this index covers, in the order SQLite will list them, at
-  /// least one.
+  /// The entries this index covers, in the order given.
+  ///
+  /// Must not be empty: SQLite refuses an index over nothing when the statement
+  /// runs.
   final List<IndexColumn> columns;
 
-  /// Whether this index refuses a row whose covered columns match one
-  /// already stored.
+  /// Whether this index refuses a row whose covered columns match one already
+  /// stored.
+  ///
+  /// A row holding null in a covered column never counts as a match.
   final bool unique;
 
-  /// Restricts the index to the rows where this raw SQL predicate holds,
-  /// making it a partial index. Covers every row when left out.
+  /// The raw SQL predicate that restricts this index to the rows it holds
+  /// for, which makes it a partial index. Covers every row when left out.
   ///
-  /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
-  /// makes for raw SQL no closed vocabulary covers.
+  /// The text is written into the statement as given and is not checked, so a
+  /// mistake in it is reported by SQLite when the statement runs.
   final String? where;
 
   @override
   List<Object?> get props => [name, columns, unique, where];
 }
 
-/// Opens an index, named `name`, closed once [TableIndexBuilder.columns] has
-/// named what it covers and [TableBuilder.indexes]' own callback returns.
+/// The starting point of an index, handed to the callback of
+/// [TableBuilderBase.indexes].
 final class TableIndexFactory {
-  /// Opens no index on its own; [name] does.
+  /// Creates a factory, which [TableBuilderBase.indexes] already supplies to its
+  /// callback.
   const TableIndexFactory();
 
-  /// The name this index is created under.
+  /// Starts an index called [name].
+  ///
+  /// The index is not complete until [TableIndexBuilder.columns] says what it
+  /// covers.
   TableIndexBuilder name(String name) => TableIndexBuilder._(name);
 }
 
-/// An index under construction, opened by [TableIndexFactory.name].
+/// An index under construction, started by [TableIndexFactory.name] and read by
+/// [TableBuilderBase.indexes] once its callback returns.
 final class TableIndexBuilder {
   TableIndexBuilder._(this._name);
 
+  /// Backs [TableIndex.name].
   final String _name;
+
+  /// Backs [TableIndex.columns].
   List<IndexColumn>? _columns;
+
+  /// Backs [TableIndex.unique].
   bool _unique = false;
+
+  /// Backs [TableIndex.where].
   String? _where;
 
-  /// The columns this index covers, in the order SQLite will list them, at
-  /// least one.
+  /// Sets the entries this index covers, in the order given.
+  ///
+  /// Required, and not empty: [TableBuilderBase.indexes] throws a [StateError]
+  /// for an index that never called it.
   TableIndexBuilder columns(List<IndexColumn> columns) {
     _columns = columns;
     return this;
   }
 
-  /// Refuses a row whose covered columns match one already stored.
+  /// Makes this index refuse a row whose covered columns match one already
+  /// stored.
   TableIndexBuilder unique() {
     _unique = true;
     return this;
   }
 
-  /// Restricts this index to the rows where this raw SQL predicate holds,
-  /// making it a partial index. Covers every row when left out.
+  /// Restricts this index to the rows where [predicate], a raw SQL condition,
+  /// holds, which makes it a partial index.
   TableIndexBuilder where(String predicate) {
     _where = predicate;
     return this;
   }
 
-  /// This index, exactly as [TableBuilder.indexes] reads it once its own
-  /// callback returns.
+  /// The finished index.
   ///
-  /// Throws a [StateError] when [columns] was never called: an index over
-  /// nothing is refused here, not once [DeclaredTable.statements] tries to
-  /// render it.
+  /// Throws a [StateError] when [columns] was never called, so that an index
+  /// over nothing is refused here and not once [DeclaredTable.statements] tries
+  /// to render it.
   TableIndex _build() {
     final columns = _columns ?? (throw StateError('TableIndexBuilder.columns was never called.'));
     return TableIndex._(name: _name, columns: columns, unique: _unique, where: _where);

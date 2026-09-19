@@ -36,47 +36,57 @@
 
 part of 'schema.dart';
 
-/// A `CHECK` constraint, carried by the table rather than by one column, so
-/// it may read several at once.
+/// A `CHECK` constraint of a table, which may read several columns at once.
 final class CheckConstraint extends Equatable {
   /// Built only by [TableCheckBuilder], never by hand: a value assembled
   /// here could hold a combination the builder refuses.
   const CheckConstraint._({required this.expression, this.name});
 
-  /// The raw SQL predicate every row must satisfy.
+  /// The SQL predicate every row must satisfy, as the caller wrote it.
   ///
   /// Nothing here validates it, the same choice [ColumnBuilder.defaultExpression]
-  /// makes for raw SQL no closed vocabulary covers.
+  /// makes for raw SQL no closed vocabulary covers. SQLite refuses a wrong one
+  /// when the table is created.
   final String expression;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// The name this constraint is created under.
+  ///
+  /// Null leaves the constraint unnamed, and SQLite then reports a violation
+  /// by the text of [expression] instead of a name.
   final String? name;
 
   @override
   List<Object?> get props => [expression, name];
 }
 
-/// Opens a `CHECK` constraint, closed by [TableCheckBuilder.name] or read
-/// directly once [TableBuilder.checks]' own callback returns.
+/// The starting point of a `CHECK` constraint, handed to the callback of
+/// [TableBuilderBase.checks].
 final class TableCheckFactory {
-  /// Opens no constraint on its own; [expression] does.
+  /// Creates a factory, which [TableBuilderBase.checks] already supplies to its
+  /// callback.
   const TableCheckFactory();
 
-  /// The raw SQL predicate every row must satisfy.
+  /// Starts a `CHECK` constraint that every row must satisfy [expression], a raw
+  /// SQL predicate.
   TableCheckBuilder expression(String expression) => TableCheckBuilder._(expression);
 }
 
-/// A `CHECK` constraint under construction, opened by
-/// [TableCheckFactory.expression].
+/// A `CHECK` constraint under construction, started by
+/// [TableCheckFactory.expression] and read by [TableBuilderBase.checks] once
+/// its callback returns.
 final class TableCheckBuilder {
   TableCheckBuilder._(this._expression);
 
+  /// Backs [CheckConstraint.expression].
   final String _expression;
+
+  /// Backs [CheckConstraint.name].
   String? _name;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// Names this constraint.
+  ///
+  /// Left out, the constraint stays unnamed and SQLite reports a violation by
+  /// its expression.
   TableCheckBuilder name(String name) {
     _name = name;
     return this;

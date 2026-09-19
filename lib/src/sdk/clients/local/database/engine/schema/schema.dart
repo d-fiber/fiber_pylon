@@ -70,6 +70,8 @@ String _renderDeferral(Deferral deferral) => switch (deferral) {
 
 String _quoteText(String text) => "'${text.replaceAll("'", "''")}'";
 
+/// A text literal cannot hold a NUL character in SQLite, so a text is cut at
+/// each one and joined back with `char(0)`.
 String _renderLiteral(Value value) => switch (value) {
   Nil() => 'NULL',
   Integer(value: final integer) => '$integer',
@@ -83,6 +85,8 @@ String _renderDefault(ColumnDefault defaultValue) => switch (defaultValue) {
   ExpressionDefault(:final sql) => sql,
 };
 
+/// An `INTEGER PRIMARY KEY` column is SQLite's alias of `rowid`, which never
+/// holds null, so it is rendered without `NOT NULL`.
 bool _isRowidAlias(ColumnDefinition column) => column.isPrimary && column.type == ColumnType.integer;
 
 String _renderColumn(String name, ColumnDefinition column) {
@@ -162,11 +166,11 @@ String _renderIndex(String table, TableIndex index) {
   return 'CREATE ${unique}INDEX ${_quoteIdentifier(index.name)} ON ${_quoteIdentifier(table)} ($columns)$where';
 }
 
-/// A table exactly as [TableBuilderBase.columns] declared it, ready to render
-/// its own `CREATE TABLE` and `CREATE INDEX` statements.
+/// A table as [TableBuilderBase.columns] declared it, which renders its own
+/// `CREATE TABLE` and `CREATE INDEX` statements.
 final class DeclaredTable extends Equatable {
-  /// Built only by [TableBuilderBase.columns], never by hand: a value assembled
-  /// here could hold a combination the builder refuses.
+  /// Built only by [TableBuilderBase.columns], which refuses the declarations
+  /// SQLite would accept and then not honour.
   const DeclaredTable._({
     required this.name,
     required this.columns,
@@ -182,21 +186,23 @@ final class DeclaredTable extends Equatable {
   /// The name this table is created under.
   final String name;
 
-  /// This table's columns, by field name, in the order [TableBuilderBase.columns]
-  /// gave them.
+  /// This table's columns, by name, in the order [TableBuilderBase.columns] gave
+  /// them.
   final Map<String, ColumnDefinition> columns;
 
   /// This table's composite primary key. Null when it carries none, or
   /// carries a single-column one on a column instead.
   final PrimaryKeyConstraint? primaryKey;
 
-  /// This table's multi-column `UNIQUE` constraints.
+  /// This table's `UNIQUE` constraints, beyond the ones a single column carries
+  /// with [ColumnBuilder.unique].
   final List<UniqueConstraint> uniques;
 
   /// This table's `CHECK` constraints.
   final List<CheckConstraint> checks;
 
-  /// This table's table-level `FOREIGN KEY` constraints.
+  /// This table's table-level `FOREIGN KEY` constraints, beyond the ones a
+  /// single column carries with [ColumnBuilder.references].
   final List<TableForeignKey> foreignKeys;
 
   /// The indexes this table carries.
@@ -206,14 +212,17 @@ final class DeclaredTable extends Equatable {
   /// ordinary type affinity rules. Requires SQLite 3.37 or newer.
   final bool strict;
 
-  /// Whether this table skips the hidden `rowid` column every ordinary
-  /// table otherwise carries. A table declared `WITHOUT ROWID` needs an
-  /// explicit [primaryKey] or a single-column [ColumnBuilder.isPrimary]:
-  /// [TableBuilderBase.columns] refuses one without either.
+  /// Whether this table skips the hidden `rowid` column every ordinary table
+  /// otherwise carries.
+  ///
+  /// SQLite refuses to create such a table unless it has a [primaryKey] or a
+  /// column that is [ColumnBuilder.isPrimary].
   final bool withoutRowid;
 
   /// Whether this table declares a foreign key, on a column or at the table
-  /// level. SQLite enforces none of them on a connection that has not run
+  /// level.
+  ///
+  /// SQLite enforces none of them on a connection that has not run
   /// `PRAGMA foreign_keys = ON`, which [LocalDatabase] runs on every connection
   /// it opens.
   bool get usesForeignKeys => foreignKeys.isNotEmpty || columns.values.any((column) => column.references != null);
@@ -232,13 +241,13 @@ final class DeclaredTable extends Equatable {
     if (problems.isNotEmpty) throw ArgumentError(problems.join('\n'));
   }
 
-  /// The `CREATE TABLE` statement first, then one `CREATE INDEX` per entry
-  /// of [indexes], ready for [LocalDatabase.execute], one statement per
-  /// call, inside `onCreate` or `onUpgrade`.
+  /// The `CREATE TABLE` statement first, then one `CREATE INDEX` per entry of
+  /// [indexes].
   ///
-  /// The order of several tables does not matter: SQLite resolves the table
-  /// a foreign key points at when a row is written, not when the table is
-  /// created. Rendered again on every call.
+  /// Each statement is meant for its own call to [LocalDatabase.execute], inside
+  /// `onCreate` or `onUpgrade`. Several tables can be created in any order:
+  /// SQLite resolves the table a foreign key points at when a row is written,
+  /// not when the table is created.
   List<String> get statements {
     final lines = <String>[
       for (final entry in columns.entries) _renderColumn(entry.key, entry.value),
@@ -256,10 +265,13 @@ final class DeclaredTable extends Equatable {
   /// The `ALTER TABLE` statement that adds [column] to a table that already
   /// exists in a file.
   ///
-  /// Throws a [StateError] naming the reason when SQLite cannot add such a
-  /// column: it is a primary key or unique, it refuses NULL and has no literal
-  /// default, it is a foreign key with a default, or its default is an
-  /// expression.
+  /// Throws an [ArgumentError] if this table has no such column. Throws a
+  /// [StateError] naming the reason when SQLite cannot add such a column: it is
+  /// a primary key or unique, it refuses null and has no default, it is a
+  /// foreign key with a default, or its default is an expression.
+  ///
+  /// A stored generated column is not checked: SQLite refuses to add one to a
+  /// table that already holds rows, and that only shows when the statement runs.
   String addColumnStatement(String column) {
     final definition = columns[column] ?? (throw ArgumentError.value(column, 'column', 'Not a column of $name.'));
     final defaultValue = definition.defaultValue;
@@ -291,14 +303,6 @@ final class DeclaredTable extends Equatable {
 
 /// A SQLite table under construction, closed by [TableBuilderBase.columns].
 ///
-/// Mirrors the Postgres `Table`/`TableBuilder` this package already writes
-/// elsewhere, trimmed to what SQLite actually has: no row-level security, no
-/// `GRANT`/`REVOKE` (SQLite has no per-role privilege at all, a database
-/// file's permissions are the operating system's), no `EXCLUDE` constraint
-/// (needs `GiST`, which SQLite does not implement), no `fillfactor`. In
-/// their place, [TableBuilder.strict] and [withoutRowid] carry the two
-/// table-level knobs that are actually SQLite's own.
-///
 /// ```dart
 /// final table = TableBuilder('todos')
 ///     .checks((ck) => [ck.expression("length(title) > 0")])
@@ -318,19 +322,38 @@ final class DeclaredTable extends Equatable {
 sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Factory>, Factory extends ColumnFactory> {
   TableBuilderBase._(this._name, this._columns);
 
+  /// Backs [DeclaredTable.name].
   final String _name;
+
+  /// The factory handed to the callback of [columns].
   final Factory _columns;
+
+  /// Backs [DeclaredTable.primaryKey].
   PrimaryKeyConstraint? _primaryKey;
+
+  /// Backs [DeclaredTable.uniques].
   List<UniqueConstraint> _uniques = const [];
+
+  /// Backs [DeclaredTable.checks].
   List<CheckConstraint> _checks = const [];
+
+  /// Backs [DeclaredTable.foreignKeys].
   List<TableForeignKey> _foreignKeys = const [];
+
+  /// Backs [DeclaredTable.indexes].
   List<TableIndex> _indexes = const [];
+
+  /// Backs [DeclaredTable.withoutRowid].
   bool _withoutRowid = false;
 
+  /// Backs [DeclaredTable.strict].
   bool get _isStrict;
 
+  /// This builder as [Self], so that every method can return it.
   Self get _self => this as Self;
 
+  /// Copies what [other] declared so far onto this builder, so that
+  /// [TableBuilder.strict] loses nothing.
   Self _carrying(TableBuilderBase<dynamic, ColumnFactory> other) {
     _primaryKey = other._primaryKey;
     _uniques = other._uniques;
@@ -341,44 +364,47 @@ sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Factory>, Fact
     return _self;
   }
 
-  /// Makes this table's primary key span every column named, rather than a
-  /// single column.
+  /// Gives this table a primary key that spans several columns.
+  ///
+  /// A table has exactly one primary key: [columns] throws an [ArgumentError]
+  /// when this is used together with a column's own [ColumnBuilder.isPrimary].
   Self primaryKey(TablePrimaryKeyBuilder Function(TablePrimaryKeyFactory pk) build) {
     _primaryKey = build(const TablePrimaryKeyFactory())._build();
     return _self;
   }
 
-  /// The `UNIQUE` constraints this table carries beyond a single column's
-  /// own [ColumnBuilder.unique].
+  /// Sets the `UNIQUE` constraints of this table, beyond a single column's own
+  /// [ColumnBuilder.unique].
   Self uniques(List<TableUniqueBuilder> Function(TableUniqueFactory factory) build) {
     _uniques = build(const TableUniqueFactory()).map((constraint) => constraint._build()).toList();
     return _self;
   }
 
-  /// The `CHECK` constraints this table carries, each free to read as many
-  /// columns as it names.
+  /// Sets the `CHECK` constraints of this table, each free to read as many
+  /// columns as it needs.
   Self checks(List<TableCheckBuilder> Function(TableCheckFactory factory) build) {
     _checks = build(const TableCheckFactory()).map((constraint) => constraint._build()).toList();
     return _self;
   }
 
-  /// The `FOREIGN KEY` constraints this table carries beyond a single
-  /// column's own [ColumnBuilder.references].
+  /// Sets the `FOREIGN KEY` constraints of this table, beyond a single column's
+  /// own [ColumnBuilder.references].
   Self foreignKeys(List<TableForeignKeyBuilder> Function(TableForeignKeyFactory factory) build) {
     _foreignKeys = build(const TableForeignKeyFactory()).map((constraint) => constraint._build()).toList();
     return _self;
   }
 
-  /// The indexes this table carries.
+  /// Sets the indexes of this table.
   Self indexes(List<TableIndexBuilder> Function(TableIndexFactory factory) build) {
     _indexes = build(const TableIndexFactory()).map((index) => index._build()).toList();
     return _self;
   }
 
-  /// Skips the hidden `rowid` column every ordinary table otherwise
-  /// carries. Requires an explicit [primaryKey] or a single-column
-  /// [ColumnBuilder.isPrimary]: SQLite refuses a `WITHOUT ROWID` table
-  /// without either, a rule [columns] leaves to SQLite's own error.
+  /// Makes this table skip the hidden `rowid` column every ordinary table
+  /// otherwise carries.
+  ///
+  /// Needs a [primaryKey] or a column declared with [ColumnBuilder.isPrimary]. [columns]
+  /// does not check it, and SQLite refuses the table when it is created.
   Self withoutRowid([bool value = true]) {
     _withoutRowid = value;
     return _self;
@@ -386,26 +412,18 @@ sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Factory>, Fact
 
   /// Closes this table, ready for [DeclaredTable.statements] to render.
   ///
-  /// Every column of a composite [primaryKey] is made `NOT NULL`, because
-  /// SQLite lets a rowid table store null in a primary key column that does
-  /// not say otherwise.
+  /// Every column of a composite [primaryKey] is made `NOT NULL`, because SQLite
+  /// lets a rowid table store null in a primary key column that does not say
+  /// otherwise.
   ///
-  /// Throws an [ArgumentError] when [primaryKey] was called and a column
-  /// also calls [ColumnBuilder.isPrimary]: a table has exactly one primary
-  /// key, single-column or composite, never both spellings on the same
-  /// table.
-  ///
-  /// Throws an [ArgumentError], naming the table and the column, for each
-  /// declaration SQLite accepts when it creates the table and then does not
-  /// do what was written: a `NULL` default on a `NOT NULL` column, and a
-  /// foreign key action that sets a `NOT NULL` column to null, a column
-  /// without a default to its default, or a generated column to anything.
-  /// An `AUTOINCREMENT` column that is not the primary key and an `ANY` column
-  /// outside a `STRICT` table are not refused here because they cannot be
-  /// written: [IntegerColumnBuilder.autoincrement] makes its column the primary
-  /// key and only [StrictColumnFactory] offers [StrictColumnFactory.any]. Every problem found is listed in the one
-  /// error. What SQLite already refuses clearly at `CREATE TABLE` is left to
-  /// it.
+  /// Throws an [ArgumentError] when [primaryKey] was called and a column also
+  /// calls [ColumnBuilder.isPrimary]. Throws an [ArgumentError] naming the table
+  /// and the column for each declaration that SQLite accepts when it creates the
+  /// table and then does not honour: a null default on a `NOT NULL` column, a
+  /// foreign key action that sets a `NOT NULL` column to null, one that sets a
+  /// column with no default to its default, and one that rewrites a generated
+  /// column. Every problem found is listed in the one error. What SQLite already
+  /// refuses clearly when the table is created is left to it.
   DeclaredTable columns(ColumnMap Function(Factory c) build) {
     final resolved = <String, ColumnDefinition>{
       for (final entry in build(_columns).entries) entry.key: entry.value.build(),
@@ -445,12 +463,13 @@ sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Factory>, Fact
   }
 }
 
-/// A SQLite table under construction that SQLite does not type-check, opened
-/// by `TableBuilder(name)`. Its columns offer no [StrictColumnFactory.any]:
-/// outside a `STRICT` table a column of that type has `NUMERIC` affinity and
-/// rewrites the text `'007'` to the integer `7` on the way in.
+/// A SQLite table under construction that SQLite does not type-check.
+///
+/// Its columns offer no [StrictColumnFactory.any]: outside a `STRICT` table a
+/// column of that type has `NUMERIC` affinity and rewrites the text `'007'` to
+/// the integer `7` on the way in.
 final class TableBuilder extends TableBuilderBase<TableBuilder, ColumnFactory> {
-  /// Opens a table named `name`, closed by [columns].
+  /// Starts a table called [name], closed by [TableBuilderBase.columns].
   TableBuilder(String name) : super._(name, const ColumnFactory());
 
   @override
@@ -459,12 +478,13 @@ final class TableBuilder extends TableBuilderBase<TableBuilder, ColumnFactory> {
   /// Makes this table enforce its own column types rather than SQLite's
   /// ordinary type affinity rules. Requires SQLite 3.37 or newer.
   ///
-  /// Answers a [StrictTableBuilder], the only builder whose columns offer
-  /// [StrictColumnFactory.any].
+  /// Returns a [StrictTableBuilder] that carries everything declared so far, and
+  /// whose columns offer [StrictColumnFactory.any]. Keep chaining on it, not on
+  /// this builder.
   StrictTableBuilder strict() => StrictTableBuilder._(_name)._carrying(this);
 }
 
-/// A `STRICT` SQLite table under construction, opened by [TableBuilder.strict].
+/// A `STRICT` SQLite table under construction, returned by [TableBuilder.strict].
 final class StrictTableBuilder extends TableBuilderBase<StrictTableBuilder, StrictColumnFactory> {
   StrictTableBuilder._(String name) : super._(name, const StrictColumnFactory._());
 

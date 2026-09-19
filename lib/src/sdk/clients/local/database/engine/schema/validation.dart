@@ -32,9 +32,12 @@
 // KIND OF LEGAL CLAIM.
 //
 // This header is a summary written for convenience. Where it differs from the
+// LICENSE file, the LICENSE file governs.
 
 part of 'schema.dart';
 
+/// SQLite compares identifiers without regard to case for the 26 ASCII letters
+/// only, so only those are folded.
 String _foldIdentifier(String identifier) =>
     identifier.replaceAllMapped(RegExp('[A-Z]'), (match) => match[0]!.toLowerCase());
 
@@ -50,6 +53,9 @@ extension _TableValidation on DeclaredTable {
     return null;
   }
 
+  /// One sentence for each declaration of this table that SQLite accepts when it
+  /// creates the table and then does not honour, checked without looking at any
+  /// other table.
   List<String> problems() => [..._columnProblems(), ..._foreignKeyProblems()];
 
   List<String> _columnProblems() {
@@ -93,6 +99,12 @@ extension _TableValidation on DeclaredTable {
       ),
   ];
 
+  /// Checks the actions of one foreign key against [keyColumns], the columns it
+  /// is made of.
+  ///
+  /// A generated column cannot be written, so every action that rewrites the
+  /// referencing column fails when it fires: `SET NULL` and `SET DEFAULT` on
+  /// delete or update, and `CASCADE` on update.
   List<String> _actionProblems(
     String subject,
     List<_KeyColumn> keyColumns, {
@@ -148,6 +160,10 @@ extension _CrossTableValidation on DeclaredTable {
     return single.length == 1 ? [single.single.key] : null;
   }
 
+  /// The column sets SQLite accepts as the target of a foreign key: the primary
+  /// key, a unique column, a `UNIQUE` constraint, and a unique index over plain
+  /// columns. A partial index or an index over an expression does not qualify,
+  /// so it is left out.
   List<Set<String>> get _uniqueKeys => [
     if (_primaryKeyColumns case final key?) key.map(_foldIdentifier).toSet(),
     for (final MapEntry(key: column, value: definition) in columns.entries)

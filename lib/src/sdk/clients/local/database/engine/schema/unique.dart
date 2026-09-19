@@ -36,43 +36,50 @@
 
 part of 'schema.dart';
 
-/// A `UNIQUE` constraint spanning one or several columns at once.
+/// A `UNIQUE` constraint that spans one or several columns.
 final class UniqueConstraint extends Equatable {
-  /// Built only by [TableUniqueBuilder], never by hand: a value assembled
-  /// here could hold a combination the builder refuses.
+  /// Built only by [TableUniqueBuilder].
   const UniqueConstraint._({required this.columns, this.name});
 
   /// The columns that, together, must not repeat across two rows.
+  ///
+  /// A row holding null in one of them never counts as a repeat.
   final List<String> columns;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// The name of this constraint. Unnamed when left out.
   final String? name;
 
   @override
   List<Object?> get props => [columns, name];
 }
 
-/// Opens a `UNIQUE` constraint, closed by [TableUniqueBuilder.name] or read
-/// directly once [TableBuilder.uniques]' own callback returns.
+/// The starting point of a `UNIQUE` constraint, handed to the callback of
+/// [TableBuilderBase.uniques].
 final class TableUniqueFactory {
-  /// Opens no constraint on its own; [columns] does.
+  /// Creates a factory, which [TableBuilderBase.uniques] already supplies to its
+  /// callback.
   const TableUniqueFactory();
 
-  /// The columns that, together, must not repeat across two rows.
+  /// Starts a constraint that [columns] must not repeat together across two
+  /// rows.
   TableUniqueBuilder columns(List<String> columns) => TableUniqueBuilder._(columns);
 }
 
-/// A `UNIQUE` constraint under construction, opened by
-/// [TableUniqueFactory.columns].
+/// A `UNIQUE` constraint under construction, started by
+/// [TableUniqueFactory.columns] and read by [TableBuilderBase.uniques] once its
+/// callback returns.
 final class TableUniqueBuilder {
   TableUniqueBuilder._(this._columns);
 
+  /// Backs [UniqueConstraint.columns].
   final List<String> _columns;
+
+  /// Backs [UniqueConstraint.name].
   String? _name;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// Names this constraint.
+  ///
+  /// It stays unnamed when this is not called.
   TableUniqueBuilder name(String name) {
     _name = name;
     return this;

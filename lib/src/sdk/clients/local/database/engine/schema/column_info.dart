@@ -36,9 +36,10 @@
 
 part of '../database.dart';
 
-/// One column [LocalDatabase.columns] read out of `PRAGMA table_xinfo`.
+/// A column of a table as SQLite reports it, which [LocalDatabase.columns]
+/// reads back from the database file.
 final class ColumnInfo extends Equatable {
-  /// Wraps every field [LocalDatabase.columns] read for one column.
+  /// Creates the description of one column from the fields [LocalDatabase.columns] reads.
   const ColumnInfo({
     required this.name,
     required this.declaredType,
@@ -48,40 +49,40 @@ final class ColumnInfo extends Equatable {
     this.generated,
   });
 
-  /// The column's own name.
+  /// The name of this column.
   final String name;
 
-  /// The type exactly as the `CREATE TABLE` that declared it wrote it, or an
-  /// empty string when the column carries none, since SQLite never requires
-  /// one.
+  /// The type exactly as the `CREATE TABLE` wrote it, or an empty string when
+  /// it wrote none, since SQLite never requires one.
   final String declaredType;
 
-  /// Whether the column carries a `NOT NULL` constraint.
+  /// Whether this column carries a `NOT NULL` constraint.
   ///
-  /// SQLite reports false for an `INTEGER PRIMARY KEY` in a table that keeps
-  /// its rowid, because a null there asks for the next id instead of being
-  /// stored.
+  /// False for an `INTEGER PRIMARY KEY` in a table that keeps its rowid, even
+  /// though it never holds null: SQLite reads a null there as a request for the
+  /// next id.
   final bool isNotNull;
 
-  /// The place of this column in the table's primary key, counting from 1,
-  /// or 0 when the column is not part of it.
+  /// The place of this column in the table's primary key, counting from 1, or 0
+  /// when this column is not part of it.
   final int primaryKeyPosition;
 
-  /// The default exactly as SQLite stored it: `0`, `'open'`, `X'00ff'` or an
-  /// expression's own text, without the parentheses a `CREATE TABLE` wrapped
-  /// it in. Null when the column has no default.
+  /// The default as SQLite keeps it, such as `0`, `'open'`, `X'00ff'` or the
+  /// text of an expression, without the parentheses a `CREATE TABLE` wrapped it
+  /// in. Null when this column has no default.
   final String? defaultSql;
 
-  /// Whether SQLite computes this column from the rest of the row, and how.
-  /// Null for an ordinary column.
+  /// How SQLite keeps the value of this generated column, [GeneratedStorage.stored]
+  /// or [GeneratedStorage.virtual]. Null for an ordinary column.
   final GeneratedStorage? generated;
 
-  /// Whether the column is part of the table's primary key.
+  /// Whether this column is part of the table's primary key.
   bool get isPrimaryKey => primaryKeyPosition > 0;
 
-  /// [declaredType] as one of the five [ColumnType]s a `STRICT` table takes,
-  /// whatever its case. Null when it is anything else, such as `VARCHAR(20)`
-  /// or no type at all.
+  /// The [ColumnType] that [declaredType] names, whatever its case.
+  ///
+  /// Null when [declaredType] is not one of the five types a `STRICT` table
+  /// takes, such as `VARCHAR(20)`, or when there is none.
   ColumnType? get type {
     final declared = declaredType.toUpperCase();
     for (final candidate in ColumnType.values) {

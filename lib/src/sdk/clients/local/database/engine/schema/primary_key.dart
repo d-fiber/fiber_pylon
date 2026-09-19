@@ -36,46 +36,49 @@
 
 part of 'schema.dart';
 
-/// A composite `PRIMARY KEY`, spanning every column named.
+/// A composite `PRIMARY KEY`, spanning every column it names.
 final class PrimaryKeyConstraint extends Equatable {
-  /// Built only by [TablePrimaryKeyBuilder], never by hand: a value assembled
-  /// here could hold a combination the builder refuses.
+  /// Built only by [TablePrimaryKeyBuilder].
   const PrimaryKeyConstraint._({required this.columns, this.name});
 
-  /// The columns that, together, identify a row. Every one of them is
-  /// refused a null value.
+  /// The columns that, together, identify a row.
+  ///
+  /// [TableBuilderBase.columns] makes each of them `NOT NULL`.
   final List<String> columns;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// The name of this constraint. Unnamed when left out.
   final String? name;
 
   @override
   List<Object?> get props => [columns, name];
 }
 
-/// Opens a table's composite primary key, closed by
-/// [TablePrimaryKeyBuilder.name] or read directly once
-/// [TableBuilder.primaryKey]'s own callback returns.
+/// The starting point of a composite primary key, handed to the callback of
+/// [TableBuilderBase.primaryKey].
 final class TablePrimaryKeyFactory {
-  /// Opens no primary key on its own; [columns] does.
+  /// Creates a factory, which [TableBuilderBase.primaryKey] already supplies to
+  /// its callback.
   const TablePrimaryKeyFactory();
 
-  /// The columns that, together, identify a row. Every one of them is
-  /// refused a null value.
+  /// Starts a primary key made of [columns], which together identify a row.
   TablePrimaryKeyBuilder columns(List<String> columns) => TablePrimaryKeyBuilder._(columns);
 }
 
-/// A table's composite primary key under construction, opened by
-/// [TablePrimaryKeyFactory.columns].
+/// A composite primary key under construction, started by
+/// [TablePrimaryKeyFactory.columns] and read by [TableBuilderBase.primaryKey]
+/// once its callback returns.
 final class TablePrimaryKeyBuilder {
   TablePrimaryKeyBuilder._(this._columns);
 
+  /// Backs [PrimaryKeyConstraint.columns].
   final List<String> _columns;
+
+  /// Backs [PrimaryKeyConstraint.name].
   String? _name;
 
-  /// The name this constraint is created under. SQLite picks one on its
-  /// own when left out.
+  /// Names this constraint.
+  ///
+  /// It stays unnamed when this is not called.
   TablePrimaryKeyBuilder name(String name) {
     _name = name;
     return this;
