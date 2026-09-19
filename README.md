@@ -17,7 +17,7 @@ be right most of the time.
 **The barrier**, which a port touches: `RestNode`, `RestPath`, `RestParameters` and
 `RestCall` for a REST call, `RealtimeNode`, `RealtimePath`, `RealtimeParameters` and
 `RealtimeTopic` for a live one, `Result`, `Fault`, `FaultResolver`, `Sdk`, `SdkType`,
-`BackendSdk`, `RestBackendSdk`, `LocalBackendSdk`, `VendorBackendSdk`, `Singleton`,
+`BackendSdk`, `RestBackendSdk`, `LocalBackendSdk`, `VendorBackendSdk`,
 `Configuration`. This is
 what a service layer sees, and it does not change when the backend does.
 

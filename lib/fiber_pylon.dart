@@ -55,7 +55,7 @@
 /// [RealtimePath], [RealtimeParameters] and [RealtimeTopic] for a live one,
 /// [Result] and its two variants, [Fault], [FaultResolver], [Sdk],
 /// [SdkClientKind], [SdkClient], [RestSdkClient], [LocalSdkClient],
-/// [VendorSdkClient], [SdkRepository] and its [Status], [Singleton], [Environments]. This is what a service
+/// [VendorSdkClient], [SdkRepository] and its [Status], [Environments]. This is what a service
 /// layer sees, and it does not
 /// change when the backend does.
 ///
@@ -161,7 +161,6 @@ export 'src/common/network.dart';
 export 'src/common/observable.dart';
 export 'src/common/reporter.dart';
 export 'src/common/result.dart';
-export 'src/common/singleton.dart';
 export 'src/credential/credential.dart';
 export 'src/credential/credentials.dart';
 export 'src/storage/secure_storage.dart' show SecureStorage, Secure, Fingerprint;
