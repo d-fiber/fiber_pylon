@@ -63,6 +63,12 @@ import 'status.dart';
 /// and [StatusOffline] lasts until the connection is back, when the repository
 /// [observesConnection].
 ///
+/// A repository that [isAuthenticated] listens to the database only while a
+/// credential is held. It starts when someone signs in, and when they sign out it
+/// stops listening and empties [data], without being disposed, so that it starts
+/// again at the next sign-in. What a signed-out app would show is not what an
+/// account stored.
+///
 /// A repository stands for one piece of data, not for a kind of data, so what
 /// tells it which one is in its own fields, fixed when it is made. A project
 /// writes one small class per piece of data it shows, with all its actions, and
@@ -139,14 +145,21 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusRunning<E>());
 
   final List<StreamSubscription<bool>> _waiting = [];
+  StreamSubscription<bool>? _signedIn;
   Future<Status<E>>? _running;
+  int _session = 0;
   bool _started = false;
   bool _disposed = false;
 
-  /// Whether the request this makes carries the credential.
+  /// Whether the request this makes carries the credential, and what it reads is
+  /// an account's.
   ///
   /// When it does and `Credentials` holds none, a refresh makes no request and
-  /// ends [StatusUnauthenticated]. A repository whose request signs someone in says `false`.
+  /// ends [StatusUnauthenticated], and the repository does not listen to the
+  /// database: [data] is empty and [status] is [StatusIdle]. It listens once a
+  /// credential is held, and when it is cleared it stops, empties [data] and
+  /// ends any wait for the connection, without being disposed. A repository whose
+  /// request signs someone in says `false`, and listens whatever is held.
   bool get isAuthenticated;
 
   /// Whether a refresh looks at the connection before it asks.
@@ -247,7 +260,10 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   /// `data.value` stays readable, as what was last stored.
   Future<void> dispose() async {
     _disposed = true;
+    _session++;
     _release();
+    await _signedIn?.cancel();
+    _signedIn = null;
     await _data.dispose();
     await _status.dispose();
   }
@@ -255,22 +271,36 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   void _follow() {
     if (_started || _disposed) return;
     _started = true;
-    unawaited(_load());
+    if (!isAuthenticated) {
+      unawaited(_listen());
+      return;
+    }
+    _signedIn = Credentials.held.stream.listen((held) => unawaited(held ? _listen() : _forget()));
   }
 
-  Future<void> _load() async {
+  Future<void> _listen() async {
+    final session = ++_session;
+    if (!_busy) _status.value = StatusRunning<E>();
     var read = false;
     try {
       read = await _data.follow(stream());
     } catch (error, stackTrace) {
       _data.emitError(error, stackTrace);
     }
-    if (_disposed || _busy) return;
+    if (_disposed || session != _session || _busy) return;
     if (read) {
       _announce(StatusSucceeded<E>());
     } else {
       _status.value = StatusIdle<E>();
     }
+  }
+
+  Future<void> _forget() async {
+    _session++;
+    _release();
+    await _data.unfollow();
+    _data.value = null;
+    if (_running == null) _status.value = StatusIdle<E>();
   }
 
   bool get _busy => _running != null || _holdsOffline;
