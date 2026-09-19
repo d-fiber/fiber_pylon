@@ -42,9 +42,10 @@ enum _BatchStatement { insert, update, delete, execute, query }
 /// touch it until [commit] or [apply] runs them. Never constructed directly;
 /// [LocalDatabase.batch] hands one back.
 final class DatabaseBatch {
-  DatabaseBatch._(this._executor) : _batch = _executor.batch();
+  DatabaseBatch._(this._executor, this._owner) : _batch = _executor.batch();
 
   final DatabaseExecutor _executor;
+  final LocalDatabase _owner;
   Batch _batch;
   List<_BatchStatement> _statements = [];
 
@@ -138,7 +139,12 @@ final class DatabaseBatch {
     final statements = _statements;
     _batch = _executor.batch();
     _statements = [];
-    return _guarded(() async => _typed(statements, await execute(batch)));
+    return _guarded(() async {
+      final results = _typed(statements, await execute(batch));
+      // A batch may hold raw SQL, so it cannot say which tables it changed.
+      _owner._notifyWrite(null);
+      return results;
+    });
   }
 
   List<DatabaseBatchResult> _typed(List<_BatchStatement> statements, List<Object?> results) => [

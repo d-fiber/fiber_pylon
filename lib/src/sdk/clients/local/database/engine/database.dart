@@ -71,6 +71,7 @@ part 'transaction.dart';
 part 'batch.dart';
 part 'field.dart';
 part 'table.dart';
+part 'reactive.dart';
 part 'session.dart';
 part 'declared.dart';
 
@@ -160,10 +161,16 @@ part 'declared.dart';
 /// `sqflite_sqlcipher`'s own instead), backup/restore (checkpoint through
 /// [checkpoint] first, then copy the file — and its `-wal`/`-shm` siblings —
 /// with `dart:io` directly), `VACUUM` (run `execute('VACUUM')` directly; it
-/// is rare enough, and expensive enough, to not deserve its own method), and
-/// reactive/streamed query results (a project builds that on top of
-/// [insert]/[update]/[delete] already telling it a write happened, rather
-/// than pylon guessing which table a raw [execute] touched).
+/// is rare enough, and expensive enough, to not deserve its own method).
+///
+/// Every write made through this class tells the streams watching the tables
+/// it touched (see [DatabaseRows.watch]): a typed write, [insert], [update],
+/// [delete], a [batch] and a [transaction] — the last one only once it has
+/// committed, and not at all when it rolls back. A raw [execute] or a [batch]
+/// cannot say which table it changed, so it tells every watcher, and each one
+/// reads again and stays quiet when nothing it watches differs. A write made
+/// by another process, or by another [LocalDatabase] on the same file, is not
+/// heard.
 class LocalDatabase extends DatabaseSession {
   final String _name;
   final int _version;
@@ -180,6 +187,7 @@ class LocalDatabase extends DatabaseSession {
   final List<DatabaseMigration> _migrations;
   Database? _db;
   Future<void>? _opening;
+  final StreamController<Set<String>?> _writes = StreamController<Set<String>?>.broadcast();
   (DatabaseFactory, String)? _sharedKey;
 
   /// Opens the database file called [name], inside [factory]'s own
@@ -344,17 +352,21 @@ class LocalDatabase extends DatabaseSession {
   /// Runs [sql] directly, for anything [insert], [query], [update] and
   /// [delete] do not cover — a `CREATE TABLE`, a `CREATE INDEX`, a schema
   /// change inside [onUpgrade].
-  Future<void> execute(String sql, [List<DatabaseType>? arguments]) =>
-      _guarded(() => _executor().execute(sql, _toNativeArgs(arguments)));
+  Future<void> execute(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
+    await _executor().execute(sql, _toNativeArgs(arguments));
+    _notifyWrite(null);
+  });
 
   /// Inserts one row, composed by [build] from an empty [DatabaseInsert] —
   /// [build] must return a fully composed [DatabaseInsertValues], the same way
   /// a raw `INSERT` needs an `INTO` and a `VALUES` before it means anything
   /// — answering the row id sqflite assigned.
   Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
-      _guarded(() {
+      _guarded(() async {
         final spec = build(DatabaseInsert<T>._());
-        return _executor().rawInsert(spec._sql, spec._arguments);
+        final rowId = await _executor().rawInsert(spec._sql, spec._arguments);
+        _notifyWrite({_unquotedIdentifier(spec._table)});
+        return rowId;
       });
 
   /// Reads rows, filtered, ordered, paged and decoded exactly as [build]
@@ -393,24 +405,32 @@ class LocalDatabase extends DatabaseSession {
   /// way a raw `UPDATE table` needs a `SET` before it means anything —
   /// answering how many rows changed.
   Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
-      _guarded(() {
+      _guarded(() async {
         final spec = build(DatabaseUpdate<T>._());
-        return _executor().update(
+        final changed = await _executor().update(
           spec._table,
           _toNativeRow(spec._data.toRow()),
           where: spec._where,
           whereArgs: _toNativeArgs(spec._whereArgs),
           conflictAlgorithm: spec._conflict,
         );
+        if (changed > 0) _notifyWrite({_unquotedIdentifier(spec._table)});
+        return changed;
       });
 
   /// Removes every row matched, composed by [build] from an empty
   /// [DatabaseDelete] — [build] must return a [DatabaseDeleteFrom], the same way
   /// a raw `DELETE` needs a `FROM` before it means anything — answering how
   /// many rows were removed.
-  Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() {
+  Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() async {
     final spec = build(const DatabaseDelete._());
-    return _executor().delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
+    final removed = await _executor().delete(
+      spec._table,
+      where: spec._where,
+      whereArgs: _toNativeArgs(spec._whereArgs),
+    );
+    if (removed > 0) _notifyWrite({_unquotedIdentifier(spec._table)});
+    return removed;
   });
 
   /// Runs [action] as one transaction: every write inside it commits
@@ -423,11 +443,16 @@ class LocalDatabase extends DatabaseSession {
   /// holds for the code [action] awaits, at any depth. A [transaction] called
   /// inside [action] joins the outer one rather than starting another, so its
   /// writes are kept or undone with the outer transaction, not on their own.
-  Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) => _guarded(() {
+  Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) => _guarded(() async {
     final db = _requireOpen();
     final joined = _joinedTransaction(db);
     if (joined != null) return action(DatabaseTransaction._(joined, this));
-    return db.transaction((txn) => _inTransaction(db, txn, () => action(DatabaseTransaction._(txn, this))));
+    final touched = _TouchedTables();
+    final result = await db.transaction(
+      (txn) => _inTransaction(db, txn, touched, () => action(DatabaseTransaction._(txn, this))),
+    );
+    _flush(touched);
+    return result;
   });
 
   /// Starts a batch: a sequence of writes queued here, none of which touch
@@ -438,7 +463,7 @@ class LocalDatabase extends DatabaseSession {
   /// implicit transaction, which for anything beyond a handful of rows is
   /// the difference between finishing instantly and taking seconds, since
   /// every commit costs its own fsync.
-  DatabaseBatch batch() => DatabaseBatch._(_executor());
+  DatabaseBatch batch() => DatabaseBatch._(_executor(), this);
 
   /// Whether [table] exists in this database.
   Future<bool> tableExists(String table) => _guarded(() async {
@@ -581,6 +606,26 @@ class LocalDatabase extends DatabaseSession {
   @override
   Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action) => transaction(action);
 
+  /// Tells the watchers of [tables] — of every table when it is `null` — that
+  /// a write happened: at once, or once the transaction this call runs inside
+  /// commits.
+  void _notifyWrite(Set<String>? tables) {
+    final active = Zone.current[_transactionZoneKey];
+    if (active is _ActiveTransaction && identical(active.database, _db)) {
+      active.touched.record(tables);
+    } else if (!_writes.isClosed) {
+      _writes.add(tables);
+    }
+  }
+
+  void _flush(_TouchedTables touched) {
+    if (touched.everything) {
+      _notifyWrite(null);
+    } else if (touched.tables.isNotEmpty) {
+      _notifyWrite(touched.tables);
+    }
+  }
+
   void _requireDeclared(DatabaseTable<Object> table) {
     final tables = _tables;
     if (tables != null && !tables.any((declared) => declared.tableName == table.tableName)) {
@@ -594,10 +639,25 @@ final Map<(DatabaseFactory, String), int> _sharedInstances = {};
 final Object _transactionZoneKey = Object();
 
 final class _ActiveTransaction {
-  const _ActiveTransaction(this.database, this.transaction);
+  const _ActiveTransaction(this.database, this.transaction, this.touched);
 
   final Database database;
   final Transaction transaction;
+  final _TouchedTables touched;
+}
+
+/// The tables a transaction wrote, held until it commits.
+final class _TouchedTables {
+  final Set<String> tables = {};
+  bool everything = false;
+
+  void record(Set<String>? written) {
+    if (written == null) {
+      everything = true;
+    } else {
+      tables.addAll(written);
+    }
+  }
 }
 
 Transaction? _joinedTransaction(Database database) {
@@ -605,7 +665,19 @@ Transaction? _joinedTransaction(Database database) {
   return active is _ActiveTransaction && identical(active.database, database) ? active.transaction : null;
 }
 
-Future<T> _inTransaction<T>(Database database, Transaction transaction, Future<T> Function() action) =>
-    Zone.current.fork(zoneValues: {_transactionZoneKey: _ActiveTransaction(database, transaction)}).run(action);
+Future<T> _inTransaction<T>(
+  Database database,
+  Transaction transaction,
+  _TouchedTables touched,
+  Future<T> Function() action,
+) => Zone.current
+    .fork(zoneValues: {_transactionZoneKey: _ActiveTransaction(database, transaction, touched)})
+    .run(action);
 
 String _quotedIdentifier(String identifier) => '"${identifier.replaceAll('"', '""')}"';
+
+/// The table name inside [quoted], which the builders keep as the SQL wrote it
+/// — `"todos"` — while the tables a watcher names are spelled `todos`.
+String _unquotedIdentifier(String quoted) => quoted.length >= 2 && quoted.startsWith('"') && quoted.endsWith('"')
+    ? quoted.substring(1, quoted.length - 1).replaceAll('""', '"')
+    : quoted;

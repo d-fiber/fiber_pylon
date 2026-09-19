@@ -129,7 +129,9 @@ base class DatabaseRows<R extends Object> {
   DatabaseRows<R> offset(int count) => _copy(offset: RangeError.checkNotNegative(count, 'count'));
 
   /// Every row kept, as records.
-  Future<List<R>> list() => _session._run((executor) async {
+  Future<List<R>> list() async => [for (final row in await _selectRows()) _table._fromRow(row)];
+
+  Future<List<DatabaseRow>> _selectRows() => _session._run((executor) async {
     final arguments = <DatabaseType>[];
     final where = _whereSql(_filter, arguments);
     final order = _orders.isEmpty ? '' : ' ORDER BY ${_orders.map(_renderOrder).join(', ')}';
@@ -139,11 +141,53 @@ base class DatabaseRows<R extends Object> {
       'SELECT ${_table._columnList} FROM ${_quotedIdentifier(_table.tableName)}$where$order$page',
       _toNativeArgs(arguments),
     );
-    return [for (final row in rows) _table._fromRow(_fromNativeRow(row))];
+    return rows.map(_fromNativeRow).toList();
   });
 
   /// The first row kept, or null when none is.
   Future<R?> first() async => (await _copy(limit: 1).list()).firstOrNull;
+
+  /// Every row kept, as records, now and again after each write to this table
+  /// that changes what is kept.
+  ///
+  /// ```dart
+  /// todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.due.asc()]).watch().listen(show);
+  /// ```
+  ///
+  /// The first event is the current rows, and one more follows each write to
+  /// the table — an insert, an update, a delete, a batch, a committed
+  /// transaction — after which the rows kept differ from the last ones sent. A
+  /// write that leaves them as they were sends nothing. Nothing is read until
+  /// the stream is listened to, and it stops when the listener cancels.
+  ///
+  /// Throws a [StateError] on a session that is a [DatabaseTransaction]: it
+  /// ends before anything could change, so a stream over it would never send a
+  /// second event.
+  Stream<List<R>> watch() => _watchRows().map((rows) => [for (final row in rows) _table._fromRow(row)]);
+
+  /// The first row kept, or null when none is, now and again after each write
+  /// that changes it. See [watch].
+  Stream<R?> watchFirst() => _copy(limit: 1).watch().map((records) => records.firstOrNull);
+
+  /// How many rows are kept, now and again after each write that changes the
+  /// number. See [watch].
+  ///
+  /// Throws a [StateError] when a [limit] or an [offset] was set, as [count]
+  /// does.
+  Stream<int> watchCount() {
+    _requireNoPage('watchCount');
+    return _watchTable<int>(_watchedDatabase(), _table.tableName, count, (previous, current) => previous == current);
+  }
+
+  Stream<List<DatabaseRow>> _watchRows() =>
+      _watchTable<List<DatabaseRow>>(_watchedDatabase(), _table.tableName, _selectRows, _sameRows);
+
+  LocalDatabase _watchedDatabase() {
+    if (_session is DatabaseTransaction) {
+      throw StateError('watch on ${_table.tableName} needs a LocalDatabase: a transaction ends before it could change.');
+    }
+    return _session._database;
+  }
 
   /// How many rows are kept.
   ///
@@ -230,14 +274,24 @@ base class DatabaseRows<R extends Object> {
     final arguments = values.values.toList();
     final set = values.keys.map((name) => '${_quotedIdentifier(name)} = ?').join(', ');
     final where = _whereSql(_filter, arguments);
-    return executor.rawUpdate('UPDATE ${_quotedIdentifier(_table.tableName)} SET $set$where', _toNativeArgs(arguments));
+    final changed = await executor.rawUpdate(
+      'UPDATE ${_quotedIdentifier(_table.tableName)} SET $set$where',
+      _toNativeArgs(arguments),
+    );
+    if (changed > 0) _session._database._notifyWrite({_table.tableName});
+    return changed;
   });
 
   Future<int> _remove() => _session._run((executor) async {
     _requireNoPage('a delete');
     final arguments = <DatabaseType>[];
     final where = _whereSql(_filter, arguments);
-    return executor.rawDelete('DELETE FROM ${_quotedIdentifier(_table.tableName)}$where', _toNativeArgs(arguments));
+    final removed = await executor.rawDelete(
+      'DELETE FROM ${_quotedIdentifier(_table.tableName)}$where',
+      _toNativeArgs(arguments),
+    );
+    if (removed > 0) _session._database._notifyWrite({_table.tableName});
+    return removed;
   });
 }
 
@@ -265,6 +319,7 @@ base class DatabaseTableAccess<R extends Object> extends DatabaseRows<R> {
         batch.rawInsert(sql, arguments);
       }
       final rowIds = (await batch.commit()).cast<int>();
+      _session._database._notifyWrite({_table.tableName});
       return _readByRowId(executor, rowIds);
     });
   }
@@ -296,6 +351,10 @@ final class DatabaseKeyedAccess<R extends Object, K extends Object> extends Data
 
   /// The record whose key is [key], or null when there is none.
   Future<R?> get(K key) => where(_keyed._key.isEqualTo(key)).first();
+
+  /// The record whose key is [key], now and again after each write that
+  /// changes it, or null while there is none. See [DatabaseRows.watch].
+  Stream<R?> watchOne(K key) => where(_keyed._key.isEqualTo(key)).watchFirst();
 
   /// Removes the row whose key is [key], and answers whether there was one.
   Future<bool> remove(K key) async => await where(_keyed._key.isEqualTo(key)).delete() > 0;

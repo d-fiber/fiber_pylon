@@ -56,14 +56,18 @@ final class DatabaseTransaction extends DatabaseSession {
   Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action) => action(this);
 
   /// See [LocalDatabase.execute].
-  Future<void> execute(String sql, [List<DatabaseType>? arguments]) =>
-      _guarded(() => _txn.execute(sql, _toNativeArgs(arguments)));
+  Future<void> execute(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
+    await _txn.execute(sql, _toNativeArgs(arguments));
+    _owner._notifyWrite(null);
+  });
 
   /// See [LocalDatabase.insert].
   Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
-      _guarded(() {
+      _guarded(() async {
         final spec = build(DatabaseInsert<T>._());
-        return _txn.rawInsert(spec._sql, spec._arguments);
+        final rowId = await _txn.rawInsert(spec._sql, spec._arguments);
+        _owner._notifyWrite({_unquotedIdentifier(spec._table)});
+        return rowId;
       });
 
   /// See [LocalDatabase.query].
@@ -94,20 +98,24 @@ final class DatabaseTransaction extends DatabaseSession {
 
   /// See [LocalDatabase.update].
   Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
-      _guarded(() {
+      _guarded(() async {
         final spec = build(DatabaseUpdate<T>._());
-        return _txn.update(
+        final changed = await _txn.update(
           spec._table,
           _toNativeRow(spec._data.toRow()),
           where: spec._where,
           whereArgs: _toNativeArgs(spec._whereArgs),
           conflictAlgorithm: spec._conflict,
         );
+        if (changed > 0) _owner._notifyWrite({_unquotedIdentifier(spec._table)});
+        return changed;
       });
 
   /// See [LocalDatabase.delete].
-  Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() {
+  Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() async {
     final spec = build(const DatabaseDelete._());
-    return _txn.delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
+    final removed = await _txn.delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
+    if (removed > 0) _owner._notifyWrite({_unquotedIdentifier(spec._table)});
+    return removed;
   });
 }
