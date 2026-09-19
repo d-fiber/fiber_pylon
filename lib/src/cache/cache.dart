@@ -86,8 +86,7 @@ class CacheEntry extends Equatable {
   });
 
   /// Whether this entry is still within [ttl] of [fetchedAt], as of [now].
-  bool isFreshAt(DateTime now, Duration ttl) =>
-      now.isBefore(fetchedAt.add(ttl));
+  bool isFreshAt(DateTime now, Duration ttl) => now.isBefore(fetchedAt.add(ttl));
 
   @override
   List<Object?> get props => [key, value, version, fetchedAt, deleted];
