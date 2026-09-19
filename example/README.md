@@ -76,3 +76,24 @@ flutter test
 
 They run against `MemoryBackend`, with no network and no waiting, which is what the memory
 backend is for.
+
+## The local database
+
+`lib/src/database/` shows a project's own typed database: `User` is a `Model` with its
+`Field`s declared next to the fields they name, and `OwnDatabase` declares the `users`
+collection. `GroundSdk` initializes it in its own `initialize()` and closes it in `dispose()`,
+so it needs `configureSdk()` to have run first, like everything that lives in the app's own
+database file.
+
+```dart
+final db = GroundSdk.I.database;
+await db.users.doc('ada').set(const User(name: 'Ada', age: 36));
+final adults = await db.users
+    .where((w) => w(User.age_).isGreaterThanOrEqualTo(18))
+    .orderBy((o) => [o.asc(User.name_)])
+    .get();
+```
+
+Its `users` collection is isolated, so on sign-in `Tenant.use(account.id)` gives each account
+its own users, and `Tenant.leave()` on sign-out goes back to the anonymous ones. A collection
+declared with `tunnel: Tunnel.shared` would be one copy for everybody.
