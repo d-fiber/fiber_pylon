@@ -661,7 +661,7 @@ void main() {
       await notes.on(db).insert(const Note(title: 'b'));
       Tenant.use('a');
       final events = <List<String>>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add([for (final n in rows) n.title]));
+      final subscription = notes.on(db).stream().listen((rows) => events.add([for (final n in rows) n.title]));
       await _waitFor(events, 1);
 
       Tenant.use('b');
@@ -677,7 +677,7 @@ void main() {
     test('sends again on a change of tenant even when the rows are the same', () async {
       final events = <int>[];
       Tenant.use('a');
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       Tenant.use('b');
@@ -691,7 +691,7 @@ void main() {
       Tenant.use('a');
       await notes.on(db).insert(const Note(title: 'a'));
       final events = <int>[];
-      final subscription = notes.on(db).watchCount().listen(events.add);
+      final subscription = notes.on(db).streamCount().listen(events.add);
       await _waitFor(events, 1);
 
       Tenant.use('b');
@@ -704,7 +704,7 @@ void main() {
     test('a write by another tenant sends nothing to this one', () async {
       Tenant.use('a');
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await db.runTransaction((txn) async {
@@ -720,7 +720,7 @@ void main() {
     test('a shared table ignores a change of tenant', () async {
       await settings.on(db).insert(const Setting('theme', 'dark'));
       final events = <int>[];
-      final subscription = settings.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = settings.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       Tenant.use('a');
@@ -732,7 +732,7 @@ void main() {
 
     test('the whole-database mechanism sees every tenant\'s writes and ignores a change of tenant', () async {
       final events = <int>[];
-      final subscription = notes.onWholeDatabase(db, fingerprint).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.onWholeDatabase(db, fingerprint).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       Tenant.use('a');
@@ -750,7 +750,7 @@ void main() {
       Tenant.use('a');
       await notes.on(db).insert(const Note(title: 'a'));
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await db.purgeCurrentTenant();

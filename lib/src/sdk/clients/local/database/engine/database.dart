@@ -114,7 +114,7 @@ part 'lifecycle/health.dart';
 /// before [open] or after [dispose] throws a [StateError], and a value SQLite cannot store, such as a NaN, throws an
 /// [ArgumentError]. Those are mistakes in the code, not failures of the database.
 ///
-/// Every write made through this class tells the streams watching the tables it touched (see [Rows.watch]): a typed
+/// Every write made through this class tells the streams watching the tables it touched (see [Rows.stream]): a typed
 /// write, [insert], [update], [delete], a [batch] and a [transaction], the last one only once it has committed and
 /// not at all when it rolls back. A raw [execute] or a [batch] cannot say which table it changed, so it tells every
 /// watcher, and each one reads again and stays quiet when nothing it watches differs.
@@ -187,7 +187,7 @@ class LocalDatabase extends Connection {
   /// The [open] in progress, which a second call waits for instead of opening another connection.
   Future<void>? _opening;
 
-  /// The tables each write touched, or `null` for every table, which [Rows.watch] follows.
+  /// The tables each write touched, or `null` for every table, which [Rows.stream] follows.
   final StreamController<Set<String>?> _writes = StreamController<Set<String>?>.broadcast();
 
   /// The file this instance is counted under in [_sharedInstances], or `null` when it is not counted.

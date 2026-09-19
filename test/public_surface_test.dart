@@ -106,7 +106,7 @@ await db.from(db.notes).where(db.notes.id.isEqualTo('a')).update([db.notes.title
 await db.from(db.notes).remove('a');
 ''', compiles: true),
   _Program('a watched query', '''
-db.from(db.notes).where(db.notes.title.isEqualTo('a')).watch().listen((notes) => notes.length);
+db.from(db.notes).where(db.notes.title.isEqualTo('a')).stream().listen((notes) => notes.length);
 ''', compiles: true),
   _Program('switching tenant', '''
 Tenant.use('account');

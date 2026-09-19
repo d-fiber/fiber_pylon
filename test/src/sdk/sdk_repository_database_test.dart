@@ -35,7 +35,7 @@
 // LICENSE file, the LICENSE file governs.
 
 // A check against a real SQLite file, through `sqflite_common_ffi`: what an
-// SdkRepository reads is the database's own watch, and only a real one moves with a
+// SdkRepository reads is the database's own stream, and only a real one moves with a
 // write and with a change of tenant.
 
 import 'dart:io';
@@ -119,7 +119,7 @@ final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, 
   });
 
   @override
-  Stream<List<Note>> stream() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).watch();
+  Stream<List<Note>> stream() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).stream();
 
   @override
   HouseError resolve(Fault<HouseSignal> fault) => HouseError.unknown;

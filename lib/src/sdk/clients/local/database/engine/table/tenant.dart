@@ -90,7 +90,7 @@ enum TransferConflict {
 /// the credential it already keeps with [follow].
 ///
 /// An operation started while one tenant is current finishes on that tenant,
-/// even if [use] is called before it does. A `watch()` on an isolated table is
+/// even if [use] is called before it does. A `stream()` on an isolated table is
 /// handed the new tenant's rows from scratch, and the previous tenant's are
 /// never carried over into it.
 abstract final class Tenant {

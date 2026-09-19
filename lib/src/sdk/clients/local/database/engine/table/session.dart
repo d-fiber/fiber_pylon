@@ -220,7 +220,7 @@ base class Rows<R extends Object> {
   /// that changes what is kept.
   ///
   /// ```dart
-  /// todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.due.asc()]).watch().listen(show);
+  /// todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.due.asc()]).stream().listen(show);
   /// ```
   ///
   /// The first event is the current rows. One more follows each write to the
@@ -237,19 +237,19 @@ base class Rows<R extends Object> {
   /// Throws a [StateError] when these rows are read through a
   /// [TransactionScope]: a transaction ends before anything could change, so
   /// the stream would never send a second event.
-  Stream<List<R>> watch() => _watchRows().map((rows) => [for (final row in rows) _table._fromRow(row)]);
+  Stream<List<R>> stream() => _watchRows().map((rows) => [for (final row in rows) _table._fromRow(row)]);
 
   /// The first row kept, or null when none is, now and again after each write
-  /// that changes it. See [watch].
-  Stream<R?> watchFirst() => _copy(limit: 1).watch().map((records) => records.firstOrNull);
+  /// that changes it. See [stream].
+  Stream<R?> streamFirst() => _copy(limit: 1).stream().map((records) => records.firstOrNull);
 
   /// How many rows are kept, now and again after each write that changes the
-  /// number. See [watch].
+  /// number. See [stream].
   ///
   /// Throws a [StateError] when a [limit] or an [offset] was set, as [count]
   /// does.
-  Stream<int> watchCount() {
-    _requireNoPage('watchCount');
+  Stream<int> streamCount() {
+    _requireNoPage('streamCount');
     return _watchTable<int>(
       _watchedDatabase(),
       _table.tableName,
@@ -273,7 +273,7 @@ base class Rows<R extends Object> {
   LocalDatabase _watchedDatabase() {
     if (_session is TransactionScope) {
       throw StateError(
-        'watch on ${_table.tableName} needs a LocalDatabase: a transaction ends before it could change.',
+        'stream on ${_table.tableName} needs a LocalDatabase: a transaction ends before it could change.',
       );
     }
     return _session._database;
@@ -476,8 +476,8 @@ final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<
   Future<R?> get(K key) => where(_keyed._key.isEqualTo(key)).first();
 
   /// The record whose key is [key], now and again after each write that
-  /// changes it, or null while there is none. See [Rows.watch].
-  Stream<R?> watchOne(K key) => where(_keyed._key.isEqualTo(key)).watchFirst();
+  /// changes it, or null while there is none. See [Rows.stream].
+  Stream<R?> streamOne(K key) => where(_keyed._key.isEqualTo(key)).streamFirst();
 
   /// Removes the row whose key is [key], and answers whether there was one.
   Future<bool> remove(K key) async => await where(_keyed._key.isEqualTo(key)).delete() > 0;

@@ -74,7 +74,7 @@ final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, 
   @override
   Stream<List<User>> stream() {
     final database = OwnDatabase.I;
-    return database.from(database.users).orderBy([database.users.name.asc()]).watch();
+    return database.from(database.users).orderBy([database.users.name.asc()]).stream();
   }
 
   @override

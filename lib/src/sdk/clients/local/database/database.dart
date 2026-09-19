@@ -68,7 +68,7 @@ part 'batch.dart';
 ///     .orderBy([db.users.name.asc()])
 ///     .limit(20)
 ///     .select();
-/// db.from(db.users).watch().listen(print);
+/// db.from(db.users).stream().listen(print);
 /// ```
 ///
 /// The vocabulary is SQL's: `from`, `where`, `orderBy`, `limit`, `offset`,

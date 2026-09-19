@@ -104,7 +104,7 @@ import 'status.dart';
 ///   });
 ///
 ///   @override
-///   Stream<List<User>> stream() => _adults.watch();
+///   Stream<List<User>> stream() => _adults.stream();
 ///
 ///   @override
 ///   UsersError resolve(Fault<RestSignal> fault) => switch (fault.signal) {

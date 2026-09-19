@@ -379,12 +379,12 @@ void main() {
     });
   });
 
-  group('watch', () {
+  group('stream', () {
     test('a statement emits its first result, then each change', () async {
       await db.from(db.users).upsert(_ada);
       final t = db.users;
       final emitted = <List<User>>[];
-      final subscription = db.from(t).where(t.age.isGreaterThan(20)).orderBy([t.age.asc()]).watch().listen(emitted.add);
+      final subscription = db.from(t).where(t.age.isGreaterThan(20)).orderBy([t.age.asc()]).stream().listen(emitted.add);
       await _waitFor(emitted, 1);
 
       await db.from(t).upsert(_bob);
@@ -408,7 +408,7 @@ void main() {
     test('a statement stays quiet when a write does not change its result', () async {
       await db.from(db.users).upsert(_ada);
       final emitted = <List<User>>[];
-      final subscription = db.from(db.users).where(db.users.age.isGreaterThan(20)).watch().listen(emitted.add);
+      final subscription = db.from(db.users).where(db.users.age.isGreaterThan(20)).stream().listen(emitted.add);
       await _waitFor(emitted, 1);
 
       await db.from(db.users).upsert(_bob);
@@ -422,7 +422,7 @@ void main() {
 
     test('a row emits on create, change and removal', () async {
       final emitted = <User?>[];
-      final subscription = db.from(db.users).watchOne('ada').listen(emitted.add);
+      final subscription = db.from(db.users).streamOne('ada').listen(emitted.add);
       await _waitFor(emitted, 1);
 
       await db.from(db.users).upsert(_ada);
@@ -438,7 +438,7 @@ void main() {
 
     test('a listener hears a batch and a transaction, once each', () async {
       final emitted = <int>[];
-      final subscription = db.from(db.users).watch().listen((users) => emitted.add(users.length));
+      final subscription = db.from(db.users).stream().listen((users) => emitted.add(users.length));
       await _waitFor(emitted, 1);
 
       await (db.batch()
@@ -528,7 +528,7 @@ void main() {
       await db.from(db.users).upsert(_bob);
       Tenant.use('a');
       final emitted = <List<User>>[];
-      final subscription = db.from(db.users).watch().listen(emitted.add);
+      final subscription = db.from(db.users).stream().listen(emitted.add);
       await _waitFor(emitted, 1);
 
       Tenant.use('b');
@@ -542,7 +542,7 @@ void main() {
       Tenant.use('a');
       await db.from(db.users).upsert(_ada);
       final emitted = <int>[];
-      final subscription = db.from(db.users).watch().listen((users) => emitted.add(users.length));
+      final subscription = db.from(db.users).stream().listen((users) => emitted.add(users.length));
       await _waitFor(emitted, 1);
 
       await db.purgeCurrentTenant();

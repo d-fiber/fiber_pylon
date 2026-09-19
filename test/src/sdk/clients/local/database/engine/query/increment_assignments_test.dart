@@ -201,7 +201,7 @@ void main() {
     test('is heard by a watcher', () async {
       await counters.on(db).insert(const Counter(name: 'a'));
       final seen = <int>[];
-      final subscription = counters.on(db).watch().listen((rows) => seen.add(rows.single.hits));
+      final subscription = counters.on(db).stream().listen((rows) => seen.add(rows.single.hits));
       while (seen.isEmpty) {
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }

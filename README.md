@@ -467,11 +467,11 @@ final adults = await db
     .where(db.users.age.isGreaterThanOrEqualTo(18))
     .orderBy([db.users.name.asc()])
     .select();
-db.from(db.users).watch().listen(print);
+db.from(db.users).stream().listen(print);
 ```
 
 `from(table)` opens the rows of a table. It reads with `where`, `orderBy`, `limit`, `offset`,
-`select`, `first`, `count`, `exists` and `watch`, and writes with `insert`, `upsert`, `update`,
+`select`, `first`, `count`, `exists` and `stream`, and writes with `insert`, `upsert`, `update`,
 `delete`, `get(key)` and `remove(key)`. `db.batch()` queues `insert`, `upsert`, `update` and
 `remove`, then `commit()` applies them together or not at all, and `db.runTransaction` hands
 over a `Transaction` with the same `from`. What is specific to typed SQLite on one device:
@@ -483,7 +483,7 @@ over a `Transaction` with the same `from`. What is specific to typed SQLite on o
 - Tables are flat: no sub-collections, no group queries.
 - `runTransaction` applies each write at once and never retries: SQLite runs one transaction at
   a time, so there is no conflict to retry.
-- A `watch` sends the rows again, not what changed in them. It hears writes made through the
+- A `stream` sends the rows again, not what changed in them. It hears writes made through the
   engine; a write from another process, or another connection on the same file, is not heard.
 
 ### Accounts: two mechanisms that do not mix
@@ -567,7 +567,7 @@ final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, 
   @override bool get observesConnection => true;
   @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
   @override Future<void> response(List<User> users) => ...;                        // the database
-  @override Stream<List<User>> stream() => db.from(db.users).watch();              // the only local read: what it holds, then every change
+  @override Stream<List<User>> stream() => db.from(db.users).stream();              // the only local read: what it holds, then every change
   @override UsersError resolve(Fault<RestSignal> fault) => ...;
 }
 
@@ -583,7 +583,7 @@ and each one's `fetch`, `stream` and `response` read the same `minAge`, so what 
 asked of the network is what is read from the database. When a parameter changes while the
 screen is open, make another repository and `dispose` the first.
 
-One way only: `refresh` writes, the database's own `watch` emits, `data` follows. There is no
+One way only: `refresh` writes, the database's own `stream` emits, `data` follows. There is no
 second source for a screen to reconcile with the first, and a change of tenant swaps what
 `data` holds along with the rows. `data` is an `Observable`, the way a `Preference` reads:
 `value` and `stream`. There is no initial value to invent or to read: the repository listens to

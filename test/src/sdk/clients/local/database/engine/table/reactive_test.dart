@@ -122,14 +122,14 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  group('Rows.watch', () {
+  group('Rows.stream', () {
     test('sends the current rows first, then one event per change', () async {
       await notes.on(db).insert(const Note(title: 'one'));
       final events = <List<String>>[];
       final subscription = notes
           .on(db)
           .orderBy([notes.id.asc()])
-          .watch()
+          .stream()
           .listen((rows) => events.add([for (final row in rows) row.title]));
       await _waitFor(events, 1);
 
@@ -151,7 +151,7 @@ void main() {
 
     test('sends nothing for a write to another table', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await tags.on(db).insert('x');
@@ -166,7 +166,7 @@ void main() {
       final subscription = notes
           .on(db)
           .where(notes.done.isEqualTo(true))
-          .watch()
+          .stream()
           .listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
@@ -181,7 +181,7 @@ void main() {
     test('sends nothing for an update that changes no row', () async {
       await notes.on(db).insert(const Note(title: 'one'));
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       final changed = await notes.on(db).where(notes.title.isEqualTo('nothing')).update([notes.done.to(true)]);
@@ -194,7 +194,7 @@ void main() {
 
     test('hears an upsert, whether it inserts or updates', () async {
       final events = <List<String>>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add([for (final r in rows) r.title]));
+      final subscription = notes.on(db).stream().listen((rows) => events.add([for (final r in rows) r.title]));
       await _waitFor(events, 1);
 
       final first = await notes.on(db).upsert(const Note(title: 'a'));
@@ -212,7 +212,7 @@ void main() {
 
     test('stops sending once cancelled', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
       await subscription.cancel();
 
@@ -223,7 +223,7 @@ void main() {
     });
 
     test('reads nothing until it is listened to', () async {
-      final stream = notes.on(db).watch();
+      final stream = notes.on(db).stream();
       await notes.on(db).insert(const Note(title: 'before'));
 
       final first = await stream.first;
@@ -234,8 +234,8 @@ void main() {
     test('serves several listeners at once', () async {
       final left = <int>[];
       final right = <int>[];
-      final a = notes.on(db).watch().listen((rows) => left.add(rows.length));
-      final b = notes.on(db).where(notes.done.isEqualTo(true)).watch().listen((rows) => right.add(rows.length));
+      final a = notes.on(db).stream().listen((rows) => left.add(rows.length));
+      final b = notes.on(db).where(notes.done.isEqualTo(true)).stream().listen((rows) => right.add(rows.length));
       await _waitFor(left, 1);
       await _waitFor(right, 1);
 
@@ -251,19 +251,19 @@ void main() {
 
     test('refuses a session that is a transaction', () async {
       await db.runTransaction((txn) async {
-        expect(() => notes.on(txn).watch(), throwsStateError);
-        expect(() => notes.on(txn).watchFirst(), throwsStateError);
+        expect(() => notes.on(txn).stream(), throwsStateError);
+        expect(() => notes.on(txn).streamFirst(), throwsStateError);
       });
     });
   });
 
-  group('watchFirst, watchCount and watchOne', () {
-    test('watchFirst follows the first row of an ordering', () async {
+  group('streamFirst, streamCount and streamOne', () {
+    test('streamFirst follows the first row of an ordering', () async {
       final events = <String?>[];
       final subscription = notes
           .on(db)
           .orderBy([notes.title.asc()])
-          .watchFirst()
+          .streamFirst()
           .listen((note) => events.add(note?.title));
       await _waitFor(events, 1);
 
@@ -277,9 +277,9 @@ void main() {
       expect(events, [null, 'm', 'a']);
     });
 
-    test('watchCount sends the number only when it changes', () async {
+    test('streamCount sends the number only when it changes', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watchCount().listen(events.add);
+      final subscription = notes.on(db).streamCount().listen(events.add);
       await _waitFor(events, 1);
 
       final one = await notes.on(db).insert(const Note(title: 'a'));
@@ -293,13 +293,13 @@ void main() {
       expect(events, [0, 1, 2]);
     });
 
-    test('watchCount refuses a page', () {
-      expect(() => notes.on(db).limit(1).watchCount(), throwsStateError);
+    test('streamCount refuses a page', () {
+      expect(() => notes.on(db).limit(1).streamCount(), throwsStateError);
     });
 
-    test('watchOne follows one key from absent to present to changed to gone', () async {
+    test('streamOne follows one key from absent to present to changed to gone', () async {
       final events = <String?>[];
-      final subscription = notes.on(db).watchOne(7).listen((note) => events.add(note?.title));
+      final subscription = notes.on(db).streamOne(7).listen((note) => events.add(note?.title));
       await _waitFor(events, 1);
 
       await notes.on(db).insert(const Note(id: 7, title: 'seven'));
@@ -317,7 +317,7 @@ void main() {
   group('transactions, batches and raw writes', () {
     test('a transaction is heard once, after it commits', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await db.runTransaction((txn) async {
@@ -335,7 +335,7 @@ void main() {
 
     test('a rolled back transaction is never heard', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await expectLater(
@@ -353,7 +353,7 @@ void main() {
 
     test('an upsert is one atomic write, heard once', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await notes.on(db).upsert(const Note(id: 1, title: 'a'));
@@ -366,7 +366,7 @@ void main() {
 
     test('an untyped insert, update and delete are heard', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await db.runInsert<_Raw>((i) => i.into('notes').values(const _Raw('raw')));
@@ -380,7 +380,7 @@ void main() {
 
     test('a batch and a raw execute tell every watcher', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       final batch = db.newBatch()..insert<_Raw>((i) => i.into('notes').values(const _Raw('a')));
@@ -395,7 +395,7 @@ void main() {
 
     test('a write inside a transaction through the database itself is held too', () async {
       final events = <int>[];
-      final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.on(db).stream().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       await db.runTransaction((txn) async {
