@@ -93,6 +93,15 @@ class MutableObservable<T> extends Observable<T> {
     _subject.add(next);
   }
 
+  /// Hands [error] to every listener instead of a value, and keeps [value] as it
+  /// was.
+  ///
+  /// Does nothing once this has been disposed.
+  void emitError(Object error, [StackTrace? stackTrace]) {
+    if (_subject.isClosed) return;
+    _subject.addError(error, stackTrace);
+  }
+
   @override
   Stream<T> get stream => _subject.stream;
 

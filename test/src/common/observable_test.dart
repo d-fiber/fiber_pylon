@@ -85,6 +85,26 @@ void main() {
       await observable.dispose();
     });
 
+    test('hands an error to every listener and keeps the value it held', () async {
+      final observable = MutableObservable<int>(1);
+      final errors = <Object>[];
+      observable.stream.listen((_) {}, onError: errors.add);
+
+      observable.emitError(StateError('the source failed'));
+      await pumpEventQueue();
+
+      expect(errors.single, isA<StateError>());
+      expect(observable.value, 1);
+      await observable.dispose();
+    });
+
+    test('hands no error once disposed', () async {
+      final observable = MutableObservable<int>(1);
+      await observable.dispose();
+
+      observable.emitError(StateError('too late'));
+    });
+
     test('keeps its last value readable once disposed, and publishes nothing more', () async {
       final observable = MutableObservable<int>(1);
       observable.value = 2;
