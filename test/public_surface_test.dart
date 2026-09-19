@@ -116,8 +116,8 @@ await db.batch().commit();
 await db.runTransaction((tx) => tx.get(db.notes.doc('a')));
 ''', compiles: true),
   _Program('reaching the whole database with the app fingerprint', '''
-await db.wholeDatabase(Fingerprint.instance).tenants();
-await AppStorage.tableNames(Fingerprint.instance);
+await db.wholeDatabase(SecureStorage.fingerprint).tenants();
+await AppStorage.tableNames(SecureStorage.fingerprint);
 ''', compiles: true),
   _Program('reading the encryption of the app database', '''
 AppStorage.encryption = EncryptionPolicy.required;

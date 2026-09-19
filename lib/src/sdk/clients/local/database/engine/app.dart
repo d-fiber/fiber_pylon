@@ -44,7 +44,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as cipher show databaseFactory;
 
-import '../../../../../security/fingerprint.dart';
+import '../../../../../storage/secure_storage.dart';
 import 'database.dart';
 
 /// Whether the file of the app database is encrypted.
@@ -69,7 +69,7 @@ bool get _sqlCipherSupported => Platform.isAndroid || Platform.isIOS || Platform
 /// `configureSdk` has run:
 ///
 /// ```dart
-/// final key = Fingerprint.instance;
+/// final key = SecureStorage.fingerprint;
 /// await AppStorage.execute(key, 'CREATE TABLE IF NOT EXISTS todos (...)');
 /// final id = await AppStorage.insert<Todo>(key, (i) => i.into('todos').values(todo));
 /// final todos = await AppStorage.query<Todo>(key, (q) => q.from('todos').map(Todo.fromRow));
@@ -107,8 +107,9 @@ class AppStorage {
   /// any repair it needs — before registering the result.
   @internal
   @FactoryMethod(preResolve: true)
-  static Future<AppStorage> initialize(Fingerprint fingerprint) async =>
-      AppStorage._(await openAppDatabase(fingerprint: fingerprint, encryption: encryption));
+  static Future<AppStorage> initialize(SecureStorage secureStorage) async => AppStorage._(
+    await openAppDatabase(fingerprint: secureStorage.loadedFingerprint, encryption: encryption),
+  );
 
   /// Closes the database, which is what `GetIt.reset` does to it.
   @internal
@@ -145,7 +146,7 @@ class AppStorage {
 
   /// See [LocalDatabase.execute]. Like every call below, it reaches the whole
   /// database, every tenant included, and so takes the app's [Fingerprint]
-  /// (`Fingerprint.instance`); a [StateError] answers any other.
+  /// (`SecureStorage.fingerprint`); a [StateError] answers any other.
   static Future<void> execute(Fingerprint fingerprint, String sql, [List<DatabaseType>? arguments]) =>
       _whole(fingerprint).execute(sql, arguments);
 

@@ -61,7 +61,7 @@ class _Note implements DatabaseRecord {
 }
 
 Future<List<String>> _bodies() =>
-    AppStorage.query<String>(Fingerprint.instance, (q) => q.from('notes').map((row) => row['body']!.asString));
+    AppStorage.query<String>(SecureStorage.fingerprint, (q) => q.from('notes').map((row) => row['body']!.asString));
 
 void main() {
   late Directory directory;
@@ -161,34 +161,34 @@ void main() {
 
     test('the first launch creates the fingerprint and keeps it in the vault', () async {
       const vault = FlutterSecureStorage();
-      expect(await vault.read(key: Fingerprint.storedName), isNull);
+      expect(await vault.read(key: SecureStorage.fingerprintName), isNull);
 
       await GetIt.instance.reset();
       await configureSdk();
 
-      expect(await vault.read(key: Fingerprint.storedName), isNotNull);
+      expect(await vault.read(key: SecureStorage.fingerprintName), isNotNull);
     });
 
     test('the next launch finds the same fingerprint instead of making another', () async {
       await GetIt.instance.reset();
       await configureSdk();
-      final first = Fingerprint.instance.deriveHex('database');
-      final kept = await const FlutterSecureStorage().read(key: Fingerprint.storedName);
+      final first = SecureStorage.fingerprint.deriveHex('database');
+      final kept = await const FlutterSecureStorage().read(key: SecureStorage.fingerprintName);
 
       await GetIt.instance.reset();
       await configureSdk();
 
-      expect(Fingerprint.instance.deriveHex('database'), first);
-      expect(await const FlutterSecureStorage().read(key: Fingerprint.storedName), kept);
+      expect(SecureStorage.fingerprint.deriveHex('database'), first);
+      expect(await const FlutterSecureStorage().read(key: SecureStorage.fingerprintName), kept);
     });
 
     test('an invalid record in the vault stops the launch and is left alone', () async {
-      FlutterSecureStorage.setMockInitialValues({Fingerprint.storedName: 'garbage'});
+      FlutterSecureStorage.setMockInitialValues({SecureStorage.fingerprintName: 'garbage'});
       await GetIt.instance.reset();
 
       await expectLater(configureSdk(), throwsA(isA<FingerprintError>()));
 
-      expect(await const FlutterSecureStorage().read(key: Fingerprint.storedName), 'garbage');
+      expect(await const FlutterSecureStorage().read(key: SecureStorage.fingerprintName), 'garbage');
     });
 
     test('says when the file is not encrypted', () async {
@@ -267,14 +267,14 @@ void main() {
     tearDown(() => GetIt.instance.reset());
 
     test('the raw calls show the whole database only to the app fingerprint', () async {
-      await AppStorage.execute(Fingerprint.instance, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
 
-      expect(await AppStorage.tableNames(Fingerprint.instance), ['notes']);
+      expect(await AppStorage.tableNames(SecureStorage.fingerprint), ['notes']);
       expect(() => AppStorage.tableNames(Fingerprint.generate()), throwsStateError);
       expect(() => AppStorage.execute(Fingerprint.generate(), 'DROP TABLE notes'), throwsStateError);
       expect(() => AppStorage.rawQuery(Fingerprint.generate(), 'SELECT 1'), throwsStateError);
       expect(() => AppStorage.batch(Fingerprint.generate()), throwsStateError);
-      expect(await AppStorage.tableExists(Fingerprint.instance, 'notes'), isTrue);
+      expect(await AppStorage.tableExists(SecureStorage.fingerprint, 'notes'), isTrue);
     });
 
     test('opens <app>.db once configureSdk has run', () {
@@ -283,16 +283,16 @@ void main() {
 
     test('reads and writes through static insert, query, update and delete', () async {
       await AppStorage.execute(
-        Fingerprint.instance,
+        SecureStorage.fingerprint,
         'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)',
       );
 
       final id = await AppStorage.insert<_Note>(
-        Fingerprint.instance,
+        SecureStorage.fingerprint,
         (i) => i.into('notes').values(const _Note('first')),
       );
       await AppStorage.update<_Note>(
-        Fingerprint.instance,
+        SecureStorage.fingerprint,
         (u) => u
             .table('notes')
             .set(const _Note('second'))
@@ -300,26 +300,26 @@ void main() {
       );
       expect(await _bodies(), ['second']);
 
-      await AppStorage.delete(Fingerprint.instance, (d) => d.from('notes'));
+      await AppStorage.delete(SecureStorage.fingerprint, (d) => d.from('notes'));
       expect(await _bodies(), isEmpty);
     });
 
     test('stays open across calls, with no reopening in between', () async {
-      await AppStorage.execute(Fingerprint.instance, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
-      await AppStorage.execute(Fingerprint.instance, 'INSERT INTO notes (body) VALUES (?)', [
+      await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await AppStorage.execute(SecureStorage.fingerprint, 'INSERT INTO notes (body) VALUES (?)', [
         const DatabaseType.varchar('x'),
       ]);
 
-      expect(await AppStorage.tableNames(Fingerprint.instance), ['notes']);
-      expect(await AppStorage.tableExists(Fingerprint.instance, 'notes'), isTrue);
+      expect(await AppStorage.tableNames(SecureStorage.fingerprint), ['notes']);
+      expect(await AppStorage.tableExists(SecureStorage.fingerprint, 'notes'), isTrue);
       expect(await _bodies(), ['x']);
     });
 
     test('commits a transaction', () async {
-      await AppStorage.execute(Fingerprint.instance, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
 
       await AppStorage.transaction(
-        Fingerprint.instance,
+        SecureStorage.fingerprint,
         (txn) => txn.insert<_Note>((i) => i.into('notes').values(const _Note('in txn'))),
       );
 

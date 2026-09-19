@@ -36,7 +36,7 @@
 
 import 'dart:async';
 
-import '../../../../security/fingerprint.dart';
+import '../../../../storage/secure_storage.dart' show Fingerprint;
 import '../../client.dart';
 import '../../environments.dart';
 import '../local_sdk.dart';

@@ -45,7 +45,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_sqlcipher/sqlite_api.dart' show SqlCipherOpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
-import '../../../../../security/fingerprint.dart';
+import '../../../../../storage/secure_storage.dart' show Fingerprint;
 import 'schema/schema.dart';
 import 'query/sort_order.dart';
 

@@ -41,7 +41,7 @@ import 'dart:io';
 
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
-import 'package:fiber_pylon/src/security/fingerprint.dart' show SecretStore;
+import 'package:fiber_pylon/src/storage/secure_storage.dart' show SecretStore;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
@@ -603,8 +603,8 @@ void main() {
 
     test('is accepted when it is the same fingerprint, however it was obtained', () async {
       final store = <String, String>{};
-      final first = await Fingerprint.load(store: _MapStore(store));
-      final again = await Fingerprint.load(store: _MapStore(store));
+      final first = (await SecureStorage.load(store: _MapStore(store))).loadedFingerprint;
+      final again = (await SecureStorage.load(store: _MapStore(store))).loadedFingerprint;
       final keyed = LocalDatabase.declared(name: 'keyed.db', tables: [notes], fingerprint: first);
       await keyed.open();
 
@@ -783,5 +783,11 @@ final class _MapStore implements SecretStore {
   Future<String?> read(String name) async => values[name];
 
   @override
+  Future<Map<String, String>> readAll() async => {...values};
+
+  @override
   Future<void> write(String name, String value) async => values[name] = value;
+
+  @override
+  Future<void> delete(String name) async => values.remove(name);
 }

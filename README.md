@@ -23,7 +23,7 @@ what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
-`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `ValkeryStorage`, `AppStorage`, `Fingerprint`,
+`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `ValkeryStorage`, `SecureStorage`, `AppStorage`,
 `Database`, `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
 second time.
 
@@ -341,6 +341,27 @@ instead of minting a new one, since that would orphan the file.
 - The encryption itself is SQLCipher's, which the test suite does not have on the desktop: it
   is checked on a device, and the tests prove what surrounds it.
 
+### The secrets
+
+`SecureStorage` is the operating system's vault as typed entries, in the same style as
+`ValkeryStorage`: registered by `configureSdk()`, first of everything, and reached through static
+factories without holding a reference of its own.
+
+```dart
+class AppSecrets {
+  late final refreshToken = SecureStorage.string_('refresh_token', '');
+  late final pin = SecureStorage.bytes_('pin_hash', Uint8List(0));
+}
+
+await AppSecrets().refreshToken.set(token); // in the vault first, then the entry changes
+final token = AppSecrets().refreshToken();  // answered at once, from what was read at launch
+```
+
+The entries are `string_`, `bytes_`, `int_` and `bool_`, each with a default and a stream, and a
+write that the vault refuses leaves the entry as it was. The app's fingerprint is held by the same
+storage, as `SecureStorage.fingerprint`, and is not an entry: it cannot be read, replaced or
+cleared through one. Keys that start with `pylon.` are the package's own.
+
 ### The tables
 
 A table is declared once, as a class, and the engine creates it, adds the columns it gained,
@@ -452,8 +473,8 @@ Tenant.leave();         // on sign-out
 only opened by the app's fingerprint:
 
 ```dart
-final everything = db.users.onWholeDatabase(Fingerprint.instance); // reads and edits across tenants
-final whole = db.wholeDatabase(Fingerprint.instance);
+final everything = db.users.onWholeDatabase(SecureStorage.fingerprint); // reads and edits across tenants
+final whole = db.wholeDatabase(SecureStorage.fingerprint);
 await whole.tenants();                       // every tenant that holds rows
 await whole.transfer(from: 'a', to: 'b');    // move one tenant's rows to another
 await whole.purge('a');                      // delete one tenant's rows
@@ -462,7 +483,7 @@ await whole.purge('a');                      // delete one tenant's rows
 Any other fingerprint is refused, and so is a database that was opened without one. The raw
 calls of `AppStorage` — `execute`, `insert`, `query`, `rawQuery`, `update`, `delete`,
 `transaction`, `batch`, `tableExists`, `tableNames`, `columns`, `checkpoint` — read the whole
-database too, so each takes the fingerprint first: `AppStorage.rawQuery(Fingerprint.instance, sql)`.
+database too, so each takes the fingerprint first: `AppStorage.rawQuery(SecureStorage.fingerprint, sql)`.
 
 The engine itself — `LocalDatabase`, the schema DSL, the migrations — is the package's own
 plumbing and is not exported.

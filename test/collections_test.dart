@@ -622,7 +622,7 @@ void main() {
     });
 
     test('reads every tenant, and says whose each document is', () async {
-      final rows = await db.users.onWholeDatabase(Fingerprint.instance).orderBy([
+      final rows = await db.users.onWholeDatabase(SecureStorage.fingerprint).orderBy([
         db.usersTable.id.asc(),
       ]).listWithTenants();
 
@@ -630,7 +630,7 @@ void main() {
     });
 
     test('lists the tenants and moves rows between them', () async {
-      final whole = db.wholeDatabase(Fingerprint.instance);
+      final whole = db.wholeDatabase(SecureStorage.fingerprint);
 
       expect(await whole.tenants(), ['a', 'b']);
       expect(await whole.transfer(from: 'a', to: 'c'), 1);
