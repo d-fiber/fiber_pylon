@@ -111,7 +111,7 @@ void main() {
       buildNumber: '1',
       buildSignature: '',
     );
-    AppStorage.encryption = EncryptionPolicy.off;
+    LocalDatabase.encryption = EncryptionPolicy.off;
     await GetIt.instance.reset();
   });
 
@@ -385,7 +385,7 @@ void main() {
       await configureSdk();
 
       expect(SecureStorage.string_('token', '')(), 'from the vault');
-      expect(AppStorage.isEncrypted, isFalse);
+      expect(LocalDatabase.isEncrypted, isFalse);
     });
   });
 }

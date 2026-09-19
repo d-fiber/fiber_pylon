@@ -43,7 +43,6 @@
 import 'dart:io';
 
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database, Tenant, Tunnel, TransferConflict;
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 import 'package:sqflite_sqlcipher/sqlite_api.dart' show SqlCipherOpenDatabaseOptions;
@@ -107,13 +106,13 @@ void main() {
 
   group('encrypting a LocalDatabase', () {
     test('needs a fingerprint to derive the key from', () {
-      expect(() => LocalDatabase(name: 'x.db', encrypt: true), throwsArgumentError);
-      expect(() => LocalDatabase.declared(name: 'x.db', tables: const [], encrypt: true), throwsArgumentError);
+      expect(() => LocalDatabase.forTesting(name: 'x.db', encrypt: true), throwsArgumentError);
+      expect(() => LocalDatabase.declaredForTesting(name: 'x.db', tables: const [], encrypt: true), throwsArgumentError);
     });
 
     test('hands SQLCipher a key derived from the fingerprint, never the fingerprint itself', () async {
       final fingerprint = Fingerprint.generate();
-      final db = LocalDatabase(name: 'k.db', factory: factory, fingerprint: fingerprint, encrypt: true);
+      final db = LocalDatabase.forTesting(name: 'k.db', factory: factory, fingerprint: fingerprint, encrypt: true);
 
       await expectLater(db.open(), throwsA(isA<EncryptionUnavailableError>()));
 
@@ -125,8 +124,8 @@ void main() {
     });
 
     test('derives a different key for a different fingerprint', () async {
-      final a = LocalDatabase(name: 'a.db', factory: factory, fingerprint: Fingerprint.generate(), encrypt: true);
-      final b = LocalDatabase(name: 'b.db', factory: factory, fingerprint: Fingerprint.generate(), encrypt: true);
+      final a = LocalDatabase.forTesting(name: 'a.db', factory: factory, fingerprint: Fingerprint.generate(), encrypt: true);
+      final b = LocalDatabase.forTesting(name: 'b.db', factory: factory, fingerprint: Fingerprint.generate(), encrypt: true);
 
       await expectLater(a.open(), throwsA(isA<EncryptionUnavailableError>()));
       await expectLater(b.open(), throwsA(isA<EncryptionUnavailableError>()));
@@ -136,7 +135,7 @@ void main() {
     });
 
     test('refuses to run on a SQLite that is not SQLCipher, and stays closed', () async {
-      final db = LocalDatabase(name: 'plain.db', fingerprint: Fingerprint.generate(), encrypt: true);
+      final db = LocalDatabase.forTesting(name: 'plain.db', fingerprint: Fingerprint.generate(), encrypt: true);
 
       await expectLater(db.open(), throwsA(isA<EncryptionUnavailableError>()));
 
@@ -144,7 +143,7 @@ void main() {
     });
 
     test('writes nothing into a database it refused to open', () async {
-      final db = LocalDatabase(name: 'empty.db', fingerprint: Fingerprint.generate(), encrypt: true);
+      final db = LocalDatabase.forTesting(name: 'empty.db', fingerprint: Fingerprint.generate(), encrypt: true);
 
       await expectLater(db.open(), throwsA(isA<EncryptionUnavailableError>()));
 
@@ -153,7 +152,7 @@ void main() {
     });
 
     test('a database with a fingerprint but no encryption opens as any other', () async {
-      final db = LocalDatabase(name: 'plain_ok.db', factory: factory, fingerprint: Fingerprint.generate());
+      final db = LocalDatabase.forTesting(name: 'plain_ok.db', factory: factory, fingerprint: Fingerprint.generate());
 
       await db.open();
 

@@ -143,7 +143,7 @@ void main() {
     test('creates tables that differences reads as identical to their own declaration', () async {
       final authors = Authors();
       final books = Books();
-      final db = LocalDatabase.declared(name: 'declared_same.db', tables: [authors, books]);
+      final db = LocalDatabase.declaredForTesting(name: 'declared_same.db', tables: [authors, books]);
       await db.open();
 
       expect(await db.differences(authors.declaration), isEmpty);
@@ -153,7 +153,7 @@ void main() {
 
     test('reports a column added to a declared table as a difference the file no longer matches', () async {
       final authors = Authors();
-      final db = LocalDatabase.declared(name: 'declared_drift.db', tables: [authors]);
+      final db = LocalDatabase.declaredForTesting(name: 'declared_drift.db', tables: [authors]);
       await db.open();
       await db.runSql('ALTER TABLE authors ADD COLUMN born INTEGER');
 
@@ -164,7 +164,7 @@ void main() {
     });
 
     test('refuses a foreign key that points at a table it does not declare and closes the file', () async {
-      final db = LocalDatabase.declared(name: 'declared_dangling.db', tables: [Books()]);
+      final db = LocalDatabase.declaredForTesting(name: 'declared_dangling.db', tables: [Books()]);
 
       await expectLater(
         db.open(),
@@ -174,7 +174,7 @@ void main() {
     });
 
     test('opens once the table a foreign key points at is declared too', () async {
-      final db = LocalDatabase.declared(name: 'declared_resolved.db', tables: [Authors(), Books()]);
+      final db = LocalDatabase.declaredForTesting(name: 'declared_resolved.db', tables: [Authors(), Books()]);
 
       await db.open();
 
@@ -183,7 +183,7 @@ void main() {
     });
 
     test('refuses SET NULL on a column that refuses NULL and creates nothing', () async {
-      final db = LocalDatabase.declared(name: 'declared_set_null.db', tables: [Authors(), Reviews()]);
+      final db = LocalDatabase.declaredForTesting(name: 'declared_set_null.db', tables: [Authors(), Reviews()]);
 
       await expectLater(
         db.open(),
@@ -195,7 +195,7 @@ void main() {
     test('enforces the foreign keys it declares, since LocalDatabase turns them on for every connection', () async {
       final authors = Authors();
       final books = Books();
-      final db = LocalDatabase.declared(name: 'declared_enforced.db', tables: [authors, books]);
+      final db = LocalDatabase.declaredForTesting(name: 'declared_enforced.db', tables: [authors, books]);
       await db.open();
       final ada = await authors.on(db).insert(const Author(name: 'Ada'));
       await books.on(db).insert(Book(title: 'Notes', authorId: ada.id));

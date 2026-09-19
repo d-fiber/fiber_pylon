@@ -38,7 +38,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/schema/schema.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
@@ -350,7 +349,7 @@ void main() {
             },
           );
 
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'schema_todos.db',
         onCreate: (db, version) async {
           for (final statement in declared.statements) {
@@ -378,7 +377,7 @@ void main() {
     });
 
     LocalDatabase openDeclared(String name, DeclaredTable declared, {Future<void> Function(Database)? onConfigure}) =>
-        LocalDatabase(
+        LocalDatabase.forTesting(
           name: name,
           onConfigure: onConfigure,
           onCreate: (db, version) async {
@@ -455,7 +454,7 @@ void main() {
           ),
         },
       );
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'schema_deferred.db',
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
@@ -483,7 +482,7 @@ void main() {
           'parent_id': c.integer().references(const ColumnReference(table: 'parents', column: 'id')),
         },
       );
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'schema_immediate.db',
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
@@ -507,7 +506,7 @@ void main() {
         'todos',
       ).checks((ck) => [ck.expression('length(title) > 0')]).columns((c) => {'title': c.text().isNullable(false)});
 
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'schema_check.db',
         onCreate: (db, version) async {
           for (final statement in declared.statements) {
@@ -528,7 +527,7 @@ void main() {
     test('a STRICT table refuses a value that does not match its column type', () async {
       final declared = TableBuilder('kv').strict().columns((c) => {'key': c.text().isPrimary(), 'value': c.integer()});
 
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'schema_strict.db',
         onCreate: (db, version) async {
           for (final statement in declared.statements) {

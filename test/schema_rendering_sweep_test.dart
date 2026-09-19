@@ -36,7 +36,6 @@
 import 'dart:typed_data';
 
 import 'package:fiber_pylon/fiber_pylon.dart';
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/schema/schema.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
@@ -163,7 +162,7 @@ void main() {
   });
 
   Future<LocalDatabase> openMemory(List<String> statements) async {
-    final db = LocalDatabase(
+    final db = LocalDatabase.forTesting(
       name: inMemoryDatabasePath,
       singleInstance: false,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),

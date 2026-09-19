@@ -40,7 +40,6 @@ import '../../../../storage/secure_storage.dart' show Fingerprint;
 import '../../client.dart';
 import '../../environments.dart';
 import '../local_sdk.dart';
-import 'engine/app.dart' show AppStorage;
 import 'engine/database.dart';
 
 part 'collection.dart';
@@ -89,7 +88,7 @@ part 'write_batch.dart';
 /// A [Database] is a [LocalSdkClient], so it gets [initialize], [dispose] and
 /// [Database.instance] the way every pylon client does, and is `base`: a
 /// project's subclass is `final` or `base` too. It needs `configureSdk` to have
-/// run, since it lives in [AppStorage].
+/// run, since it lives in [LocalDatabase].
 abstract base class Database extends LocalSdkClient {
   /// The [T] that last reached the end of [initialize].
   ///
@@ -107,7 +106,7 @@ abstract base class Database extends LocalSdkClient {
   /// A collection missing from this list has no table: reading it fails.
   List<Collection<Object, Object>> get collections;
 
-  /// Checks that [AppStorage] is ready, declares the tables of [collections],
+  /// Checks that [LocalDatabase] is ready, declares the tables of [collections],
   /// then registers this database under its own type so [Database.instance] can
   /// hand it back.
   ///
@@ -117,11 +116,11 @@ abstract base class Database extends LocalSdkClient {
   Future<void> initialize() async {
     if (isInitialized) return;
     try {
-      AppStorage.database;
+      LocalDatabase.instance;
     } on StateError catch (error) {
       throw StateError('$runtimeType needs configureSdk() to have run first: ${error.message}');
     }
-    await AppStorage.declare([for (final collection in collections) collection.table]);
+    await LocalDatabase.declare([for (final collection in collections) collection.table]);
     await super.initialize();
   }
 
@@ -140,21 +139,21 @@ abstract base class Database extends LocalSdkClient {
   /// SQLite runs one transaction at a time, so there is no conflict to retry.
   Future<R> runTransaction<R>(Future<R> Function(Transaction transaction) action) {
     final tenant = Tenant.current;
-    return AppStorage.database.runTransaction((txn) => action(Transaction._(txn, tenant)));
+    return LocalDatabase.instance.runTransaction((txn) => action(Transaction._(txn, tenant)));
   }
 
   /// Moves every anonymous row — what was saved before anyone signed in — to
   /// the current [Tenant], in every isolated table, and answers how many moved.
   /// See [LocalDatabaseTenants.adoptAnonymousRows].
   Future<int> adoptAnonymousRows({TransferConflict onConflict = TransferConflict.keepTarget}) =>
-      AppStorage.database.adoptAnonymousRows(onConflict: onConflict);
+      LocalDatabase.instance.adoptAnonymousRows(onConflict: onConflict);
 
   /// Removes every row of the current [Tenant], in every isolated table: the
   /// account is deleted. See [LocalDatabaseTenants.purgeCurrentTenant].
-  Future<void> purgeCurrentTenant() => AppStorage.database.purgeCurrentTenant();
+  Future<void> purgeCurrentTenant() => LocalDatabase.instance.purgeCurrentTenant();
 
   /// The whole-database mechanism: listing the tenants, removing one's rows,
   /// moving rows from one tenant to another. Opened only by the app's
   /// [Fingerprint]; a [StateError] answers any other.
-  WholeAccess wholeDatabase(Fingerprint fingerprint) => AppStorage.database.wholeDatabase(fingerprint);
+  WholeAccess wholeDatabase(Fingerprint fingerprint) => LocalDatabase.instance.wholeDatabase(fingerprint);
 }

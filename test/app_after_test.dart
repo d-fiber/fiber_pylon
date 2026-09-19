@@ -38,7 +38,6 @@ import 'dart:io';
 
 import 'package:equatable/equatable.dart';
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 import 'package:uuid/uuid.dart';
@@ -200,7 +199,7 @@ final todoTags = TodoTags();
 final notes = Notes();
 
 final class TodoStore {
-  TodoStore() : db = LocalDatabase.declared(name: 'app.db', tables: [todos, tags, todoTags, notes]);
+  TodoStore() : db = LocalDatabase.declaredForTesting(name: 'app.db', tables: [todos, tags, todoTags, notes]);
 
   final LocalDatabase db;
 
@@ -287,7 +286,7 @@ void main() {
   });
 
   test('a version 1 file gains its due column with no migration code', () async {
-    final v1 = LocalDatabase(
+    final v1 = LocalDatabase.forTesting(
       name: 'app.db',
       version: 1,
       onCreate: (db, version) => db.execute(

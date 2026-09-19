@@ -36,16 +36,21 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File, Platform;
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
-import 'package:meta/meta.dart' show internal;
+import 'package:get_it/get_it.dart' show GetIt;
+import 'package:injectable/injectable.dart' show FactoryMethod, Singleton, disposeMethod;
+import 'package:meta/meta.dart' show internal, visibleForTesting;
+import 'package:package_info_plus/package_info_plus.dart' show PackageInfo;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart' as cipher show databaseFactory;
 import 'package:sqflite_sqlcipher/sqlite_api.dart' show SqlCipherOpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
-import '../../../../../storage/secure_storage.dart' show Fingerprint;
+import '../../../../../storage/secure_storage.dart' show Fingerprint, SecureStorage;
 import 'schema/schema.dart';
 import 'query/sort_order.dart';
 
@@ -78,103 +83,56 @@ part 'table/tenant.dart';
 part 'table/reactive.dart';
 part 'table/session.dart';
 part 'table/declared.dart';
+part 'lifecycle/health.dart';
 
-/// A local SQLite database, opened once and reused — the same open, create,
-/// migrate and close lifecycle every sqflite-backed store in pylon would
-/// otherwise hand-roll for itself.
-///
-/// Unlike [LocalStorage] — a key-value cache with one fixed table it never
-/// lets a caller see the shape of — this assumes nothing about what tables
-/// exist or what a row looks like: a project (or another pylon primitive)
-/// supplies its own schema through [onCreate] and [onUpgrade], then reads
-/// and writes it through [insert], [query], [update], [delete], raw SQL and
-/// [transaction], typed throughout on [Value] and [RawRow] rather than
-/// `Object?`. This adds only the lifecycle sqflite leaves to the caller; it
-/// never reinterprets a column, a table name or a query as meaning
-/// something.
+/// The one SQLite database of the app, named after the app itself in snake
+/// case (`my_app.db`), opened once when `configureSdk` runs and closed by
+/// `GetIt.reset`. A project neither creates it nor opens it: it calls the
+/// static methods below, or reaches it through the layer above, with
+/// [TypedTable] classes declared in a `Database`.
 ///
 /// ```dart
-/// class Todo implements Storable {
-///   Todo({required this.title, required this.done});
-///   final String title;
-///   final bool done;
-///
-///   static Todo fromRow(RawRow row) => Todo(
-///     title: row.required('title').asString,
-///     done: row.required('done').asBoolean,
-///   );
-///
-///   @override
-///   RawRow toRow() => {'title': Value.varchar(title), 'done': Value.boolean(done)};
-/// }
-///
-/// final db = LocalDatabase(
-///   name: 'app.db',
-///   version: 1,
-///   onCreate: (db, version) => db.execute(
-///     'CREATE TABLE todos ('
-///     'id INTEGER PRIMARY KEY AUTOINCREMENT, '
-///     'title TEXT NOT NULL, '
-///     'done INTEGER NOT NULL DEFAULT 0'
-///     ')',
-///   ),
-/// );
-/// await db.open();
-///
-/// final id = await db.insert<Todo>((i) => i.into('todos').values(Todo(title: 'Ship it', done: false)));
-/// final open = await db.query<Todo>(
-///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false))).map(Todo.fromRow),
-/// );
-/// await db.update<Todo>(
-///   (u) => u
-///       .table('todos')
-///       .set(Todo(title: 'Ship it', done: true))
-///       .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
-/// );
-/// await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))));
+/// final id = await LocalDatabase.insert<Todo>((i) => i.into('todos').values(todo));
+/// final todos = await LocalDatabase.query<Todo>((q) => q.from('todos').map(Todo.fromRow));
 /// ```
 ///
-/// Tables declared as [TypedTable] classes replace the strings, the
-/// callbacks and the row maps above. [LocalDatabase.declared] creates and
-/// migrates them, and each column is a typed [Field], so a filter
-/// takes the Dart type of its own column:
+/// The static methods reach the whole database, every tenant included, and
+/// present the app's own [Fingerprint] (`SecureStorage.fingerprint`) for the
+/// caller. The file is created empty on a first launch, used as it is when it
+/// reads fine, and deleted and created again when it is corrupted, in which
+/// case its content is lost.
 ///
-/// ```dart
-/// final db = LocalDatabase.declared(name: 'app.db', tables: [todos]);
-///
-/// final saved = await todos.on(db).insert(Todo(title: 'Ship it'));
-/// final open = await todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.title.asc()]).list();
-/// await todos.on(db).where(todos.id.isEqualTo(saved.id!)).update([todos.done.to(true)]);
-/// final total = await todos.on(db).count();
-/// ```
+/// It carries no schema of its own: whoever uses it creates the tables it
+/// needs with `CREATE TABLE IF NOT EXISTS`, or declares [TypedTable] classes,
+/// since the file may be a fresh one on any launch.
 ///
 /// A [DatabaseException] sqflite itself throws never escapes: every method
-/// below throws the [StoreError] [StoreError.from] reads out
-/// of it instead, so a caller matches a closed set of reasons rather than
-/// sqflite's own message text. A call made before [open] or after [dispose]
-/// throws a [StateError] instead, and a value SQLite cannot store, such as a
-/// NaN, throws an [ArgumentError]: those are mistakes in the code, not
-/// failures of the database.
-///
-/// [SqfliteSyncStore] and [SqfliteMutationStore] each open their own
-/// database and hand-roll this exact lifecycle today; moving them onto this
-/// instead is a later, separate change, not something this file does on its
-/// own.
-///
-/// Deliberately absent: encryption (swap [factory] for one such as
-/// `sqflite_sqlcipher`'s own instead), backup/restore (checkpoint through
-/// [checkpoint] first, then copy the file — and its `-wal`/`-shm` siblings —
-/// with `dart:io` directly), `VACUUM` (run `execute('VACUUM')` directly; it
-/// is rare enough, and expensive enough, to not deserve its own method).
+/// throws the [StoreError] [StoreError.from] reads out of it instead, so a
+/// caller matches a closed set of reasons rather than sqflite's own message
+/// text. A call made before [open] or after [dispose] throws a [StateError]
+/// instead, and a value SQLite cannot store, such as a NaN, throws an
+/// [ArgumentError]: those are mistakes in the code, not failures of the
+/// database.
 ///
 /// Every write made through this class tells the streams watching the tables
-/// it touched (see [Rows.watch]): a typed write, [insert], [update],
-/// [delete], a [batch] and a [transaction] — the last one only once it has
-/// committed, and not at all when it rolls back. A raw [execute] or a [batch]
-/// cannot say which table it changed, so it tells every watcher, and each one
-/// reads again and stays quiet when nothing it watches differs. A write made
-/// by another process, or by another [LocalDatabase] on the same file, is not
-/// heard.
+/// it touched (see [Rows.watch]): a typed write, [insert], [update], [delete],
+/// a [batch] and a [transaction], the last one only once it has committed, and
+/// not at all when it rolls back. A raw [execute] or a [batch] cannot say which
+/// table it changed, so it tells every watcher, and each one reads again and
+/// stays quiet when nothing it watches differs.
+///
+/// A test builds its own with [LocalDatabase.forTesting] or
+/// [LocalDatabase.declaredForTesting], which take a name, a version, the
+/// SQLite callbacks and a [DatabaseFactory], and reaches it through the
+/// instance methods (`runInsert`, `runQuery` and their siblings): those carry
+/// other names than the static ones, since Dart does not allow a static and an
+/// instance member of the same name.
+///
+/// Deliberately absent: backup and restore (call [checkpoint] first, then copy
+/// the file, and its `-wal` and `-shm` siblings, with `dart:io` directly) and
+/// `VACUUM` (run `execute('VACUUM')`; it is rare enough, and expensive enough,
+/// to not deserve its own method).
+@Singleton()
 class LocalDatabase extends Connection {
   final String _name;
   final int _version;
@@ -230,7 +188,8 @@ class LocalDatabase extends Connection {
   /// derived from [fingerprint], so a copy of it cannot be read without it. That
   /// needs a SQLCipher [factory]; on a SQLite that is not one, [open] throws a
   /// [EncryptionUnavailableError] instead of writing the file in clear.
-  LocalDatabase({
+  @visibleForTesting
+  LocalDatabase.forTesting({
     required String name,
     int version = 1,
     OnDatabaseConfigureFn? onConfigure,
@@ -288,7 +247,8 @@ class LocalDatabase extends Connection {
   /// [TypedTable] describes, such as one reached only through [execute] and
   /// [rawQuery]. [readOnly] opens the file as it is, with no schema work.
   /// [singleInstance] and [factory] are the ones the default constructor takes.
-  LocalDatabase.declared({
+  @visibleForTesting
+  LocalDatabase.declaredForTesting({
     required String name,
     required List<TypedTable<Object>> tables,
     List<DeclaredTable> declarations = const [],
@@ -321,6 +281,110 @@ class LocalDatabase extends Connection {
       throw ArgumentError.value(encrypt, 'encrypt', 'needs a fingerprint to derive the key from');
     }
   }
+
+  LocalDatabase._app({
+    required String name,
+    required DatabaseFactory factory,
+    required Fingerprint? fingerprint,
+    required bool encrypt,
+  }) : this.forTesting(name: name, factory: factory, fingerprint: fingerprint, encrypt: encrypt);
+
+  /// Whether the app database is encrypted, by a key derived from the app's own
+  /// [Fingerprint], so that a copy of the file cannot be read without it.
+  ///
+  /// `false` when [encryption] is [EncryptionPolicy.whenAvailable] and the
+  /// platform has no SQLCipher: the data is then in clear, and this is how a
+  /// project finds out.
+  static bool get isEncrypted => instance.encrypted;
+
+  /// Whether the app database is encrypted, decided when `configureSdk` opens
+  /// it: set it before that call.
+  static EncryptionPolicy encryption = EncryptionPolicy.whenAvailable;
+
+  /// Resolves the [LocalDatabase] `configureSdk` registers.
+  ///
+  /// Marked [FactoryMethod.preResolve] so `configureSdk` awaits the open, and
+  /// any repair it needs, before registering the result.
+  @internal
+  @FactoryMethod(preResolve: true)
+  static Future<LocalDatabase> initialize(SecureStorage secureStorage) =>
+      _openAppDatabase(fingerprint: SecureStorage.fingerprint, encryption: encryption);
+
+  /// Opens `<app name>.db` in [factory]'s databases directory, with the repair
+  /// [initialize] gives the real one, for a test that points it at a temporary
+  /// directory. The [appName] is what the platform would say.
+  @visibleForTesting
+  static Future<LocalDatabase> openForTesting({
+    String? appName,
+    DatabaseFactory? factory,
+    Fingerprint? fingerprint,
+    EncryptionPolicy encryption = EncryptionPolicy.whenAvailable,
+  }) => _openAppDatabase(appName: appName, factory: factory, fingerprint: fingerprint, encryption: encryption);
+
+  /// The app database, for what is inside the package: the typed tables and
+  /// the tenant mechanism, which reach only what they are meant to.
+  ///
+  /// Not for a project. Reading the database as a whole is what the static
+  /// calls below are for.
+  @internal
+  static LocalDatabase get instance => GetIt.instance<LocalDatabase>();
+
+  /// Declares [tables] on the app database, creating what they declare. See
+  /// [declareTables].
+  @internal
+  static Future<void> declare(List<TypedTable<Object>> tables) => instance.declareTables(tables);
+
+  /// Changes each time `configureSdk` registers a new [LocalDatabase], so
+  /// something that prepared the database once (a table it created, say) can
+  /// tell that what it prepared is no longer the one in use.
+  @internal
+  static Object get generation => instance;
+
+  static LocalDatabase get _whole {
+    final db = instance;
+    db.wholeDatabase(SecureStorage.fingerprint);
+    return db;
+  }
+
+  /// Runs [sql] on the app database. See [runSql]. Like every static call
+  /// below, it reaches the whole database, every tenant included.
+  static Future<void> execute(String sql, [List<Value>? arguments]) => _whole.runSql(sql, arguments);
+
+  /// See [runInsert].
+  static Future<int> insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) =>
+      _whole.runInsert<T>(build);
+
+  /// See [runQuery].
+  static Future<List<T>> query<T extends Object>(QueryFrom<T> Function(Select<T> query) build) =>
+      _whole.runQuery<T>(build);
+
+  /// See [runRawQuery].
+  static Future<List<RawRow>> rawQuery(String sql, [List<Value>? arguments]) => _whole.runRawQuery(sql, arguments);
+
+  /// See [runUpdate].
+  static Future<int> update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) =>
+      _whole.runUpdate<T>(build);
+
+  /// See [runDelete].
+  static Future<int> delete(DeleteFrom Function(Delete delete) build) => _whole.runDelete(build);
+
+  /// See [runTransaction].
+  static Future<T> transaction<T>(Future<T> Function(TransactionScope txn) action) => _whole.runTransaction<T>(action);
+
+  /// See [newBatch].
+  static StatementBatch batch() => _whole.newBatch();
+
+  /// See [hasTable].
+  static Future<bool> tableExists(String table) => _whole.hasTable(table);
+
+  /// See [listTables].
+  static Future<List<String>> tableNames() => _whole.listTables();
+
+  /// See [listColumns].
+  static Future<List<ColumnInfo>> columns(String table) => _whole.listColumns(table);
+
+  /// See [runCheckpoint].
+  static Future<void> checkpoint() => _whole.runCheckpoint();
 
   /// Whether [open] has run and [dispose] has not undone it.
   bool get isOpen => _db?.isOpen ?? false;
@@ -692,6 +756,7 @@ class LocalDatabase extends Connection {
   /// file open behind it. When another [LocalDatabase] with `singleInstance`
   /// holds the same file open, the file stays open until the last of them is
   /// disposed.
+  @disposeMethod
   Future<void> dispose() async {
     final opening = _opening;
     if (opening != null) await opening.then<void>((_) {}, onError: (Object _) {});

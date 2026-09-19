@@ -69,16 +69,16 @@ final class Collection<R extends Object, K extends Object> extends Query<R, K> {
   /// Throws a `UniqueConstraintError` when a document already has that
   /// key: use [DocumentReference.set] to overwrite one.
   Future<DocumentReference<R, K>> add(R record) async {
-    final saved = await _table.on(AppStorage.database).insert(record);
+    final saved = await _table.on(LocalDatabase.instance).insert(record);
     return doc(_table.keyOf(saved) ?? (throw StateError('${_table.tableName} kept a record with no key.')));
   }
 
   /// Removes every document of the current tenant, keeping the table.
-  Future<void> clear() => _table.on(AppStorage.database).deleteAll();
+  Future<void> clear() => _table.on(LocalDatabase.instance).deleteAll();
 
   /// This collection across every tenant: the whole-database mechanism, opened
   /// only by the app's [Fingerprint]. It reads, and edits or removes what a
   /// filter keeps; see [WholeRows].
   WholeRows<R> onWholeDatabase(Fingerprint fingerprint) =>
-      _table.onWholeDatabase(AppStorage.database, fingerprint);
+      _table.onWholeDatabase(LocalDatabase.instance, fingerprint);
 }

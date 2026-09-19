@@ -96,16 +96,16 @@ class Query<R extends Object, K extends Object> {
 
   /// Runs the query once.
   Future<QuerySnapshot<R, K>> get() async {
-    final documents = _documentsOf(_table, await _rows(AppStorage.database).list());
+    final documents = _documentsOf(_table, await _rows(LocalDatabase.instance).list());
     return QuerySnapshot._(documents, _diff(_table, null, documents));
   }
 
   /// The first document the query keeps, or `null` when it keeps none.
-  Future<R?> first() => _rows(AppStorage.database).first();
+  Future<R?> first() => _rows(LocalDatabase.instance).first();
 
   /// How many documents match. Throws a [StateError] when a [limit] or an
   /// [offset] was set, which a count would silently ignore.
-  Future<int> count() => _rows(AppStorage.database).count();
+  Future<int> count() => _rows(LocalDatabase.instance).count();
 
   /// Runs the query now, then again after every write to its collection made
   /// through the engine, emitting a [QuerySnapshot] each time the result
@@ -118,7 +118,7 @@ class Query<R extends Object, K extends Object> {
   Stream<QuerySnapshot<R, K>> snapshots() {
     List<QueryDocumentSnapshot<R, K>>? previous;
     String? previousTenant;
-    return _rows(AppStorage.database).watch().map((records) {
+    return _rows(LocalDatabase.instance).watch().map((records) {
       final tenant = Tenant.current;
       if (_table.tunnel == Tunnel.isolated && tenant != previousTenant) previous = null;
       previousTenant = tenant;

@@ -75,7 +75,7 @@ void main() {
     databaseFactoryFfi.setDatabasesPath(directory.path);
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
-    AppStorage.encryption = EncryptionPolicy.off;
+    LocalDatabase.encryption = EncryptionPolicy.off;
     PackageInfo.setMockInitialValues(
       appName: 'pylon_test',
       packageName: 'dev.fiber.pylon_test',

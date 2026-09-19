@@ -228,7 +228,7 @@ void main() {
     profiles = Profiles();
     comments = Comments(notes);
     settings = Settings();
-    db = LocalDatabase.declared(
+    db = LocalDatabase.declaredForTesting(
       name: 'tenants.db',
       tables: [notes, profiles, comments, settings],
       fingerprint: fingerprint,
@@ -585,7 +585,7 @@ void main() {
 
   group('the fingerprint that opens the whole database', () {
     test('is refused when the database was opened without one', () async {
-      final bare = LocalDatabase.declared(name: 'bare.db', tables: [notes]);
+      final bare = LocalDatabase.declaredForTesting(name: 'bare.db', tables: [notes]);
       await bare.open();
 
       expect(() => notes.onWholeDatabase(bare, fingerprint), throwsStateError);

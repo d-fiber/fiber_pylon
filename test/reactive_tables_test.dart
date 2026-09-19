@@ -113,7 +113,7 @@ void main() {
     databaseFactoryFfi.setDatabasesPath(directory.path);
     notes = Notes();
     tags = Tags();
-    db = LocalDatabase.declared(name: 'reactive.db', tables: [notes, tags]);
+    db = LocalDatabase.declaredForTesting(name: 'reactive.db', tables: [notes, tags]);
     await db.open();
   });
 

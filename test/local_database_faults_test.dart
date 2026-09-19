@@ -37,7 +37,6 @@
 import 'dart:io';
 
 import 'package:fiber_pylon/fiber_pylon.dart';
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
@@ -102,7 +101,7 @@ void main() {
     bool singleInstance = true,
     OnDatabaseConfigureFn? onConfigure,
   }) async {
-    final db = LocalDatabase(
+    final db = LocalDatabase.forTesting(
       name: name,
       singleInstance: singleInstance,
       onConfigure: onConfigure,
@@ -311,7 +310,7 @@ void main() {
 
     test('reports a write that meets another connection lock as BusyError', () async {
       final holder = await openWith('error_busy.db', [_notes], singleInstance: false);
-      final waiter = LocalDatabase(name: 'error_busy.db', singleInstance: false);
+      final waiter = LocalDatabase.forTesting(name: 'error_busy.db', singleInstance: false);
       await waiter.open();
       await holder.runSql('BEGIN IMMEDIATE');
 
@@ -326,7 +325,7 @@ void main() {
 
     test('reports a file that is not a database as CorruptError', () async {
       File('${directory.path}/garbage.db').writeAsBytesSync(List.filled(4096, 7));
-      final db = LocalDatabase(name: 'garbage.db');
+      final db = LocalDatabase.forTesting(name: 'garbage.db');
 
       await expectLater(db.open(), throwsA(isA<CorruptError>()));
     });
@@ -343,7 +342,7 @@ void main() {
     });
 
     test('reports a read only open of a file that does not exist as OpenFailedError', () async {
-      final db = LocalDatabase(name: 'absent.db', readOnly: true);
+      final db = LocalDatabase.forTesting(name: 'absent.db', readOnly: true);
 
       await expectLater(db.open(), throwsA(isA<OpenFailedError>()));
     });
@@ -387,12 +386,12 @@ void main() {
     });
 
     test('opens a read only database whose stored version differs from the requested one', () async {
-      final writer = LocalDatabase(name: 'readonly_version.db', version: 3, onCreate: (d, v) => d.execute(_notes));
+      final writer = LocalDatabase.forTesting(name: 'readonly_version.db', version: 3, onCreate: (d, v) => d.execute(_notes));
       await writer.open();
       await writer.runSql("INSERT INTO notes (body) VALUES ('kept')");
       await writer.dispose();
 
-      final reader = LocalDatabase(name: 'readonly_version.db', version: 1, readOnly: true);
+      final reader = LocalDatabase.forTesting(name: 'readonly_version.db', version: 1, readOnly: true);
 
       await expectLater(reader.open(), completes, reason: 'a read only open cannot rewrite the stored version');
       expect(await countOf(reader, 'notes'), 1);
@@ -400,12 +399,12 @@ void main() {
     });
 
     test('never runs onCreate, onUpgrade or onDowngrade on a read only database', () async {
-      final writer = LocalDatabase(name: 'readonly_calls.db', version: 3, onCreate: (d, v) => d.execute(_notes));
+      final writer = LocalDatabase.forTesting(name: 'readonly_calls.db', version: 3, onCreate: (d, v) => d.execute(_notes));
       await writer.open();
       await writer.dispose();
       final calls = <String>[];
 
-      final reader = LocalDatabase(
+      final reader = LocalDatabase.forTesting(
         name: 'readonly_calls.db',
         version: 5,
         readOnly: true,
@@ -421,7 +420,7 @@ void main() {
 
     test('keeps the file open for another instance when one of two instances on it is disposed', () async {
       final first = await openWith('shared_file.db', [_notes]);
-      final second = LocalDatabase(name: 'shared_file.db');
+      final second = LocalDatabase.forTesting(name: 'shared_file.db');
       await second.open();
 
       await first.dispose();
@@ -433,7 +432,7 @@ void main() {
 
     test('runs onConfigure once when open is called twice at the same time', () async {
       var configured = 0;
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'double_open.db',
         singleInstance: false,
         onConfigure: (database) async => configured++,
@@ -446,7 +445,7 @@ void main() {
     });
 
     test('leaves the database closed when dispose is called right after an open that was not awaited', () async {
-      final db = LocalDatabase(name: 'open_then_dispose.db');
+      final db = LocalDatabase.forTesting(name: 'open_then_dispose.db');
 
       final opening = db.open();
       final disposing = db.dispose();

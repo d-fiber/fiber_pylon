@@ -69,29 +69,29 @@ final class DocumentReference<R extends Object, K extends Object> {
   KeyedTable<R, K> get _table => parent.table;
 
   /// Reads the document, which need not exist: check [DocumentSnapshot.exists].
-  Future<DocumentSnapshot<R, K>> get() async => _read(_table.on(AppStorage.database));
+  Future<DocumentSnapshot<R, K>> get() async => _read(_table.on(LocalDatabase.instance));
 
   /// Writes [record] as this document, replacing what it held.
   ///
   /// Throws an [ArgumentError] when the record carries another key than this
   /// reference's: a document is written under its own key.
-  Future<void> set(R record) => _set(_table.on(AppStorage.database), record);
+  Future<void> set(R record) => _set(_table.on(LocalDatabase.instance), record);
 
   /// Changes only the columns [assignments] name, leaving the rest as they are:
   /// `users.doc('ada').update([usersTable.age.incrementBy(1), usersTable.city.to('Paris')])`.
   ///
   /// Throws a [DocumentNotFoundError] when the document does not exist.
-  Future<void> update(List<Assignment> assignments) => _update(_table.on(AppStorage.database), assignments);
+  Future<void> update(List<Assignment> assignments) => _update(_table.on(LocalDatabase.instance), assignments);
 
   /// Removes the document. Removing one that does not exist is not an error.
-  Future<void> delete() => _delete(_table.on(AppStorage.database));
+  Future<void> delete() => _delete(_table.on(LocalDatabase.instance));
 
   /// Reads the document now, then again after every write to it, emitting a
   /// [DocumentSnapshot] each time it differs. Nothing runs until the stream is
   /// listened to. On an isolated collection it follows [Tenant]: after
   /// [Tenant.use] it emits the new tenant's document, never the previous one's.
   Stream<DocumentSnapshot<R, K>> snapshots() =>
-      _table.on(AppStorage.database).watchOne(id).map((record) => DocumentSnapshot<R, K>._(id, record));
+      _table.on(LocalDatabase.instance).watchOne(id).map((record) => DocumentSnapshot<R, K>._(id, record));
 
   Future<DocumentSnapshot<R, K>> _read(KeyedAccess<R, K> access) async =>
       DocumentSnapshot<R, K>._(id, await access.get(id));

@@ -42,7 +42,6 @@ import 'dart:io';
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/app.dart' show openAppDatabase;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -61,7 +60,7 @@ class _Note implements Storable {
 }
 
 Future<List<String>> _bodies() =>
-    AppStorage.query<String>(SecureStorage.fingerprint, (q) => q.from('notes').map((row) => row['body']!.asString));
+    LocalDatabase.query<String>((q) => q.from('notes').map((row) => row['body']!.asString));
 
 const _fingerprintName = 'pylon.fingerprint.v1';
 
@@ -84,38 +83,55 @@ void main() {
 
   File file(String name) => File(p.join(directory.path, name));
 
-  group('openAppDatabase', () {
+  group('LocalDatabase.openForTesting', () {
     test('creates <app>.db on the first launch', () async {
-      expect(file('Fiber.db').existsSync(), isFalse);
+      expect(file('fiber.db').existsSync(), isFalse);
 
-      final db = await openAppDatabase(appName: 'Fiber');
+      final db = await LocalDatabase.openForTesting(appName: 'Fiber');
 
       expect(db.isOpen, isTrue);
-      expect(file('Fiber.db').existsSync(), isTrue);
+      expect(file('fiber.db').existsSync(), isTrue);
       await db.dispose();
     });
 
     test('replaces characters a file name cannot hold', () async {
-      final db = await openAppDatabase(appName: 'a/b:c');
+      final db = await LocalDatabase.openForTesting(appName: 'a/b:c');
 
       expect(file('a_b_c.db').existsSync(), isTrue);
       await db.dispose();
     });
 
+    test('names the file after the app in snake case', () async {
+      final expected = {
+        'MyApp': 'my_app.db',
+        'My App': 'my_app.db',
+        'my-app': 'my_app.db',
+        'HTTPServer': 'http_server.db',
+        'Fiber 2': 'fiber_2.db',
+        'Été': 'été.db',
+      };
+
+      for (final entry in expected.entries) {
+        final db = await LocalDatabase.openForTesting(appName: entry.key);
+        expect(file(entry.value).existsSync(), isTrue, reason: '${entry.key} should give ${entry.value}');
+        await db.dispose();
+      }
+    });
+
     test('falls back to app.db when the name is empty', () async {
-      final db = await openAppDatabase(appName: '  ');
+      final db = await LocalDatabase.openForTesting(appName: '  ');
 
       expect(file('app.db').existsSync(), isTrue);
       await db.dispose();
     });
 
     test('keeps using the file it finds', () async {
-      final first = await openAppDatabase(appName: 'Fiber');
+      final first = await LocalDatabase.openForTesting(appName: 'Fiber');
       await first.runSql('CREATE TABLE notes (body TEXT)');
       await first.runSql('INSERT INTO notes (body) VALUES (?)', [const Value.varchar('kept')]);
       await first.dispose();
 
-      final second = await openAppDatabase(appName: 'Fiber');
+      final second = await LocalDatabase.openForTesting(appName: 'Fiber');
 
       final rows = await second.runRawQuery('SELECT body FROM notes');
       expect(rows.single['body']!.asString, 'kept');
@@ -123,21 +139,21 @@ void main() {
     });
 
     test('creates it again when it was deleted in between', () async {
-      final first = await openAppDatabase(appName: 'Fiber');
+      final first = await LocalDatabase.openForTesting(appName: 'Fiber');
       await first.dispose();
-      file('Fiber.db').deleteSync();
+      file('fiber.db').deleteSync();
 
-      final second = await openAppDatabase(appName: 'Fiber');
+      final second = await LocalDatabase.openForTesting(appName: 'Fiber');
 
-      expect(file('Fiber.db').existsSync(), isTrue);
+      expect(file('fiber.db').existsSync(), isTrue);
       expect(await second.listTables(), isEmpty);
       await second.dispose();
     });
 
     test('deletes and recreates a file that is not a database', () async {
-      file('Fiber.db').writeAsStringSync('this is not sqlite ' * 100);
+      file('fiber.db').writeAsStringSync('this is not sqlite ' * 100);
 
-      final db = await openAppDatabase(appName: 'Fiber');
+      final db = await LocalDatabase.openForTesting(appName: 'Fiber');
 
       await db.runSql('CREATE TABLE notes (body TEXT)');
       expect(await db.listTables(), ['notes']);
@@ -156,7 +172,7 @@ void main() {
       );
       SharedPreferences.setMockInitialValues({});
       FlutterSecureStorage.setMockInitialValues({});
-      AppStorage.encryption = EncryptionPolicy.off;
+      LocalDatabase.encryption = EncryptionPolicy.off;
     });
 
     tearDown(() => GetIt.instance.reset());
@@ -197,12 +213,16 @@ void main() {
       await GetIt.instance.reset();
       await configureSdk();
 
-      expect(AppStorage.isEncrypted, isFalse);
+      expect(LocalDatabase.isEncrypted, isFalse);
     });
 
     test('a database opened with the app fingerprint opens the whole-database mechanism', () async {
       final fingerprint = Fingerprint.generate();
-      final db = await openAppDatabase(appName: 'Fiber', fingerprint: fingerprint, encryption: EncryptionPolicy.off);
+      final db = await LocalDatabase.openForTesting(
+        appName: 'Fiber',
+        fingerprint: fingerprint,
+        encryption: EncryptionPolicy.off,
+      );
 
       expect(db.wholeDatabase(fingerprint), isNotNull);
       expect(() => db.wholeDatabase(Fingerprint.generate()), throwsStateError);
@@ -211,7 +231,7 @@ void main() {
 
     test('a required encryption refuses to run without SQLCipher, and leaves no file in clear', () async {
       await expectLater(
-        openAppDatabase(
+        LocalDatabase.openForTesting(
           appName: 'Fiber',
           factory: databaseFactoryFfi,
           fingerprint: Fingerprint.generate(),
@@ -220,17 +240,17 @@ void main() {
         throwsA(isA<EncryptionUnavailableError>()),
       );
 
-      expect(file('Fiber.db').existsSync(), isFalse);
+      expect(file('fiber.db').existsSync(), isFalse);
     });
 
     test('never deletes a database in clear to encrypt over it', () async {
-      final clear = await openAppDatabase(appName: 'Fiber');
+      final clear = await LocalDatabase.openForTesting(appName: 'Fiber');
       await clear.runSql('CREATE TABLE precious (x TEXT)');
       await clear.dispose();
-      final before = file('Fiber.db').readAsBytesSync();
+      final before = file('fiber.db').readAsBytesSync();
 
       await expectLater(
-        openAppDatabase(
+        LocalDatabase.openForTesting(
           appName: 'Fiber',
           factory: databaseFactoryFfi,
           fingerprint: Fingerprint.generate(),
@@ -239,18 +259,18 @@ void main() {
         throwsStateError,
       );
 
-      expect(file('Fiber.db').readAsBytesSync(), before);
+      expect(file('fiber.db').readAsBytesSync(), before);
     });
 
     test('without a fingerprint nothing is encrypted, whatever the policy', () async {
-      final db = await openAppDatabase(appName: 'Fiber', encryption: EncryptionPolicy.required);
+      final db = await LocalDatabase.openForTesting(appName: 'Fiber', encryption: EncryptionPolicy.required);
 
       expect(db.encrypted, isFalse);
       await db.dispose();
     });
   });
 
-  group('AppStorage', () {
+  group('LocalDatabase static calls', () {
     setUp(() async {
       PackageInfo.setMockInitialValues(
         appName: 'Fiber',
@@ -261,7 +281,7 @@ void main() {
       );
       SharedPreferences.setMockInitialValues({});
       FlutterSecureStorage.setMockInitialValues({});
-      AppStorage.encryption = EncryptionPolicy.off;
+      LocalDatabase.encryption = EncryptionPolicy.off;
       await GetIt.instance.reset();
       await configureSdk();
     });
@@ -269,61 +289,43 @@ void main() {
     tearDown(() => GetIt.instance.reset());
 
     test('the raw calls show the whole database only to the app fingerprint', () async {
-      await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await LocalDatabase.execute('CREATE TABLE IF NOT EXISTS notes (body TEXT)');
 
-      expect(await AppStorage.tableNames(SecureStorage.fingerprint), ['notes']);
-      expect(() => AppStorage.tableNames(Fingerprint.generate()), throwsStateError);
-      expect(() => AppStorage.execute(Fingerprint.generate(), 'DROP TABLE notes'), throwsStateError);
-      expect(() => AppStorage.rawQuery(Fingerprint.generate(), 'SELECT 1'), throwsStateError);
-      expect(() => AppStorage.batch(Fingerprint.generate()), throwsStateError);
-      expect(await AppStorage.tableExists(SecureStorage.fingerprint, 'notes'), isTrue);
+      expect(await LocalDatabase.tableNames(), ['notes']);
+      expect(await LocalDatabase.tableExists('notes'), isTrue);
     });
 
     test('opens <app>.db once configureSdk has run', () {
-      expect(file('Fiber.db').existsSync(), isTrue);
+      expect(file('fiber.db').existsSync(), isTrue);
     });
 
     test('reads and writes through static insert, query, update and delete', () async {
-      await AppStorage.execute(
-        SecureStorage.fingerprint,
-        'CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)',
-      );
+      await LocalDatabase.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)');
 
-      final id = await AppStorage.insert<_Note>(
-        SecureStorage.fingerprint,
-        (i) => i.into('notes').values(const _Note('first')),
-      );
-      await AppStorage.update<_Note>(
-        SecureStorage.fingerprint,
-        (u) => u
-            .table('notes')
-            .set(const _Note('second'))
-            .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
+      final id = await LocalDatabase.insert<_Note>((i) => i.into('notes').values(const _Note('first')));
+      await LocalDatabase.update<_Note>(
+        (u) =>
+            u.table('notes').set(const _Note('second')).where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
       );
       expect(await _bodies(), ['second']);
 
-      await AppStorage.delete(SecureStorage.fingerprint, (d) => d.from('notes'));
+      await LocalDatabase.delete((d) => d.from('notes'));
       expect(await _bodies(), isEmpty);
     });
 
     test('stays open across calls, with no reopening in between', () async {
-      await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
-      await AppStorage.execute(SecureStorage.fingerprint, 'INSERT INTO notes (body) VALUES (?)', [
-        const Value.varchar('x'),
-      ]);
+      await LocalDatabase.execute('CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await LocalDatabase.execute('INSERT INTO notes (body) VALUES (?)', [const Value.varchar('x')]);
 
-      expect(await AppStorage.tableNames(SecureStorage.fingerprint), ['notes']);
-      expect(await AppStorage.tableExists(SecureStorage.fingerprint, 'notes'), isTrue);
+      expect(await LocalDatabase.tableNames(), ['notes']);
+      expect(await LocalDatabase.tableExists('notes'), isTrue);
       expect(await _bodies(), ['x']);
     });
 
     test('commits a transaction', () async {
-      await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
+      await LocalDatabase.execute('CREATE TABLE IF NOT EXISTS notes (body TEXT)');
 
-      await AppStorage.transaction(
-        SecureStorage.fingerprint,
-        (txn) => txn.insert<_Note>((i) => i.into('notes').values(const _Note('in txn'))),
-      );
+      await LocalDatabase.transaction((txn) => txn.insert<_Note>((i) => i.into('notes').values(const _Note('in txn'))));
 
       expect(await _bodies(), ['in txn']);
     });

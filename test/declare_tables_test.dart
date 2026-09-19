@@ -177,7 +177,7 @@ void main() {
   });
 
   Future<LocalDatabase> plain([String name = 'declare.db']) async {
-    final db = LocalDatabase(name: name);
+    final db = LocalDatabase.forTesting(name: name);
     await db.open();
     return db;
   }
@@ -289,7 +289,7 @@ void main() {
 
     test('adds tables to a database opened with LocalDatabase.declared too', () async {
       final notes = Notes();
-      final db = LocalDatabase.declared(name: 'both.db', tables: [notes]);
+      final db = LocalDatabase.declaredForTesting(name: 'both.db', tables: [notes]);
       await db.open();
       final privates = Privates();
 
@@ -331,9 +331,9 @@ void main() {
     test('is refused on a read only database and on one that is closed', () async {
       final writable = await plain('ro.db');
       await writable.dispose();
-      final readOnly = LocalDatabase(name: 'ro.db', readOnly: true);
+      final readOnly = LocalDatabase.forTesting(name: 'ro.db', readOnly: true);
       await readOnly.open();
-      final closed = LocalDatabase(name: 'closed.db');
+      final closed = LocalDatabase.forTesting(name: 'closed.db');
 
       await expectLater(readOnly.declareTables([Notes()]), throwsStateError);
       await expectLater(closed.declareTables([Notes()]), throwsStateError);

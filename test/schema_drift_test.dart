@@ -91,7 +91,7 @@ void main() {
   });
 
   Future<LocalDatabase> openWith(String name, List<String> statements, {bool foreignKeys = true}) async {
-    final db = LocalDatabase(
+    final db = LocalDatabase.forTesting(
       name: name,
       onConfigure: foreignKeys ? null : (db) => db.execute('PRAGMA foreign_keys = OFF'),
       onCreate: (db, version) async {

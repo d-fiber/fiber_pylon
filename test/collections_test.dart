@@ -165,7 +165,7 @@ void main() {
     );
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
-    AppStorage.encryption = EncryptionPolicy.off;
+    LocalDatabase.encryption = EncryptionPolicy.off;
     await GetIt.instance.reset();
     await configureSdk();
     db = OwnDatabase();
@@ -206,8 +206,8 @@ void main() {
     });
 
     test('creates the tables of its collections in the app database', () async {
-      expect(await AppStorage.database.hasTable('users'), isTrue);
-      expect(await AppStorage.database.hasTable('items'), isTrue);
+      expect(await LocalDatabase.instance.hasTable('users'), isTrue);
+      expect(await LocalDatabase.instance.hasTable('items'), isTrue);
     });
 
     test('a collection it does not list has no table', () async {
@@ -312,7 +312,7 @@ void main() {
       await db.users.clear();
 
       expect(await db.users.count(), 0);
-      expect(await AppStorage.database.hasTable('users'), isTrue);
+      expect(await LocalDatabase.instance.hasTable('users'), isTrue);
     });
   });
 

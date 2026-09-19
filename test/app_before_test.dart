@@ -202,7 +202,7 @@ Future<void> _create(Database db, int version) async {
 
 final class TodoStore {
   TodoStore({required int version})
-    : db = LocalDatabase(
+    : db = LocalDatabase.forTesting(
         name: 'app.db',
         version: version,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
@@ -345,7 +345,7 @@ void main() {
   });
 
   test('a version 1 file gains its due column through the version 2 migration', () async {
-    final v1 = LocalDatabase(
+    final v1 = LocalDatabase.forTesting(
       name: 'app.db',
       version: 1,
       onCreate: (db, version) => db.execute(

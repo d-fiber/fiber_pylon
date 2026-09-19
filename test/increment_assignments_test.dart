@@ -117,7 +117,7 @@ void main() {
     directory = await Directory.systemTemp.createTemp('pylon_increment');
     databaseFactoryFfi.setDatabasesPath(directory.path);
     counters = Counters();
-    db = LocalDatabase.declared(name: 'increment.db', tables: [counters]);
+    db = LocalDatabase.declaredForTesting(name: 'increment.db', tables: [counters]);
     await db.open();
   });
 

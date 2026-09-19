@@ -243,7 +243,7 @@ void main() {
       await directory.delete(recursive: true);
     });
 
-    LocalDatabase openDeclared(String name, List<DeclaredTable> tables, {bool foreignKeys = false}) => LocalDatabase(
+    LocalDatabase openDeclared(String name, List<DeclaredTable> tables, {bool foreignKeys = false}) => LocalDatabase.forTesting(
       name: name,
       onConfigure: foreignKeys ? (db) => db.execute('PRAGMA foreign_keys = ON') : null,
       onCreate: (db, version) async {
@@ -359,7 +359,7 @@ void main() {
     });
 
     Future<LocalDatabase> openRaw(String name, List<String> statements) async {
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: name,
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) async {
@@ -436,7 +436,7 @@ void main() {
       final child = TableBuilder(
         'child',
       ).columns((c) => {'p': c.integer().references(const ColumnReference(table: 'parent'))});
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'declaration_pragma_off.db',
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = OFF'),
         onCreate: (db, version) async {

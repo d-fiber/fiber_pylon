@@ -23,7 +23,7 @@ what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
-`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `PreferencesStorage`, `SecureStorage`, `AppStorage`,
+`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `PreferencesStorage`, `SecureStorage`, `LocalDatabase`,
 `Database`, `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
 second time.
 
@@ -217,8 +217,7 @@ only things the renewal policy needs to know are asked for.
 ```dart
 final credentials = CredentialManager<Ticket, AdminSignal>(
   store: StoredCredential<Ticket>(
-    preferences,
-    key: 'ticket',
+    SecureStorage.string_('ticket', ''),
     encode: (ticket) => ticket.serialise(),
     decode: Ticket.parse,
   ),
@@ -238,6 +237,55 @@ on the signals it was told mean the credential is dead.
 means the credential was rejected rather than that the server was unreachable, and getting
 it wrong is expensive in both directions: too wide a set signs people out during an outage,
 too narrow a one leaves them retrying a credential that is gone.
+
+The credential is kept in the operating system's vault through `SecureStorage`, never in
+the preferences: a token in `PreferencesStorage` sits in a file anyone can copy off the
+device.
+
+### Who is signed in
+
+One manager answers everybody, so a screen, the local database and the REST client all ask
+the same object.
+
+```dart
+await credentials.start();               // reads the vault once, at launch
+
+credentials.status.value;                // pending, held or absent
+credentials.status.values.listen(route); // follow a sign-in and a sign-out
+credentials.credential;                  // the credential in force, or null
+credentials.isStale;                     // within `buffer` of expiry: a renewal is due
+```
+
+`status` has three values because the moment before the vault has been read is neither of
+the other two: a router that took it for "absent" would flash a sign-in form at someone who
+is signed in. A renewal does not move it, so it wakes a listener only on a sign-in or a
+sign-out. `credentials.changes` carries every transition, including renewals, for a
+consumer that needs the credential itself.
+
+### The local database
+
+```dart
+Tenant.follow(credentials, idOf: (ticket) => ticket.accountId);
+```
+
+Isolated tables then hold the signed-in account's rows, the anonymous ones after a
+sign-out, and the previous account's never. A listener of `changes` has run before `start`,
+`grant`, `revoke` or a renewal returns, so once `status` says `held` the tenant is already
+the right one.
+
+### The REST client
+
+```dart
+final guard = CallGuard<AdminSignal>.renewing(
+  credentials: credentials,
+  renewOn: {AdminSignal.unauthorized},
+  duplicateSignal: AdminSignal.duplicateCall,
+);
+```
+
+Every authenticated call renews ahead of expiry, replays once after a renewal, and revokes
+when the replay is refused too. `RestClient`'s `headers` reads `credentials.credential`, so
+the token it sends is the one just renewed.
 
 A project with no notion of a credential never builds one of these. Nothing else requires
 it.
@@ -313,9 +361,10 @@ for every kind of channel, with a jittered backoff.
 
 ## The local database
 
-Everything stored on the device goes through one SQLite file, named after the app
-(`<app name>.db`), opened once by `configureSdk()` and kept open for as long as the app
-runs. Three things sit on it, and each is one decision.
+Everything stored on the device goes through one SQLite file, named after the app in snake
+case (`my_app.db` for an app called `MyApp`), opened once by `configureSdk()` and kept open
+for as long as the app runs. `LocalDatabase` is that one database: a project calls its static
+methods and never creates another. Three things sit on it, and each is one decision.
 
 ### The file
 
@@ -330,9 +379,9 @@ Keystore). Nothing hands it out: what leaves it is derived from it, one derivati
 purpose. A vault that fails, or holds something that is not a fingerprint, stops the launch
 instead of minting a new one, since that would orphan the file.
 
-- SQLCipher exists on **Android, iOS and macOS** only. `AppStorage.encryption` says what to do
+- SQLCipher exists on **Android, iOS and macOS** only. `LocalDatabase.encryption` says what to do
   elsewhere: `EncryptionPolicy.whenAvailable` (the default) leaves the file in clear and
-  `AppStorage.isEncrypted` says so; `required` refuses to start; `off` never encrypts.
+  `LocalDatabase.isEncrypted` says so; `required` refuses to start; `off` never encrypts.
 - A database in clear that is already there is never deleted to encrypt over it: the launch
   stops with a message, so that nothing is lost silently.
 - What this guarantees is that the secret cannot be guessed and is in no file. It does not
@@ -481,12 +530,13 @@ await whole.purge('a');                      // delete one tenant's rows
 ```
 
 Any other fingerprint is refused, and so is a database that was opened without one. The raw
-calls of `AppStorage` — `execute`, `insert`, `query`, `rawQuery`, `update`, `delete`,
+calls of `LocalDatabase` — `execute`, `insert`, `query`, `rawQuery`, `update`, `delete`,
 `transaction`, `batch`, `tableExists`, `tableNames`, `columns`, `checkpoint` — read the whole
-database too, so each takes the fingerprint first: `AppStorage.rawQuery(SecureStorage.fingerprint, sql)`.
+database too, and present the app's fingerprint themselves: `LocalDatabase.rawQuery(sql)`.
 
-The engine itself — `LocalDatabase`, the schema DSL, the migrations — is the package's own
-plumbing and is not exported.
+The rest of the engine — the schema DSL, the migrations, the drift report — is the package's
+own plumbing and is not exported. `LocalDatabase` cannot be built by hand either: only its
+static calls are for a project.
 
 ## What is deliberately absent
 

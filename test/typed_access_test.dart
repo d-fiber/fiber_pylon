@@ -75,7 +75,7 @@ void main() {
   });
 
   Future<LocalDatabase> openWithNotes(String name, List<Note> notes) async {
-    final db = LocalDatabase(name: name, onCreate: _createNotes);
+    final db = LocalDatabase.forTesting(name: name, onCreate: _createNotes);
     await db.open();
     for (final note in notes) {
       await db.runInsert<Note>((i) => i.into('notes').values(note));
@@ -158,7 +158,7 @@ void main() {
 
   group('an any column in a strict table', () {
     test('keeps the text it was given, digits included', () async {
-      final db = LocalDatabase(name: 'strict_any.db');
+      final db = LocalDatabase.forTesting(name: 'strict_any.db');
       await db.open();
       final declared = TableBuilder('anys').strict().columns((c) => {'a': c.any()});
       await db.runSql(declared.statements.first);

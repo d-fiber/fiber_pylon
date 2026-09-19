@@ -401,7 +401,7 @@ final samples = Samples();
 final reserved = Reserved();
 
 LocalDatabase _openable(String name) =>
-    LocalDatabase.declared(name: name, tables: [items, labels, links, samples, people, prices, settings, bare]);
+    LocalDatabase.declaredForTesting(name: name, tables: [items, labels, links, samples, people, prices, settings, bare]);
 
 Future<LocalDatabase> _open(String name) async {
   final db = _openable(name);
@@ -461,13 +461,13 @@ void main() {
     });
 
     test('adds a nullable column a newer declaration gained, with no migration code', () async {
-      final older = LocalDatabase.declared(
+      final older = LocalDatabase.declaredForTesting(
         name: 'gain.db',
         tables: [ItemsV2(gainedColumn: (c) => c.text('a'))],
       );
       await older.open();
       await older.dispose();
-      final newer = LocalDatabase.declared(
+      final newer = LocalDatabase.declaredForTesting(
         name: 'gain.db',
         tables: [ItemsV2(gainedColumn: (c) => c.date('due').nullable())],
       );
@@ -479,14 +479,14 @@ void main() {
     });
 
     test('gives an existing row the default of a column added later', () async {
-      final older = LocalDatabase.declared(
+      final older = LocalDatabase.declaredForTesting(
         name: 'backfill.db',
         tables: [ItemsV2(gainedColumn: (c) => c.text('a').nullable())],
       );
       await older.open();
       await older.runSql('INSERT INTO items (title) VALUES (?)', const [Value.varchar('old')]);
       await older.dispose();
-      final newer = LocalDatabase.declared(
+      final newer = LocalDatabase.declaredForTesting(
         name: 'backfill.db',
         tables: [ItemsV2(gainedColumn: (c) => c.integer('rank').defaultsTo(3))],
       );
@@ -499,13 +499,13 @@ void main() {
     });
 
     test('refuses a column that refuses NULL and has no default, naming it', () async {
-      final older = LocalDatabase.declared(
+      final older = LocalDatabase.declaredForTesting(
         name: 'refuse.db',
         tables: [ItemsV2(gainedColumn: (c) => c.text('a'))],
       );
       await older.open();
       await older.dispose();
-      final newer = LocalDatabase.declared(
+      final newer = LocalDatabase.declaredForTesting(
         name: 'refuse.db',
         tables: [ItemsV2(gainedColumn: (c) => c.integer('rank'))],
       );
@@ -520,12 +520,12 @@ void main() {
     });
 
     test('runs a migration for a file of an older version and stores the new version', () async {
-      final v1 = LocalDatabase.declared(name: 'migrate.db', tables: [items]);
+      final v1 = LocalDatabase.declaredForTesting(name: 'migrate.db', tables: [items]);
       await v1.open();
       await items.on(v1).insert(const Item(title: 'kept'));
       await v1.dispose();
       final seen = <String>[];
-      final v2 = LocalDatabase.declared(
+      final v2 = LocalDatabase.declaredForTesting(
         name: 'migrate.db',
         tables: [items],
         migrations: [
@@ -547,7 +547,7 @@ void main() {
 
     test('runs no migration on a fresh file and starts it at the latest version', () async {
       final seen = <String>[];
-      final db = LocalDatabase.declared(
+      final db = LocalDatabase.declaredForTesting(
         name: 'fresh_migrate.db',
         tables: [items],
         migrations: [(txn) async => seen.add('ran'), (txn) async => seen.add('ran')],
@@ -564,10 +564,10 @@ void main() {
     test('runs the migrations in order, skipping the ones a file already went through', () async {
       final seen = <int>[];
       final tables = [items];
-      final v2 = LocalDatabase.declared(name: 'ordered.db', tables: tables, migrations: [(txn) async => seen.add(2)]);
+      final v2 = LocalDatabase.declaredForTesting(name: 'ordered.db', tables: tables, migrations: [(txn) async => seen.add(2)]);
       await v2.open();
       await v2.dispose();
-      final v4 = LocalDatabase.declared(
+      final v4 = LocalDatabase.declaredForTesting(
         name: 'ordered.db',
         tables: tables,
         migrations: [(txn) async => seen.add(2), (txn) async => seen.add(3), (txn) async => seen.add(4)],
@@ -580,10 +580,10 @@ void main() {
     });
 
     test('rolls the whole upgrade back when a migration throws, leaving the file at its old version', () async {
-      final v1 = LocalDatabase.declared(name: 'rollback.db', tables: [items]);
+      final v1 = LocalDatabase.declaredForTesting(name: 'rollback.db', tables: [items]);
       await v1.open();
       await v1.dispose();
-      final broken = LocalDatabase.declared(
+      final broken = LocalDatabase.declaredForTesting(
         name: 'rollback.db',
         tables: [items],
         migrations: [
@@ -596,7 +596,7 @@ void main() {
 
       await expectLater(broken.open(), throwsStateError);
 
-      final again = LocalDatabase.declared(name: 'rollback.db', tables: [items]);
+      final again = LocalDatabase.declaredForTesting(name: 'rollback.db', tables: [items]);
       await again.open();
       expect(await again.hasTable('half_done'), isFalse);
       final version = await again.runRawQuery('PRAGMA user_version');
@@ -605,24 +605,24 @@ void main() {
     });
 
     test('refuses a file written by a newer schema version instead of reading it wrongly', () async {
-      final newer = LocalDatabase.declared(name: 'too_new.db', tables: [items], migrations: [(txn) async {}]);
+      final newer = LocalDatabase.declaredForTesting(name: 'too_new.db', tables: [items], migrations: [(txn) async {}]);
       await newer.open();
       await newer.dispose();
-      final older = LocalDatabase.declared(name: 'too_new.db', tables: [items]);
+      final older = LocalDatabase.declaredForTesting(name: 'too_new.db', tables: [items]);
 
       await expectLater(older.open(), throwsA(isA<SchemaTooNewError>()));
       expect(older.isOpen, isFalse);
     });
 
     test('adopts a file that carries tables but no version as version 1', () async {
-      final plain = LocalDatabase(
+      final plain = LocalDatabase.forTesting(
         name: 'adopt.db',
         onCreate: (db, version) => db.execute('CREATE TABLE things (id INTEGER)'),
       );
       await plain.open();
       await plain.dispose();
       final seen = <String>[];
-      final db = LocalDatabase.declared(
+      final db = LocalDatabase.declaredForTesting(
         name: 'adopt.db',
         tables: [items],
         migrations: [(txn) async => seen.add('ran')],
@@ -648,7 +648,7 @@ void main() {
     });
 
     test('creates the tables passed as untyped declarations too', () async {
-      final db = LocalDatabase.declared(
+      final db = LocalDatabase.declaredForTesting(
         name: 'untyped.db',
         tables: [items],
         declarations: [
@@ -663,13 +663,13 @@ void main() {
     });
 
     test('opens a file read only with no schema work, so a newer declaration adds nothing', () async {
-      final older = LocalDatabase.declared(
+      final older = LocalDatabase.declaredForTesting(
         name: 'read_only.db',
         tables: [ItemsV2(gainedColumn: (c) => c.text('a'))],
       );
       await older.open();
       await older.dispose();
-      final reader = LocalDatabase.declared(
+      final reader = LocalDatabase.declaredForTesting(
         name: 'read_only.db',
         tables: [ItemsV2(gainedColumn: (c) => c.date('due').nullable())],
         readOnly: true,
@@ -689,7 +689,7 @@ void main() {
     });
 
     test('refuses a table that lists a column it never declared to the schema', () async {
-      final db = LocalDatabase.declared(name: 'forgetful.db', tables: [Forgetful()]);
+      final db = LocalDatabase.declaredForTesting(name: 'forgetful.db', tables: [Forgetful()]);
       await db.open();
 
       await expectLater(
@@ -700,13 +700,13 @@ void main() {
     });
 
     test('refuses a keyed table whose key type differs from the type it declares', () async {
-      final db = LocalDatabase.declared(name: 'wrong_key.db', tables: [WrongKey()]);
+      final db = LocalDatabase.declaredForTesting(name: 'wrong_key.db', tables: [WrongKey()]);
 
       await expectLater(db.open(), throwsStateError);
     });
 
     test('keeps a table and a column named after SQL keywords working', () async {
-      final db = LocalDatabase.declared(name: 'keywords.db', tables: [reserved]);
+      final db = LocalDatabase.declaredForTesting(name: 'keywords.db', tables: [reserved]);
       await db.open();
 
       await reserved.on(db).insert('x');
@@ -850,7 +850,7 @@ void main() {
     });
 
     test('round trips every column type the columns open', () async {
-      final db = LocalDatabase.declared(name: 'codecs.db', tables: [samples]);
+      final db = LocalDatabase.declaredForTesting(name: 'codecs.db', tables: [samples]);
       await db.open();
       final sample = Sample(
         kind: Kind.task,
@@ -940,7 +940,7 @@ void main() {
     });
 
     test('reading NULL from a column not declared nullable names the column', () async {
-      final db = LocalDatabase.declared(name: 'null_in_required.db', tables: [items]);
+      final db = LocalDatabase.declaredForTesting(name: 'null_in_required.db', tables: [items]);
       await db.open();
       await db.runSql('DROP TABLE items');
       await db.runSql(
@@ -1092,7 +1092,7 @@ void main() {
     });
 
     test('a NOCASE column treats two spellings as one value', () async {
-      final db = LocalDatabase.declared(name: 'collation.db', tables: [people]);
+      final db = LocalDatabase.declaredForTesting(name: 'collation.db', tables: [people]);
       await db.open();
       await people.on(db).insert('Ada');
 
@@ -1234,7 +1234,7 @@ void main() {
 
     test('reading a column of another table through a row is refused', () async {
       final table = _ForeignRead();
-      final probe = LocalDatabase.declared(name: 'foreign_read_probe.db', tables: [table]);
+      final probe = LocalDatabase.declaredForTesting(name: 'foreign_read_probe.db', tables: [table]);
       await probe.open();
 
       await expectLater(table.on(probe).insert('x'), throwsStateError);

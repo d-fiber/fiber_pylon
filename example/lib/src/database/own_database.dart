@@ -42,7 +42,7 @@ import 'user.dart';
 /// over the table that describes it.
 ///
 /// Needs `configureSdk()` to have run, since it lives in the app's own
-/// [AppStorage] file. After `await OwnDatabase().initialize()` it is reachable
+/// [LocalDatabase] file. After `await OwnDatabase().initialize()` it is reachable
 /// from anywhere:
 ///
 /// ```dart

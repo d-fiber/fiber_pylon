@@ -46,7 +46,6 @@ import 'dart:io';
 
 import 'package:equatable/equatable.dart';
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
@@ -114,7 +113,7 @@ void main() {
 
   group('LocalDatabase', () {
     test('creates its table through onCreate and inserts a row', () async {
-      final db = LocalDatabase(name: 'todos.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos.db', onCreate: _createTodos);
       await db.open();
 
       final id = await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
@@ -125,7 +124,7 @@ void main() {
     });
 
     test('filters with where', () async {
-      final db = LocalDatabase(name: 'todos_filter.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_filter.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
@@ -142,7 +141,7 @@ void main() {
     });
 
     test('orders, limits and offsets', () async {
-      final db = LocalDatabase(name: 'todos_order.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_order.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
@@ -157,7 +156,7 @@ void main() {
     });
 
     test('orders by several terms, each in its own direction', () async {
-      final db = LocalDatabase(name: 'todos_order_terms.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_order_terms.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: true)));
@@ -175,7 +174,7 @@ void main() {
     });
 
     test('orders by a raw expression when a bare column cannot say it', () async {
-      final db = LocalDatabase(name: 'todos_order_expression.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_order_expression.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'b', done: false)));
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
@@ -190,7 +189,7 @@ void main() {
     });
 
     test('quotes the column names of select, groupBy and orderBy, so a keyword is still a column', () async {
-      final db = LocalDatabase(name: 'things_keywords.db', onCreate: _createKeywordColumns);
+      final db = LocalDatabase.forTesting(name: 'things_keywords.db', onCreate: _createKeywordColumns);
       await db.open();
       await db.runSql('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
         Value.varchar('x'),
@@ -219,7 +218,7 @@ void main() {
     });
 
     test('having keeps only the groups its filter matches, with its arguments bound after where', () async {
-      final db = LocalDatabase(name: 'todos_having.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_having.db', onCreate: _createTodos);
       await db.open();
       for (final title in ['A', 'A', 'A', 'B', 'B', 'C']) {
         await db.runInsert<Todo>((i) => i.into('todos').values(Todo(title: title, done: false)));
@@ -240,7 +239,7 @@ void main() {
     });
 
     test('limit and offset refuse a negative count, which SQLite would read as no limit', () async {
-      final db = LocalDatabase(name: 'todos_negative_page.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_negative_page.db', onCreate: _createTodos);
       await db.open();
 
       await expectLater(db.runQuery<Todo>((q) => q.from('todos').limit(-1).map(Todo.fromRow)), throwsRangeError);
@@ -249,7 +248,7 @@ void main() {
     });
 
     test('select narrows the columns a row carries', () async {
-      final db = LocalDatabase(name: 'todos_select.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_select.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
@@ -262,7 +261,7 @@ void main() {
     });
 
     test('updates matching rows and answers how many changed', () async {
-      final db = LocalDatabase(name: 'todos_update.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_update.db', onCreate: _createTodos);
       await db.open();
       final id = await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
@@ -282,7 +281,7 @@ void main() {
     });
 
     test('deletes matching rows and answers how many were removed', () async {
-      final db = LocalDatabase(name: 'todos_delete.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_delete.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
       final keep = await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
@@ -298,7 +297,7 @@ void main() {
     });
 
     test('rolls back every write in a transaction that throws', () async {
-      final db = LocalDatabase(name: 'todos_txn.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_txn.db', onCreate: _createTodos);
       await db.open();
 
       await expectLater(
@@ -314,7 +313,7 @@ void main() {
     });
 
     test('commits every write made through a transaction', () async {
-      final db = LocalDatabase(name: 'todos_txn_commit.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_txn_commit.db', onCreate: _createTodos);
       await db.open();
 
       await db.runTransaction((txn) async {
@@ -326,7 +325,7 @@ void main() {
     });
 
     test('runs raw SQL through execute and rawQuery', () async {
-      final db = LocalDatabase(name: 'todos_raw.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_raw.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
@@ -339,12 +338,12 @@ void main() {
     });
 
     test('preserves data across a reopen', () async {
-      final db = LocalDatabase(name: 'todos_reopen.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_reopen.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
       await db.dispose();
 
-      final reopened = LocalDatabase(name: 'todos_reopen.db', onCreate: _createTodos);
+      final reopened = LocalDatabase.forTesting(name: 'todos_reopen.db', onCreate: _createTodos);
       await reopened.open();
 
       final rows = await reopened.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow));
@@ -353,13 +352,13 @@ void main() {
     });
 
     test('throws when used before open', () {
-      final db = LocalDatabase(name: 'todos_unopened.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_unopened.db', onCreate: _createTodos);
 
       expect(() => db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), throwsStateError);
     });
 
     test('throws when a query builder never calls map', () async {
-      final db = LocalDatabase(name: 'todos_no_map.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_no_map.db', onCreate: _createTodos);
       await db.open();
 
       expect(() => db.runQuery<Todo>((q) => q.from('todos')), throwsStateError);
@@ -367,7 +366,7 @@ void main() {
     });
 
     test('runs every queued write through a batch', () async {
-      final db = LocalDatabase(name: 'todos_batch.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_batch.db', onCreate: _createTodos);
       await db.open();
 
       final batch = db.newBatch();
@@ -380,7 +379,7 @@ void main() {
     });
 
     test('answers one typed result per queued statement, in the order they were queued', () async {
-      final db = LocalDatabase(name: 'todos_batch_results.db', onCreate: _createUniqueTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_batch_results.db', onCreate: _createUniqueTodos);
       await db.open();
 
       final batch = db.newBatch();
@@ -414,7 +413,7 @@ void main() {
     });
 
     test('reports a statement that failed under continueOnError as a value at its own position', () async {
-      final db = LocalDatabase(name: 'todos_batch_failure.db', onCreate: _createUniqueTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_batch_failure.db', onCreate: _createUniqueTodos);
       await db.open();
 
       final batch = db.newBatch();
@@ -435,7 +434,7 @@ void main() {
     });
 
     test('reports an insert skipped by ConflictAlgorithm.ignore as a null row id', () async {
-      final db = LocalDatabase(name: 'todos_batch_ignore.db', onCreate: _createUniqueTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_batch_ignore.db', onCreate: _createUniqueTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
 
@@ -449,7 +448,7 @@ void main() {
     });
 
     test('answers no results at all when noResult asks to skip them', () async {
-      final db = LocalDatabase(name: 'todos_batch_no_result.db', onCreate: _createUniqueTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_batch_no_result.db', onCreate: _createUniqueTodos);
       await db.open();
 
       final batch = db.newBatch();
@@ -461,7 +460,7 @@ void main() {
     });
 
     test('rolls back a whole batch when a statement fails and continueOnError is off', () async {
-      final db = LocalDatabase(name: 'todos_batch_rollback.db', onCreate: _createUniqueTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_batch_rollback.db', onCreate: _createUniqueTodos);
       await db.open();
 
       final batch = db.newBatch();
@@ -474,7 +473,7 @@ void main() {
     });
 
     test('reports a unique constraint violation as UniqueConstraintError', () async {
-      final db = LocalDatabase(
+      final db = LocalDatabase.forTesting(
         name: 'todos_unique.db',
         onCreate: (db, version) =>
             db.execute('CREATE TABLE todos (id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE)'),
@@ -490,7 +489,7 @@ void main() {
     });
 
     test('reports a query against a missing table as NoSuchTableError', () async {
-      final db = LocalDatabase(name: 'todos_missing.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_missing.db', onCreate: _createTodos);
       await db.open();
 
       await expectLater(
@@ -501,7 +500,7 @@ void main() {
     });
 
     test('tableExists and tableNames read the schema back', () async {
-      final db = LocalDatabase(name: 'todos_schema.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_schema.db', onCreate: _createTodos);
       await db.open();
 
       expect(await db.hasTable('todos'), isTrue);
@@ -511,7 +510,7 @@ void main() {
     });
 
     test('columns reads every column PRAGMA table_info reports', () async {
-      final db = LocalDatabase(name: 'todos_columns.db', onCreate: _createTodos);
+      final db = LocalDatabase.forTesting(name: 'todos_columns.db', onCreate: _createTodos);
       await db.open();
 
       final columns = await db.listColumns('todos');
@@ -535,7 +534,7 @@ void main() {
     late LocalDatabase db;
 
     setUp(() async {
-      db = LocalDatabase(name: 'todos_filters.db', onCreate: _createTodos);
+      db = LocalDatabase.forTesting(name: 'todos_filters.db', onCreate: _createTodos);
       await db.open();
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ant', done: false)));
       await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Bee', done: true)));
@@ -647,7 +646,7 @@ void main() {
     late LocalDatabase notes;
 
     setUp(() async {
-      notes = LocalDatabase(name: 'notes_filters.db', onCreate: _createNotes);
+      notes = LocalDatabase.forTesting(name: 'notes_filters.db', onCreate: _createNotes);
       await notes.open();
       for (final body in [
         const Value.varchar('alpha'),
@@ -726,7 +725,7 @@ void main() {
     });
 
     test('an ordering filter on stored times gives the order of the clock', () async {
-      final slots = LocalDatabase(name: 'slots_filters.db', onCreate: _createSlots);
+      final slots = LocalDatabase.forTesting(name: 'slots_filters.db', onCreate: _createSlots);
       await slots.open();
       const nine = Time(hour: 9, minute: 0);
       const nineThirty = Time(hour: 9, minute: 30, second: 5, millisecond: 250);
@@ -751,7 +750,7 @@ void main() {
     });
 
     test('an equality filter on a numeric interval treats 3 and 3.0 as the same bound', () async {
-      final slots = LocalDatabase(name: 'intervals_filters.db', onCreate: _createSlots);
+      final slots = LocalDatabase.forTesting(name: 'intervals_filters.db', onCreate: _createSlots);
       await slots.open();
       await slots.runSql('INSERT INTO slots (at) VALUES (?)', [
         Value.interval(const IntervalBounds.num(start: 3.0, end: 4.5)),

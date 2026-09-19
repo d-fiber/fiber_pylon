@@ -45,6 +45,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+const _refusedWarnings = {'INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER'};
+
 const _prelude = '''
 import 'package:fiber_pylon/fiber_pylon.dart';
 
@@ -117,11 +119,11 @@ await db.runTransaction((tx) => tx.get(db.notes.doc('a')));
 ''', compiles: true),
   _Program('reaching the whole database with the app fingerprint', '''
 await db.wholeDatabase(SecureStorage.fingerprint).tenants();
-await AppStorage.tableNames(SecureStorage.fingerprint);
+await LocalDatabase.tableNames();
 ''', compiles: true),
   _Program('reading the encryption of the app database', '''
-AppStorage.encryption = EncryptionPolicy.required;
-print(AppStorage.isEncrypted);
+LocalDatabase.encryption = EncryptionPolicy.required;
+print(LocalDatabase.isEncrypted);
 ''', compiles: true),
   _Program('a secret entry through the static factories', '''
 final token = SecureStorage.string_('token', '');
@@ -133,10 +135,10 @@ print(SecureStorage.fingerprint.derive('purpose'));
   _Program('a vault of one\'s own', 'const SecretStore? vault = null;', compiles: false),
   _Program('the fingerprint as bytes', 'SecureStorage.fingerprint.deriveHex(\'x\');', compiles: false),
   _Program('the fingerprint error type', 'const FingerprintError? error = null;', compiles: false),
-  _Program('opening a database by hand', "LocalDatabase(name: 'x.db');", compiles: false),
+  _Program('opening a database by hand', "LocalDatabase.forTesting(name: 'x.db');", compiles: false),
   _Program(
     'declaring tables on a database by hand',
-    "LocalDatabase.declared(name: 'x.db', tables: []);",
+    "LocalDatabase.declaredForTesting(name: 'x.db', tables: []);",
     compiles: false,
   ),
   _Program('building a schema with the DSL', "TableBuilder('t');", compiles: false),
@@ -152,7 +154,7 @@ Future<Map<String, List<String>>> _analyzeEachProgram(Directory directory) async
   final errorsByFile = <String, List<String>>{};
   for (final line in '${result.stdout}\n${result.stderr}'.split('\n')) {
     final fields = line.split('|');
-    if (fields.length < 8 || fields.first != 'ERROR') continue;
+    if (fields.length < 8 || (fields.first != 'ERROR' && !_refusedWarnings.contains(fields[2]))) continue;
     errorsByFile.putIfAbsent(fields[3].split('/').last, () => []).add(fields[2]);
   }
   return errorsByFile;
@@ -163,7 +165,7 @@ void main() {
   late Map<String, List<String>> errorsByFile;
 
   setUpAll(() async {
-    directory = await Directory('test/_public_surface').create();
+    directory = await Directory('tool/_public_surface').create();
     errorsByFile = await _analyzeEachProgram(directory);
   });
 
