@@ -96,7 +96,7 @@ class Query<R extends Object, K extends Object> {
 
   /// Runs the query once.
   Future<QuerySnapshot<R, K>> get() async {
-    final documents = _documentsOf(_table, await _rows(LocalDatabase.instance).list());
+    final documents = _documentsOf(_table, await _rows(LocalDatabase.instance).select());
     return QuerySnapshot._(documents, _diff(_table, null, documents));
   }
 

@@ -84,7 +84,7 @@ String _whereSql(Filter? filter, List<Value> arguments) {
 ///     .where(todos.done.isEqualTo(false) & todos.due.isNotNull())
 ///     .orderBy([todos.due.asc()])
 ///     .limit(20)
-///     .list();
+///     .select();
 /// ```
 ///
 /// A filter built from a column of another table is refused, so a column shared
@@ -188,7 +188,7 @@ base class Rows<R extends Object> {
   Rows<R> offset(int count) => _copy(offset: RangeError.checkNotNegative(count, 'count'));
 
   /// Every row kept, as records.
-  Future<List<R>> list() async => [for (final row in await _selectRows()) _table._fromRow(row)];
+  Future<List<R>> select() async => [for (final row in await _selectRows()) _table._fromRow(row)];
 
   /// Reads the rows kept, with the tenant of each when [withTenant] is set.
   ///
@@ -214,7 +214,7 @@ base class Rows<R extends Object> {
   }
 
   /// The first row kept, or null when none is.
-  Future<R?> first() async => (await _copy(limit: 1).list()).firstOrNull;
+  Future<R?> first() async => (await _copy(limit: 1).select()).firstOrNull;
 
   /// Every row kept, as records, now and again after each write to this table
   /// that changes what is kept.
