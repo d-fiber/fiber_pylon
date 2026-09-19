@@ -60,6 +60,7 @@ part 'types/json.dart';
 part 'types/row.dart';
 part 'record.dart';
 part 'column.dart';
+part 'schema/drift.dart';
 part 'errors.dart';
 part 'filter.dart';
 part 'insert.dart';
@@ -472,6 +473,50 @@ class LocalDatabase extends DatabaseSession {
     final extended = await rawQuery('PRAGMA table_xinfo($quoted)');
     final rows = extended.isNotEmpty ? extended : await rawQuery('PRAGMA table_info($quoted)');
     return rows.map(DatabaseColumn._fromRow).toList();
+  });
+
+  /// Every way the table [declared] describes differs from the table of that
+  /// name in this database, empty when they agree.
+  ///
+  /// The declaration is created in a scratch in-memory database and read back
+  /// with the same pragmas as the file on disk, so that SQLite itself decides
+  /// what an equal type, default or key is. Compares columns (type, `NOT
+  /// NULL`, primary key position, default, generated), unique and primary
+  /// keys, foreign keys (target and actions), the explicit indexes by name and
+  /// definition, and `STRICT` and `WITHOUT ROWID`. When all of that agrees, it
+  /// compares the stored `CREATE TABLE` text, which is the only place a
+  /// `CHECK` constraint, a column collation, the deferral of a foreign key or
+  /// a generated expression can be seen.
+  ///
+  /// This reports and never alters: turning a difference into a migration is a
+  /// decision about the rows on disk that only a developer can take. Reports
+  /// [DifferenceKind.foreignKeysDisabled] when the table has a foreign key and
+  /// this connection does not enforce them.
+  Future<List<SchemaDifference>> differences(DeclaredTable declared) => _guarded(() async {
+    final db = _executor();
+    final disabled = declared.usesForeignKeys && (await db.rawQuery('PRAGMA foreign_keys')).first['foreign_keys'] == 0;
+    final foreignKeys = [
+      if (disabled)
+        SchemaDifference(
+          table: declared.name,
+          kind: DifferenceKind.foreignKeysDisabled,
+          expected: 'foreign_keys ON',
+          actual: 'foreign_keys OFF',
+        ),
+    ];
+    if (!await tableExists(declared.name)) {
+      return [
+        ...foreignKeys,
+        SchemaDifference(
+          table: declared.name,
+          kind: DifferenceKind.missingTable,
+          expected: declared.name,
+          actual: null,
+        ),
+      ];
+    }
+    final expected = await _factsOfDeclared(declared);
+    return [...foreignKeys, ..._compareFacts(declared.name, expected, await _factsOf(db, declared.name))];
   });
 
   /// Writes every change still sitting in the write-ahead log back into the
