@@ -561,28 +561,48 @@ piece of data it shows, with its parameters in its own fields.
 
 ```dart
 final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
-  UsersList() : super(initial: const [], offlineSignals: const {RestSignal.noRoute});
+  UsersList() : super(offlineSignals: const {RestSignal.noRoute});
 
   @override bool get isAuthenticated => true;
+  @override bool get observesConnection => true;
   @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
   @override Future<void> response(List<User> users) => ...;                        // the database
-  @override Stream<List<User>> watchLocal() => db.from(db.users).watch();          // what is read
+  @override Future<List<User>?> initial() => db.from(db.users).select();           // what it holds now
+  @override Stream<List<User>> stream() => db.from(db.users).watch();              // then every change
   @override UsersError resolve(Fault<RestSignal> fault) => ...;
 }
 
 final users = GroundSdk.I.users.list();   // a repository, made where the screen needs it
-users.value;                          // what is stored, or `initial` until the database has answered
-users.stream.listen(show);            // the value now, then every change
+users.data.value;                     // what is stored: null until the database has answered, or when it holds nothing
+users.data.stream.listen(show);       // the value now, then every change
 await users.refresh();                // fetch, then response: the database moves, so does the stream
 ```
 
-One way only: `refresh` writes, the database's own `watch` emits, `value` follows. There is no
-second source for a screen to reconcile with the first, and a change of tenant swaps what
-`value` holds along with the rows. It reads like a `Preference`, on the same `BehaviorSubject`:
-`value`, a call and `stream`.
+A repository stands for one piece of data, so what identifies it is in its own fields, fixed
+when it is made: `AdultsList(minAge: 18)` and `AdultsList(minAge: 65)` are two repositories,
+and each one's `fetch`, `initial`, `stream` and `response` read the same `minAge`, so what is
+asked of the network is what is read from the database. When a parameter changes while the
+screen is open, make another repository and `dispose` the first.
 
-What the last refresh did is a second observable, `status`, and it is independent of the
-first: when a refresh fails or the network is out, `value` is still what is stored.
+One way only: `refresh` writes, the database's own `watch` emits, `data` follows. There is no
+second source for a screen to reconcile with the first, and a change of tenant swaps what
+`data` holds along with the rows. `data` is an `Observable`, the way a `Preference` reads:
+`value` and `stream`. There is no initial value to invent: `initial()` asks the database what
+it holds, once, and `data` is `null` until it has answered, and after it when there is nothing.
+
+What is happening is a second observable, `status`, and it is independent of the first: when a
+refresh fails or the network is out, `data` still holds what is stored.
+
+`status` is a signal more than a state. It starts as `StatusRunning`, while `data` loads what
+the database already holds, and then every outcome is announced once, to whoever follows
+`status.stream`, and the status is `StatusIdle` again at once: `Running`, `Succeeded`, `Idle`
+for a refresh that went through, `Running`, `Failed(error)`, `Idle` for one that did not. Two
+states do not let go at once. `StatusRunning` lasts until what it is doing is done, and only
+then does the outcome replace it. `StatusOffline` lasts until the connection is back, for a
+repository that observes it: it watches `Network` and its `HealthMonitor`, answers a `refresh`
+without a request while they say the network is out, and goes idle when they say it is back.
+A repository that does not observe the connection cannot know when it returns, so it announces
+`StatusOffline` once, like the others.
 
 ```dart
 users.status.stream.listen((status) => switch (status) {
@@ -590,7 +610,7 @@ users.status.stream.listen((status) => switch (status) {
   StatusOffline() => showBanner('no network, showing what is stored'),
   StatusUnauthenticated() => showSignIn(),
   StatusFailed(:final error) => showError(error),
-  StatusIdle() || StatusSucceeded() => hideBanner(),
+  StatusSucceeded() || StatusIdle() => hideBanner(),
 });
 ```
 
