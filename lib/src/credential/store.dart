@@ -109,11 +109,7 @@ class StoredCredential<C extends Object> implements CredentialStore<C> {
     try {
       return _decode(raw);
     } catch (error, stackTrace) {
-      _reporter.recordError(
-        error,
-        stackTrace,
-        context: {'credential': _entry.key},
-      );
+      _reporter.recordError(error, stackTrace, context: {'credential': _entry.key});
       return null;
     }
   }

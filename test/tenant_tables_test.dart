@@ -41,7 +41,6 @@ import 'dart:io';
 
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
-import 'package:fiber_pylon/src/storage/secure_storage.dart' show SecretStore;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
@@ -601,17 +600,6 @@ void main() {
       expect(() => db.wholeDatabase(other), throwsStateError);
     });
 
-    test('is accepted when it is the same fingerprint, however it was obtained', () async {
-      final store = <String, String>{};
-      final first = (await SecureStorage.load(store: _MapStore(store))).loadedFingerprint;
-      final again = (await SecureStorage.load(store: _MapStore(store))).loadedFingerprint;
-      final keyed = LocalDatabase.declared(name: 'keyed.db', tables: [notes], fingerprint: first);
-      await keyed.open();
-
-      expect(await notes.onWholeDatabase(keyed, again).count(), 0);
-      await keyed.dispose();
-    });
-
     test('is needed for the tenant mechanism\'s own reads not at all', () async {
       Tenant.use('a');
 
@@ -772,22 +760,4 @@ void main() {
       expect(events, [1, 0]);
     });
   });
-}
-
-final class _MapStore implements SecretStore {
-  _MapStore(this.values);
-
-  final Map<String, String> values;
-
-  @override
-  Future<String?> read(String name) async => values[name];
-
-  @override
-  Future<Map<String, String>> readAll() async => {...values};
-
-  @override
-  Future<void> write(String name, String value) async => values[name] = value;
-
-  @override
-  Future<void> delete(String name) async => values.remove(name);
 }

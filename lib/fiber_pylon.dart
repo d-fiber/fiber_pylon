@@ -167,7 +167,7 @@ export 'src/credential/store.dart';
 export 'src/mutation/mutation.dart';
 export 'src/mutation/mutation_queue.dart';
 export 'src/mutation/mutation_store.dart';
-export 'src/storage/secure_storage.dart' show SecureStorage, Secure, Fingerprint, FingerprintError;
+export 'src/storage/secure_storage.dart' show SecureStorage, Secure, Fingerprint;
 export 'src/storage/preferences_storage.dart';
 export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';

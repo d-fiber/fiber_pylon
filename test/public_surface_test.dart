@@ -123,6 +123,16 @@ await AppStorage.tableNames(SecureStorage.fingerprint);
 AppStorage.encryption = EncryptionPolicy.required;
 print(AppStorage.isEncrypted);
 ''', compiles: true),
+  _Program('a secret entry through the static factories', '''
+final token = SecureStorage.string_('token', '');
+await token.set('abc');
+print(token());
+print(SecureStorage.fingerprint.derive('purpose'));
+''', compiles: true),
+  _Program('building a secret entry by hand', "Secure.string_(SecureStorage.fingerprint, 'k', '');", compiles: false),
+  _Program('a vault of one\'s own', 'const SecretStore? vault = null;', compiles: false),
+  _Program('the fingerprint as bytes', 'SecureStorage.fingerprint.deriveHex(\'x\');', compiles: false),
+  _Program('the fingerprint error type', 'const FingerprintError? error = null;', compiles: false),
   _Program('opening a database by hand', "LocalDatabase(name: 'x.db');", compiles: false),
   _Program(
     'declaring tables on a database by hand',

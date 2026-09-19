@@ -363,7 +363,7 @@ class LocalDatabase extends DatabaseSession {
                 onUpgrade: _onUpgrade,
                 onDowngrade: _onDowngrade,
                 onOpen: _onOpen,
-                password: _fingerprint!.deriveHex(_databaseKeyPurpose),
+                password: _hex(_fingerprint!.derive(_databaseKeyPurpose)),
                 readOnly: _readOnly,
                 singleInstance: _singleInstance,
               )
@@ -497,36 +497,34 @@ class LocalDatabase extends DatabaseSession {
   /// [build] must return a fully composed [InsertValues], the same way
   /// a raw `INSERT` needs an `INTO` and a `VALUES` before it means anything
   /// — answering the row id sqflite assigned.
-  Future<int> insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) =>
-      _guarded(() async {
-        final spec = build(Insert<T>._());
-        final rowId = await _executor().rawInsert(spec._sql, spec._arguments);
-        _notifyWrite({_unquotedIdentifier(spec._table)});
-        return rowId;
-      });
+  Future<int> insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) => _guarded(() async {
+    final spec = build(Insert<T>._());
+    final rowId = await _executor().rawInsert(spec._sql, spec._arguments);
+    _notifyWrite({_unquotedIdentifier(spec._table)});
+    return rowId;
+  });
 
   /// Reads rows, filtered, ordered, paged and decoded exactly as [build]
   /// composes it from an empty [DatabaseQuery] — [build] must return a
   /// [QueryFrom], the same way a raw `SELECT` needs a `FROM` before it
   /// means anything.
-  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(DatabaseQuery<T> query) build) =>
-      _guarded(() async {
-        final spec = build(DatabaseQuery<T>._());
-        final rows = await _executor().query(
-          spec._table,
-          distinct: spec._distinct,
-          columns: spec._columns,
-          where: spec._where,
-          whereArgs: _toNativeArgs(spec._arguments),
-          groupBy: spec._groupBy,
-          having: spec._having,
-          orderBy: spec._orderBy,
-          limit: spec._limit,
-          offset: spec._offset,
-        );
-        final fromRow = spec._requiredFromRow;
-        return rows.map((row) => fromRow(_fromNativeRow(row))).toList();
-      });
+  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(DatabaseQuery<T> query) build) => _guarded(() async {
+    final spec = build(DatabaseQuery<T>._());
+    final rows = await _executor().query(
+      spec._table,
+      distinct: spec._distinct,
+      columns: spec._columns,
+      where: spec._where,
+      whereArgs: _toNativeArgs(spec._arguments),
+      groupBy: spec._groupBy,
+      having: spec._having,
+      orderBy: spec._orderBy,
+      limit: spec._limit,
+      offset: spec._offset,
+    );
+    final fromRow = spec._requiredFromRow;
+    return rows.map((row) => fromRow(_fromNativeRow(row))).toList();
+  });
 
   /// Runs [sql] directly and answers the rows it selected, for a query
   /// [query] cannot express — a join, an aggregate, anything past one
@@ -540,19 +538,18 @@ class LocalDatabase extends DatabaseSession {
   /// empty [Update] — [build] must return a [UpdateSet], the same
   /// way a raw `UPDATE table` needs a `SET` before it means anything —
   /// answering how many rows changed.
-  Future<int> update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) =>
-      _guarded(() async {
-        final spec = build(Update<T>._());
-        final changed = await _executor().update(
-          spec._table,
-          _toNativeRow(spec._data.toRow()),
-          where: spec._where,
-          whereArgs: _toNativeArgs(spec._whereArgs),
-          conflictAlgorithm: spec._conflict,
-        );
-        if (changed > 0) _notifyWrite({_unquotedIdentifier(spec._table)});
-        return changed;
-      });
+  Future<int> update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) => _guarded(() async {
+    final spec = build(Update<T>._());
+    final changed = await _executor().update(
+      spec._table,
+      _toNativeRow(spec._data.toRow()),
+      where: spec._where,
+      whereArgs: _toNativeArgs(spec._whereArgs),
+      conflictAlgorithm: spec._conflict,
+    );
+    if (changed > 0) _notifyWrite({_unquotedIdentifier(spec._table)});
+    return changed;
+  });
 
   /// Removes every row matched, composed by [build] from an empty
   /// [Delete] — [build] must return a [DeleteFrom], the same way
@@ -771,6 +768,9 @@ class LocalDatabase extends DatabaseSession {
 }
 
 final Map<(DatabaseFactory, String), int> _sharedInstances = {};
+
+/// [bytes] as lower-case hexadecimal text, which is how SQLCipher is handed a key.
+String _hex(List<int> bytes) => bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
 /// What the database key is derived for. Nothing else derives for this purpose.
 const String _databaseKeyPurpose = 'database';

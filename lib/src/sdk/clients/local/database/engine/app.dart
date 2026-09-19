@@ -107,9 +107,8 @@ class AppStorage {
   /// any repair it needs — before registering the result.
   @internal
   @FactoryMethod(preResolve: true)
-  static Future<AppStorage> initialize(SecureStorage secureStorage) async => AppStorage._(
-    await openAppDatabase(fingerprint: secureStorage.loadedFingerprint, encryption: encryption),
-  );
+  static Future<AppStorage> initialize(SecureStorage secureStorage) async =>
+      AppStorage._(await openAppDatabase(fingerprint: SecureStorage.fingerprint, encryption: encryption));
 
   /// Closes the database, which is what `GetIt.reset` does to it.
   @internal

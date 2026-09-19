@@ -84,6 +84,8 @@ final class RecordingFactory implements DatabaseFactory {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+String _hex(List<int> bytes) => bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
 void main() {
   late Directory directory;
   late RecordingFactory factory;
@@ -118,7 +120,7 @@ void main() {
       final options = factory.requested.single;
       expect(options, isA<SqlCipherOpenDatabaseOptions>());
       final password = (options as SqlCipherOpenDatabaseOptions).password;
-      expect(password, fingerprint.deriveHex('database'));
+      expect(password, _hex(fingerprint.derive('database')));
       expect(password, hasLength(64));
     });
 

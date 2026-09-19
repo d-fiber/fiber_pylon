@@ -35,326 +35,244 @@
 // LICENSE file, the LICENSE file governs.
 
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
-import 'package:fiber_pylon/src/storage/secure_storage.dart' show SecretStore, hkdfSha256;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart' hide Database;
 
-/// A vault held in memory that counts what is done to it.
-final class MemoryStore implements SecretStore {
-  MemoryStore([Map<String, String>? initial]) : values = {...?initial};
+const _fingerprintName = 'pylon.fingerprint.v1';
 
-  final Map<String, String> values;
-  int reads = 0;
+/// A vault held in memory that counts what is done to it, and can be made to
+/// fail, refuse or forget.
+final class FakeVault extends FlutterSecureStoragePlatform {
+  FakeVault([Map<String, String>? initial]) : data = {...?initial};
+
+  final Map<String, String> data;
   int writes = 0;
   int deletes = 0;
+  bool failReads = false;
+  bool refuseWrites = false;
+  bool forgetWrites = false;
 
   @override
-  Future<String?> read(String name) async {
-    reads++;
-    return values[name];
-  }
+  Future<bool> containsKey({required String key, required Map<String, String> options}) async => data.containsKey(key);
 
   @override
-  Future<Map<String, String>> readAll() async {
-    reads++;
-    return {...values};
-  }
-
-  @override
-  Future<void> write(String name, String value) async {
-    writes++;
-    values[name] = value;
-  }
-
-  @override
-  Future<void> delete(String name) async {
+  Future<void> delete({required String key, required Map<String, String> options}) async {
     deletes++;
-    values.remove(name);
+    data.remove(key);
   }
-}
 
-final class FailingReadStore extends MemoryStore {
   @override
-  Future<Map<String, String>> readAll() async => throw StateError('the vault is locked');
-}
+  Future<void> deleteAll({required Map<String, String> options}) async => data.clear();
 
-/// Says it wrote, and keeps something else.
-final class ForgetfulStore extends MemoryStore {
   @override
-  Future<void> write(String name, String value) async {
+  Future<String?> read({required String key, required Map<String, String> options}) async => data[key];
+
+  @override
+  Future<Map<String, String>> readAll({required Map<String, String> options}) async {
+    if (failReads) throw StateError('the vault is locked');
+    return {...data};
+  }
+
+  @override
+  Future<void> write({required String key, required String value, required Map<String, String> options}) async {
+    if (refuseWrites) throw StateError('the vault refuses');
     writes++;
-    values[name] = 'not what was written';
+    data[key] = forgetWrites ? 'not what was written' : value;
   }
-}
-
-/// Refuses every write once it has been told to.
-final class RefusingStore extends MemoryStore {
-  bool refuse = false;
-
-  @override
-  Future<void> write(String name, String value) async {
-    if (refuse) throw StateError('the vault refuses');
-    return super.write(name, value);
-  }
-}
-
-final class RecordingReporter implements Reporter {
-  final List<Object> errors = [];
-
-  @override
-  void log(String message) {}
-
-  @override
-  void recordError(
-    Object error,
-    StackTrace? stackTrace, {
-    bool fatal = false,
-    Map<String, Object?> context = const {},
-  }) => errors.add(error);
-
-  @override
-  void identify(String? identifier) {}
 }
 
 String _hex(List<int> bytes) => bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
-List<int> _bytes(String hex) => [for (var i = 0; i < hex.length; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)];
-
-Future<Fingerprint> _fingerprintOf(SecretStore store, {Random? random}) async =>
-    (await SecureStorage.load(store: store, random: random)).loadedFingerprint;
+/// The fingerprint whose secret is the bytes 0 to 31, so that what is derived
+/// from it can be checked against another implementation of HKDF.
+final String _knownSecret = base64Url.encode(List.generate(32, (i) => i));
 
 void main() {
-  group('SecureStorage.load, for the fingerprint', () {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(
+      appName: 'pylon_secure',
+      packageName: 'dev.fiber.secure',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    AppStorage.encryption = EncryptionPolicy.off;
+    await GetIt.instance.reset();
+  });
+
+  tearDown(() => GetIt.instance.reset());
+
+  /// Starts [SecureStorage] over [vault] the way `configureSdk` would, and
+  /// registers it.
+  Future<void> boot(FakeVault vault) async {
+    FlutterSecureStoragePlatform.instance = vault;
+    await GetIt.instance.reset();
+    GetIt.instance.registerSingleton<SecureStorage>(
+      await SecureStorage.initialize(),
+      dispose: (storage) => storage.dispose(),
+    );
+  }
+
+  group('initialize, for the fingerprint', () {
     test('creates a fingerprint the first time and keeps it', () async {
-      final store = MemoryStore();
+      final vault = FakeVault();
 
-      final fingerprint = await _fingerprintOf(store);
+      await boot(vault);
 
-      expect(store.writes, 1);
-      final kept = store.values[SecureStorage.fingerprintName]!;
-      expect(base64Url.decode(kept), hasLength(32));
-      expect(fingerprint, isNotNull);
+      expect(vault.writes, 1);
+      expect(base64Url.decode(vault.data[_fingerprintName]!), hasLength(32));
     });
 
-    test('gives the same fingerprint every time after, without writing again', () async {
-      final store = MemoryStore();
-      final first = await _fingerprintOf(store);
+    test('finds the same fingerprint at the next launch, without writing again', () async {
+      final vault = FakeVault();
+      await boot(vault);
+      final first = SecureStorage.fingerprint.derive('database');
 
-      final second = await _fingerprintOf(store);
+      await boot(vault);
 
-      expect(second.matches(first), isTrue);
-      expect(store.writes, 1);
+      expect(SecureStorage.fingerprint.derive('database'), first);
+      expect(vault.writes, 1);
     });
 
-    test('creates one only, when two loads race', () async {
-      final store = MemoryStore();
+    test('gives two installations two different fingerprints', () async {
+      await boot(FakeVault());
+      final a = SecureStorage.fingerprint.derive('database');
 
-      final both = await Future.wait([SecureStorage.load(store: store), SecureStorage.load(store: store)]);
+      await boot(FakeVault());
 
-      expect(store.writes, 1);
-      expect(both[0].loadedFingerprint.matches(both[1].loadedFingerprint), isTrue);
-    });
-
-    test('gives two different installations two different fingerprints', () async {
-      final a = await _fingerprintOf(MemoryStore());
-      final b = await _fingerprintOf(MemoryStore());
-
-      expect(a.matches(b), isFalse);
-    });
-
-    test('takes its bytes from the random source it is given', () async {
-      final a = await _fingerprintOf(MemoryStore(), random: Random(7));
-      final b = await _fingerprintOf(MemoryStore(), random: Random(7));
-
-      expect(a.matches(b), isTrue);
+      expect(SecureStorage.fingerprint.derive('database'), isNot(a));
     });
 
     test('refuses a record that is not a fingerprint, and leaves it alone', () async {
       for (final bad in ['not base64 at all!!', base64Url.encode(List.filled(16, 1)), '']) {
-        final store = MemoryStore({SecureStorage.fingerprintName: bad});
+        final vault = FakeVault({_fingerprintName: bad});
+        FlutterSecureStoragePlatform.instance = vault;
 
-        await expectLater(SecureStorage.load(store: store), throwsA(isA<FingerprintError>()));
+        await expectLater(SecureStorage.initialize(), throwsStateError);
 
-        expect(store.writes, 0, reason: 'a bad record must not be replaced');
-        expect(store.values[SecureStorage.fingerprintName], bad);
+        expect(vault.writes, 0, reason: 'a bad record must not be replaced');
+        expect(vault.data[_fingerprintName], bad);
       }
     });
 
     test('never reads a failing vault as an empty one', () async {
-      final store = FailingReadStore();
+      final vault = FakeVault()..failReads = true;
+      FlutterSecureStoragePlatform.instance = vault;
 
-      await expectLater(SecureStorage.load(store: store), throwsStateError);
+      await expectLater(SecureStorage.initialize(), throwsStateError);
 
-      expect(store.writes, 0);
+      expect(vault.writes, 0);
     });
 
     test('refuses a vault that does not give back what it was given', () async {
-      await expectLater(SecureStorage.load(store: ForgetfulStore()), throwsA(isA<FingerprintError>()));
+      final vault = FakeVault()..forgetWrites = true;
+      FlutterSecureStoragePlatform.instance = vault;
+
+      await expectLater(SecureStorage.initialize(), throwsStateError);
     });
 
-    test('a failed load can be tried again', () async {
-      final store = ForgetfulStore();
-      await expectLater(SecureStorage.load(store: store), throwsA(isA<FingerprintError>()));
-      store.values.clear();
+    test('a failed start can be tried again', () async {
+      final vault = FakeVault()..forgetWrites = true;
+      FlutterSecureStoragePlatform.instance = vault;
+      await expectLater(SecureStorage.initialize(), throwsStateError);
+      vault
+        ..forgetWrites = false
+        ..data.clear();
 
-      await expectLater(SecureStorage.load(store: store), throwsA(isA<FingerprintError>()));
-      expect(store.writes, 2);
+      await SecureStorage.initialize();
+
+      expect(vault.data[_fingerprintName], isNotNull);
     });
   });
 
-  group('derive', () {
-    test('always gives the same bytes for the same purpose', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
+  group('the fingerprint', () {
+    setUp(() => boot(FakeVault({_fingerprintName: _knownSecret})));
 
-      expect(fingerprint.derive('database'), fingerprint.derive('database'));
+    test('derives what another implementation of HKDF derives', () {
+      final fingerprint = SecureStorage.fingerprint;
+
+      expect(_hex(fingerprint.derive('database')), 'e32038a6b0be347cd626559948dedfe5ba261882aab9a68d1ba1477f3e417155');
+      expect(
+        _hex(fingerprint.derive('database', length: 64)),
+        'e32038a6b0be347cd626559948dedfe5ba261882aab9a68d1ba1477f3e4171555b9da9c5c44c2c78f50ebb92e39b2eaf12a56ce1a606fe69e0eb6b7017a2537e',
+      );
+      expect(_hex(fingerprint.derive('other')), '9ea14e103b02ea9f3208d3ebb350d045cb76d680ae2159c843cb443d5ec65658');
     });
 
-    test('gives unrelated bytes for two purposes', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
+    test('always gives the same bytes for the same purpose, and unrelated ones for two', () {
+      final fingerprint = SecureStorage.fingerprint;
 
-      expect(fingerprint.derive('database'), isNot(fingerprint.derive('other')));
-    });
-
-    test('gives unrelated bytes for two fingerprints', () async {
-      final a = await _fingerprintOf(MemoryStore());
-      final b = await _fingerprintOf(MemoryStore());
-
-      expect(a.derive('database'), isNot(b.derive('database')));
-    });
-
-    test('gives the length asked for, as bytes and as hex', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
-
-      expect(fingerprint.derive('x'), hasLength(32));
-      expect(fingerprint.derive('x', length: 64), hasLength(64));
-      expect(fingerprint.deriveHex('x'), hasLength(64));
-      expect(fingerprint.deriveHex('x', length: 16), hasLength(32));
-      expect(fingerprint.deriveHex('x'), matches(RegExp(r'^[0-9a-f]{64}$')));
-    });
-
-    test('a longer derivation starts with the shorter one', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
-
+      expect(fingerprint.derive('a'), fingerprint.derive('a'));
+      expect(fingerprint.derive('a'), isNot(fingerprint.derive('b')));
       expect(fingerprint.derive('x', length: 64).sublist(0, 32), fingerprint.derive('x', length: 32));
+      expect(fingerprint.derive('x'), isA<Uint8List>());
     });
 
-    test('refuses an empty purpose', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
+    test('refuses an empty purpose and a length it cannot give', () {
+      final fingerprint = SecureStorage.fingerprint;
 
       expect(() => fingerprint.derive(''), throwsArgumentError);
+      expect(() => fingerprint.derive('x', length: 0), throwsRangeError);
+      expect(() => fingerprint.derive('x', length: 255 * 32 + 1), throwsRangeError);
     });
 
-    test('forgets the secret once disposed', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
+    test('is the same as itself, and not the same as another', () {
+      final fingerprint = SecureStorage.fingerprint;
+
+      expect(fingerprint.matches(fingerprint), isTrue);
+      expect(fingerprint.matches(Fingerprint.generate()), isFalse);
+      expect(Fingerprint.generate().matches(Fingerprint.generate()), isFalse);
+    });
+
+    test('never prints the secret', () {
+      expect(SecureStorage.fingerprint.toString(), 'Fingerprint(hidden)');
+      expect('${SecureStorage.fingerprint}', isNot(contains(_knownSecret)));
+    });
+
+    test('is wiped from memory when the storage is let go of', () async {
+      final fingerprint = SecureStorage.fingerprint;
       final before = fingerprint.derive('database');
 
-      fingerprint.dispose();
+      await GetIt.instance.reset();
 
       expect(fingerprint.derive('database'), isNot(before));
     });
 
-    test('answers Uint8List', () async {
-      final fingerprint = await _fingerprintOf(MemoryStore());
-
-      expect(fingerprint.derive('x'), isA<Uint8List>());
+    test('is not an entry: no entry can be declared on its key', () {
+      expect(() => SecureStorage.string_(_fingerprintName, ''), throwsArgumentError);
     });
   });
 
-  group('matches', () {
-    test('is true for the same fingerprint and false for another', () async {
-      final store = MemoryStore();
-      final a = await _fingerprintOf(store);
-      final again = await _fingerprintOf(store);
-
-      expect(a.matches(again), isTrue);
-      expect(a.matches(Fingerprint.generate()), isFalse);
-    });
-  });
-
-  group('what it shows', () {
-    test('never prints the secret', () async {
-      final store = MemoryStore();
-      final fingerprint = await _fingerprintOf(store);
-      final secret = store.values[SecureStorage.fingerprintName]!;
-
-      expect(fingerprint.toString(), 'Fingerprint(hidden)');
-      expect('$fingerprint', isNot(contains(secret)));
-    });
-
-    test('generate makes 256 bits from the secure source', () {
-      final a = Fingerprint.generate();
-      final b = Fingerprint.generate();
-
-      expect(a.matches(b), isFalse);
-      expect(a.derive('x', length: 32), isNot(everyElement(0)));
-    });
-  });
-
-  group('hkdfSha256 against RFC 5869', () {
-    test('test case 1', () {
-      final okm = hkdfSha256(
-        List.filled(22, 0x0b),
-        salt: _bytes('000102030405060708090a0b0c'),
-        info: _bytes('f0f1f2f3f4f5f6f7f8f9'),
-        length: 42,
-      );
-
-      expect(_hex(okm), '3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865');
-    });
-
-    test('test case 3, with no salt and no info', () {
-      final okm = hkdfSha256(List.filled(22, 0x0b), length: 42);
-
-      expect(_hex(okm), '8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8');
-    });
-
-    test('refuses a length it cannot give', () {
-      expect(() => hkdfSha256([1], length: 0), throwsRangeError);
-      expect(() => hkdfSha256([1], length: 255 * 32 + 1), throwsRangeError);
-    });
-  });
-
-  group('the entries, registered by configureSdk', () {
-    late MemoryStore vault;
+  group('the entries', () {
+    late FakeVault vault;
 
     setUp(() async {
-      SharedPreferences.setMockInitialValues({});
-      PackageInfo.setMockInitialValues(
-        appName: 'pylon_secure',
-        packageName: 'dev.fiber.secure',
-        version: '1.0.0',
-        buildNumber: '1',
-        buildSignature: '',
-      );
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-      AppStorage.encryption = EncryptionPolicy.off;
-      FlutterSecureStorage.setMockInitialValues({});
-      await GetIt.instance.reset();
-      vault = MemoryStore();
+      vault = FakeVault();
+      await boot(vault);
     });
 
-    tearDown(() => GetIt.instance.reset());
-
-    /// Registers a [SecureStorage] over [vault] the way `configureSdk` would.
-    Future<void> register() async =>
-        GetIt.instance.registerSingleton<SecureStorage>(await SecureStorage.load(store: vault));
-
     test('read what the vault held when it was loaded', () async {
-      vault.values['token'] = 'abc';
-      vault.values['tries'] = '3';
-      vault.values['enabled'] = 'true';
-      vault.values['pin'] = base64Url.encode([1, 2, 3]);
-      await register();
+      vault
+        ..data['token'] = 'abc'
+        ..data['tries'] = '3'
+        ..data['enabled'] = 'true'
+        ..data['pin'] = base64Url.encode([1, 2, 3]);
+      await boot(vault);
 
       expect(SecureStorage.string_('token', '')(), 'abc');
       expect(SecureStorage.int_('tries', 0)(), 3);
@@ -362,9 +280,7 @@ void main() {
       expect(SecureStorage.bytes_('pin', Uint8List(0))(), [1, 2, 3]);
     });
 
-    test('answer the default for a key nothing has written to', () async {
-      await register();
-
+    test('answer the default for a key nothing has written to', () {
       expect(SecureStorage.string_('token', 'none')(), 'none');
       expect(SecureStorage.int_('tries', 7)(), 7);
       expect(SecureStorage.bool_('enabled', true)(), isTrue);
@@ -372,7 +288,6 @@ void main() {
     });
 
     test('write to the vault first, then change and tell their listeners', () async {
-      await register();
       final token = SecureStorage.string_('token', '');
       final seen = <String>[];
       final subscription = token.stream.listen(seen.add);
@@ -381,70 +296,60 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await subscription.cancel();
 
-      expect(vault.values['token'], 'abc');
+      expect(vault.data['token'], 'abc');
       expect(token.value, 'abc');
       expect(seen, ['', 'abc']);
     });
 
     test('round trip every type through the vault', () async {
-      await register();
-      final bytes = SecureStorage.bytes_('pin', Uint8List(0));
-      final tries = SecureStorage.int_('tries', 0);
-      final enabled = SecureStorage.bool_('enabled', false);
+      await SecureStorage.bytes_('pin', Uint8List(0)).set(Uint8List.fromList([4, 5, 6]));
+      await SecureStorage.int_('tries', 0).set(-12);
+      await SecureStorage.bool_('enabled', false).set(true);
 
-      await bytes.set(Uint8List.fromList([4, 5, 6]));
-      await tries.set(-12);
-      await enabled.set(true);
-
-      expect(vault.values['tries'], '-12');
-      expect(vault.values['enabled'], 'true');
-      expect(base64Url.decode(vault.values['pin']!), [4, 5, 6]);
-      final again = await SecureStorage.load(store: vault);
-      expect(again.loadedFingerprint.matches(SecureStorage.fingerprint), isTrue);
+      expect(vault.data['tries'], '-12');
+      expect(vault.data['enabled'], 'true');
+      expect(base64Url.decode(vault.data['pin']!), [4, 5, 6]);
     });
 
     test('keep what a later launch will read', () async {
-      await register();
       await SecureStorage.string_('token', '').set('kept');
-      await GetIt.instance.reset();
 
-      await register();
+      await boot(vault);
 
       expect(SecureStorage.string_('token', '')(), 'kept');
     });
 
     test('forget the vault\'s value on clear, and answer the default', () async {
-      await register();
       final token = SecureStorage.string_('token', 'none');
       await token.set('abc');
 
       await token.clear();
 
-      expect(vault.values.containsKey('token'), isFalse);
+      expect(vault.data.containsKey('token'), isFalse);
       expect(token.value, 'none');
       expect(vault.deletes, 1);
     });
 
     test('write nothing for a value that is already the current one', () async {
-      await register();
       final token = SecureStorage.string_('token', '');
+      final pin = SecureStorage.bytes_('pin', Uint8List.fromList([1]));
       await token.set('abc');
+      await pin.set(Uint8List.fromList([2]));
       final writes = vault.writes;
 
       await token.set('abc');
-      await SecureStorage.bytes_('pin', Uint8List.fromList([1])).set(Uint8List.fromList([1]));
+      await pin.set(Uint8List.fromList([2]));
+      await SecureStorage.string_('token', '').set('abc');
 
       expect(vault.writes, writes);
     });
 
     test('are left as they were when the vault refuses a write', () async {
-      final refusing = RefusingStore();
-      GetIt.instance.registerSingleton<SecureStorage>(await SecureStorage.load(store: refusing));
       final token = SecureStorage.string_('token', 'none');
       final seen = <String>[];
       final subscription = token.stream.listen(seen.add);
       await Future<void>.delayed(Duration.zero);
-      refusing.refuse = true;
+      vault.refuseWrites = true;
 
       await expectLater(token.set('abc'), throwsStateError);
       await Future<void>.delayed(Duration.zero);
@@ -452,47 +357,35 @@ void main() {
 
       expect(token.value, 'none');
       expect(seen, ['none']);
-      expect(refusing.values.containsKey('token'), isFalse);
+      expect(vault.data.containsKey('token'), isFalse);
     });
 
-    test('report a stored value that no longer decodes, and answer the default', () async {
-      vault.values['tries'] = 'many';
-      vault.values['enabled'] = 'perhaps';
-      vault.values['pin'] = '!!!';
-      await register();
-      final reporter = RecordingReporter();
+    test('answer the default for a stored value that no longer decodes', () async {
+      vault
+        ..data['tries'] = 'many'
+        ..data['enabled'] = 'perhaps'
+        ..data['pin'] = '!!!';
+      await boot(vault);
 
-      expect(SecureStorage.int_('tries', 1, reporter: reporter)(), 1);
-      expect(SecureStorage.bool_('enabled', true, reporter: reporter)(), isTrue);
-      expect(SecureStorage.bytes_('pin', Uint8List.fromList([2]), reporter: reporter)(), [2]);
-      expect(reporter.errors, hasLength(3));
+      expect(SecureStorage.int_('tries', 1)(), 1);
+      expect(SecureStorage.bool_('enabled', true)(), isTrue);
+      expect(SecureStorage.bytes_('pin', Uint8List.fromList([2]))(), [2]);
     });
 
-    test('refuse the keys the package keeps for itself, and an empty one', () async {
-      await register();
-
-      expect(() => SecureStorage.string_(SecureStorage.fingerprintName, ''), throwsArgumentError);
+    test('refuse the keys the package keeps for itself, and an empty one', () {
       expect(() => SecureStorage.string_('pylon.anything', ''), throwsArgumentError);
       expect(() => SecureStorage.string_('', ''), throwsArgumentError);
     });
+  });
 
-    test('never expose the fingerprint as an entry', () async {
-      await register();
-
-      expect(vault.values.containsKey(SecureStorage.fingerprintName), isTrue);
-      expect(SecureStorage.string_('token', 'x')(), 'x');
-      expect(SecureStorage.fingerprint.toString(), 'Fingerprint(hidden)');
-    });
-
-    test('are resolved by configureSdk before the app database', () async {
+  group('configureSdk', () {
+    test('resolves it before the app database, so the entries are ready', () async {
       FlutterSecureStorage.setMockInitialValues({'token': 'from the vault'});
-      await GetIt.instance.reset();
 
       await configureSdk();
 
       expect(SecureStorage.string_('token', '')(), 'from the vault');
       expect(AppStorage.isEncrypted, isFalse);
-      expect(SecureStorage.fingerprint.matches(SecureStorage.fingerprint), isTrue);
     });
   });
 }

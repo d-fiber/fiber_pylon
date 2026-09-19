@@ -107,10 +107,12 @@ class PreferencesStorage {
   static Preference<bool> bool_(String key, bool defaultValue) => Preference.bool_(_instance, key, defaultValue);
 
   /// An entry holding a [double], on the registered [PreferencesStorage].
-  static Preference<double> double_(String key, double defaultValue) => Preference.double_(_instance, key, defaultValue);
+  static Preference<double> double_(String key, double defaultValue) =>
+      Preference.double_(_instance, key, defaultValue);
 
   /// An entry holding a [String], on the registered [PreferencesStorage].
-  static Preference<String> string_(String key, String defaultValue) => Preference.string_(_instance, key, defaultValue);
+  static Preference<String> string_(String key, String defaultValue) =>
+      Preference.string_(_instance, key, defaultValue);
 
   /// An entry holding a list of [L], JSON-encoded, on the registered
   /// [PreferencesStorage]. See [Preference.list_] for [toJson].
@@ -303,7 +305,8 @@ final class _PreferencePrimitive<T> extends Preference<T> {
 final class _PreferenceEnum<T extends Enum> extends Preference<T> {
   final List<T> _values;
 
-  _PreferenceEnum(PreferencesStorage service, String key, this._values, T defaultValue) : super._(service, key, defaultValue);
+  _PreferenceEnum(PreferencesStorage service, String key, this._values, T defaultValue)
+    : super._(service, key, defaultValue);
 
   @override
   T _fetch() {

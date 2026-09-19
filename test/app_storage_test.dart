@@ -63,6 +63,8 @@ class _Note implements DatabaseRecord {
 Future<List<String>> _bodies() =>
     AppStorage.query<String>(SecureStorage.fingerprint, (q) => q.from('notes').map((row) => row['body']!.asString));
 
+const _fingerprintName = 'pylon.fingerprint.v1';
+
 void main() {
   late Directory directory;
 
@@ -161,34 +163,34 @@ void main() {
 
     test('the first launch creates the fingerprint and keeps it in the vault', () async {
       const vault = FlutterSecureStorage();
-      expect(await vault.read(key: SecureStorage.fingerprintName), isNull);
+      expect(await vault.read(key: _fingerprintName), isNull);
 
       await GetIt.instance.reset();
       await configureSdk();
 
-      expect(await vault.read(key: SecureStorage.fingerprintName), isNotNull);
+      expect(await vault.read(key: _fingerprintName), isNotNull);
     });
 
     test('the next launch finds the same fingerprint instead of making another', () async {
       await GetIt.instance.reset();
       await configureSdk();
-      final first = SecureStorage.fingerprint.deriveHex('database');
-      final kept = await const FlutterSecureStorage().read(key: SecureStorage.fingerprintName);
+      final first = SecureStorage.fingerprint.derive('database').join(',');
+      final kept = await const FlutterSecureStorage().read(key: _fingerprintName);
 
       await GetIt.instance.reset();
       await configureSdk();
 
-      expect(SecureStorage.fingerprint.deriveHex('database'), first);
-      expect(await const FlutterSecureStorage().read(key: SecureStorage.fingerprintName), kept);
+      expect(SecureStorage.fingerprint.derive('database').join(','), first);
+      expect(await const FlutterSecureStorage().read(key: _fingerprintName), kept);
     });
 
     test('an invalid record in the vault stops the launch and is left alone', () async {
-      FlutterSecureStorage.setMockInitialValues({SecureStorage.fingerprintName: 'garbage'});
+      FlutterSecureStorage.setMockInitialValues({_fingerprintName: 'garbage'});
       await GetIt.instance.reset();
 
-      await expectLater(configureSdk(), throwsA(isA<FingerprintError>()));
+      await expectLater(configureSdk(), throwsStateError);
 
-      expect(await const FlutterSecureStorage().read(key: SecureStorage.fingerprintName), 'garbage');
+      expect(await const FlutterSecureStorage().read(key: _fingerprintName), 'garbage');
     });
 
     test('says when the file is not encrypted', () async {

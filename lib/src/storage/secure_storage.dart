@@ -46,84 +46,10 @@ import 'package:meta/meta.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../common/observable.dart';
-import '../common/reporter.dart';
-
-/// Where the secrets are kept between launches.
-///
-/// [PlatformSecretStore] is the one an app uses: the operating system's own
-/// vault. Another one exists for a test.
-abstract interface class SecretStore {
-  /// The secret kept under [name], or `null` when none was ever written.
-  ///
-  /// A store that cannot answer throws. That is never to be read as "no
-  /// secret": a new one would then replace the real one, and everything the
-  /// real one protects would be lost.
-  Future<String?> read(String name);
-
-  /// Every secret kept, by name.
-  Future<Map<String, String>> readAll();
-
-  /// Keeps [value] under [name], replacing what was there.
-  Future<void> write(String name, String value);
-
-  /// Forgets what is kept under [name]. Forgetting what is not there is fine.
-  Future<void> delete(String name);
-}
-
-/// The operating system's vault: the Keychain on iOS and macOS, the Keystore
-/// behind encrypted preferences on Android.
-///
-/// It is set up as strictly as the platform allows, and for the one thing that
-/// matters here:
-///
-/// - **iOS and macOS**: readable once the device was unlocked after boot, and
-///   only on this device — never synchronised to another one, never restored
-///   from a backup onto another.
-/// - **Android**: `resetOnError` is off. The plugin's default deletes what it
-///   cannot decrypt, which would quietly throw the fingerprint away, mint a new
-///   one, and orphan the encrypted database.
-///
-/// Nothing is written to a file this package could have made itself.
-final class PlatformSecretStore implements SecretStore {
-  /// Uses the operating system's vault.
-  const PlatformSecretStore()
-    : _storage = const FlutterSecureStorage(
-        iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
-        aOptions: AndroidOptions(resetOnError: false),
-        mOptions: MacOsOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
-      );
-
-  final FlutterSecureStorage _storage;
-
-  @override
-  Future<String?> read(String name) => _storage.read(key: name);
-
-  @override
-  Future<Map<String, String>> readAll() => _storage.readAll();
-
-  @override
-  Future<void> write(String name, String value) => _storage.write(key: name, value: value);
-
-  @override
-  Future<void> delete(String name) => _storage.delete(key: name);
-}
-
-/// What went wrong keeping or reading the fingerprint.
-final class FingerprintError implements Exception {
-  /// Explains [message].
-  const FingerprintError(this.message);
-
-  /// What happened, without ever containing the fingerprint.
-  final String message;
-
-  @override
-  String toString() => 'FingerprintError($message)';
-}
 
 /// The secret only this installation of the app holds: 256 random bits,
-/// created the first time the app runs, kept in the operating system's vault
-/// by [SecureStorage], and never shown to anyone, this class's own callers
-/// included.
+/// created the first time the app runs and kept in the operating system's
+/// vault, and never shown to anyone, this class's own callers included.
 ///
 /// Nothing hands the secret out. What comes out of it is derived from it, one
 /// derivation per purpose, so a key made for the database is unrelated to one
@@ -133,45 +59,39 @@ final class FingerprintError implements Exception {
 /// final key = SecureStorage.fingerprint.derive('database');
 /// ```
 ///
-/// The fingerprint is what the database file is encrypted with, so that a copy
-/// of the `.db` file taken off the device cannot be read, and what a call must
-/// present to reach the whole database instead of one tenant's part of it.
+/// It is what the database file is encrypted with, so that a copy of the `.db`
+/// taken off the device cannot be read, and what a call must present to reach
+/// the whole database instead of one tenant's part of it.
 ///
-/// What this guarantees, and what it does not. The secret comes from the
-/// operating system's cryptographic random source, is 256 bits long, and is
-/// only ever in memory or in the vault, so it cannot be guessed and is not in
-/// any file to copy. It does not stop code running inside this app from asking
-/// for a derivation: the app is trusted. And on a device where the vault gives
-/// way, the fingerprint goes with it.
+/// The secret comes from the operating system's cryptographic random source
+/// and is only ever in memory or in the vault, so it cannot be guessed and is
+/// in no file to copy. It does not stop code running inside this app from
+/// asking for a derivation: the app is trusted. And on a device where the vault
+/// gives way, the fingerprint goes with it.
 final class Fingerprint {
   Fingerprint._(this._secret);
 
-  /// A fresh fingerprint, for a test or a throwaway database.
-  ///
-  /// It is not stored anywhere. The one an app uses is
+  /// A fresh fingerprint, kept nowhere, for a test. The one an app uses is
   /// [SecureStorage.fingerprint].
+  @visibleForTesting
   factory Fingerprint.generate([Random? random]) => Fingerprint._(_randomBytes(random ?? Random.secure()));
 
   static const int _length = 32;
+  static final Uint8List _salt = Uint8List.fromList(utf8.encode('pylon.fingerprint.salt.v1'));
 
   final Uint8List _secret;
 
-  /// Wipes the secret from memory.
-  void dispose() => _secret.fillRange(0, _secret.length, 0);
+  void _wipe() => _secret.fillRange(0, _secret.length, 0);
 
   /// [length] bytes derived from this fingerprint for [purpose], with HKDF
   /// (RFC 5869) over SHA-256.
   ///
-  /// The same purpose always gives the same bytes, and two purposes give
-  /// bytes with nothing in common. Use one purpose per use.
+  /// The same purpose always gives the same bytes, and two purposes give bytes
+  /// with nothing in common. Use one purpose per use.
   Uint8List derive(String purpose, {int length = 32}) {
     if (purpose.isEmpty) throw ArgumentError.value(purpose, 'purpose', 'cannot be empty');
-    return hkdfSha256(_secret, salt: _salt, info: utf8.encode('pylon/derive/v1/$purpose'), length: length);
+    return _hkdf(_secret, _salt, utf8.encode('pylon/derive/v1/$purpose'), length);
   }
-
-  /// [derive], as lower-case hexadecimal text, for a key that is given as text.
-  String deriveHex(String purpose, {int length = 32}) =>
-      derive(purpose, length: length).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
   /// Whether [other] is the same fingerprint, compared in a time that does not
   /// depend on where they first differ.
@@ -184,8 +104,6 @@ final class Fingerprint {
     return difference == 0;
   }
 
-  static final Uint8List _salt = Uint8List.fromList(utf8.encode('pylon.fingerprint.salt.v1'));
-
   /// Never shows the secret.
   @override
   String toString() => 'Fingerprint(hidden)';
@@ -194,15 +112,10 @@ final class Fingerprint {
 Uint8List _randomBytes(Random random) =>
     Uint8List.fromList([for (var i = 0; i < Fingerprint._length; i++) random.nextInt(256)]);
 
-/// HKDF (RFC 5869) with HMAC-SHA-256: [length] bytes of key material from
-/// [ikm], bound to [info] and, optionally, [salt].
-///
-/// Public only so that a test can check it against the RFC's own vectors.
-@visibleForTesting
-Uint8List hkdfSha256(List<int> ikm, {List<int>? salt, List<int> info = const [], required int length}) {
+/// HKDF (RFC 5869) with HMAC-SHA-256.
+Uint8List _hkdf(List<int> ikm, List<int> salt, List<int> info, int length) {
   if (length < 1 || length > 255 * 32) throw RangeError.range(length, 1, 255 * 32, 'length');
-  final extracted = Hmac(sha256, salt == null || salt.isEmpty ? Uint8List(32) : salt).convert(ikm).bytes;
-  final expander = Hmac(sha256, extracted);
+  final expander = Hmac(sha256, Hmac(sha256, salt).convert(ikm).bytes);
   final output = BytesBuilder();
   var block = <int>[];
   for (var counter = 1; output.length < length; counter++) {
@@ -213,7 +126,7 @@ Uint8List hkdfSha256(List<int> ikm, {List<int>? salt, List<int> info = const [],
 }
 
 /// A project's own secrets — a token, a key, a credential — read and written
-/// through the operating system's vault, and the app's [Fingerprint].
+/// through the operating system's vault, next to the app's [Fingerprint].
 ///
 /// [SecureStorage] itself is registered `@Singleton(order: -2)`, resolved the
 /// moment a project's own `configureSdk` (generated by `injectable`) runs,
@@ -233,125 +146,106 @@ Uint8List hkdfSha256(List<int> ikm, {List<int>? salt, List<int> info = const [],
 /// ```
 ///
 /// Everything the vault holds is read once, when `configureSdk` runs, so an
-/// entry answers at once, like a [Preference]; a write goes to the vault first,
-/// and the entry only changes — and only tells its listeners — once the vault
-/// has kept it.
+/// entry answers at once, like a `Preference`; a write goes to the vault first, and
+/// the entry only changes — and only tells its listeners — once the vault has
+/// kept it. A stored value that no longer decodes is answered with the entry's
+/// default.
 ///
-/// The fingerprint is not an entry: it is [fingerprint], made the first time
-/// the app runs and kept for good. Keys that start with `pylon.` are the
-/// package's own and are refused to an entry.
+/// The fingerprint is not an entry: it is [fingerprint], made the first time the
+/// app runs and kept for good, and no entry can read, replace or clear it. Keys
+/// that start with `pylon.` are the package's own and are refused to an entry.
 @Singleton(order: -2)
 class SecureStorage {
-  SecureStorage._(this._vault, this._values, this._fingerprint);
+  SecureStorage._(this._values, this._fingerprint);
 
-  final SecretStore _vault;
   final Map<String, String> _values;
   final Fingerprint _fingerprint;
 
-  /// The name the fingerprint is kept under in the vault.
-  @visibleForTesting
-  static const fingerprintName = 'pylon.fingerprint.v1';
+  /// The operating system's vault, set up as strictly as the platform allows:
+  /// on iOS and macOS readable once the device was unlocked after boot and only
+  /// on this device, never synchronised to another; on Android with
+  /// `resetOnError` off, since the plugin's default deletes what it cannot
+  /// decrypt, which would quietly throw the fingerprint away, mint a new one,
+  /// and orphan the encrypted database.
+  static const FlutterSecureStorage _vault = FlutterSecureStorage(
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+    aOptions: AndroidOptions(resetOnError: false),
+    mOptions: MacOsOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+  );
 
+  static const String _fingerprintName = 'pylon.fingerprint.v1';
   static const String _reservedPrefix = 'pylon.';
-  static final Expando<Future<SecureStorage>> _loading = Expando<Future<SecureStorage>>();
 
   /// Resolves the [SecureStorage] `configureSdk` registers.
   ///
   /// Marked [FactoryMethod.preResolve] so `configureSdk` awaits it before
   /// registering the result, rather than handing out a half-resolved instance.
+  ///
+  /// Reads everything the vault holds and creates and keeps the fingerprint when
+  /// it has none, which is only the first time the app runs. A vault that fails
+  /// stops the launch, and so does a fingerprint record that is there but is
+  /// not one, or a vault that does not give back what was just written, each
+  /// with a [StateError]: a new fingerprint is never the way out of any of them,
+  /// since whatever the old one encrypted would be lost for good.
   @FactoryMethod(preResolve: true)
-  static Future<SecureStorage> initialize() => load();
+  static Future<SecureStorage> initialize() async {
+    final values = {...await _vault.readAll()};
+    final stored = values.remove(_fingerprintName);
+    if (stored != null) return SecureStorage._(values, Fingerprint._(_decode(stored)));
 
-  /// Reads everything [store] holds — the operating system's vault unless
-  /// another is given — and creates and keeps the fingerprint when it has none,
-  /// which is only the first time the app runs.
-  ///
-  /// A fingerprint record that is there but is not one throws a
-  /// [FingerprintError] and is left alone; so does a store that fails, or that
-  /// does not give back what was just written. Replacing the fingerprint is
-  /// never a way of recovering: whatever it encrypted would be lost for good.
-  ///
-  /// Two calls at once on one [store] share the same creation.
-  static Future<SecureStorage> load({SecretStore? store, Random? random}) {
-    final vault = store ?? const PlatformSecretStore();
-    return _loading[vault] ??= _load(vault, random ?? Random.secure()).whenComplete(() => _loading[vault] = null);
-  }
-
-  static Future<SecureStorage> _load(SecretStore vault, Random random) async {
-    final values = {...await vault.readAll()};
-    final stored = values.remove(fingerprintName);
-    if (stored != null) return SecureStorage._(vault, values, Fingerprint._(_decode(stored)));
-
-    final created = _randomBytes(random);
+    final created = _randomBytes(Random.secure());
     final encoded = base64Url.encode(created);
-    await vault.write(fingerprintName, encoded);
-    if (await vault.read(fingerprintName) != encoded) {
-      throw const FingerprintError('the vault did not keep the fingerprint it was given');
+    await _vault.write(key: _fingerprintName, value: encoded);
+    if (await _vault.read(key: _fingerprintName) != encoded) {
+      throw StateError('The vault did not keep the fingerprint it was given.');
     }
-    return SecureStorage._(vault, values, Fingerprint._(created));
+    return SecureStorage._(values, Fingerprint._(created));
   }
 
   static Uint8List _decode(String stored) {
-    final Uint8List bytes;
     try {
-      bytes = base64Url.decode(stored);
+      final bytes = base64Url.decode(stored);
+      if (bytes.length == Fingerprint._length) return bytes;
     } on FormatException {
-      throw const FingerprintError('the stored fingerprint is not valid: it was left as it is');
+      // falls through to the same refusal
     }
-    if (bytes.length != Fingerprint._length) {
-      throw const FingerprintError('the stored fingerprint has the wrong length: it was left as it is');
-    }
-    return bytes;
+    throw StateError('The stored fingerprint is not valid: it was left as it is.');
   }
 
   static SecureStorage get _instance => GetIt.instance<SecureStorage>();
 
-  /// The app's fingerprint, on the registered [SecureStorage]. Throws from
-  /// `GetIt` when `configureSdk` has not run.
+  /// The app's fingerprint, on the registered [SecureStorage].
   static Fingerprint get fingerprint => _instance._fingerprint;
-
-  /// The fingerprint this storage holds, for what is inside the package.
-  @internal
-  Fingerprint get loadedFingerprint => _fingerprint;
 
   /// Wipes what is held in memory when `GetIt.reset` lets go of it: the
   /// fingerprint, and every secret read from the vault. The vault itself keeps
   /// them.
   @disposeMethod
   void dispose() {
-    _fingerprint.dispose();
+    _fingerprint._wipe();
     _values.clear();
   }
 
   /// An entry holding a [String], on the registered [SecureStorage].
-  static Secure<String> string_(String key, String defaultValue) => Secure.string_(_instance, key, defaultValue);
+  static Secure<String> string_(String key, String defaultValue) => _SecureString(_instance, key, defaultValue);
 
-  /// An entry holding bytes, stored as text, on the registered
-  /// [SecureStorage]. A stored value that no longer decodes is reported to
-  /// [reporter] and answered with [defaultValue].
-  static Secure<Uint8List> bytes_(String key, Uint8List defaultValue, {Reporter reporter = const SilentReporter()}) =>
-      Secure.bytes_(_instance, key, defaultValue, reporter: reporter);
+  /// An entry holding bytes, stored as text, on the registered [SecureStorage].
+  static Secure<Uint8List> bytes_(String key, Uint8List defaultValue) => _SecureBytes(_instance, key, defaultValue);
 
-  /// An entry holding an [int], on the registered [SecureStorage]. A stored
-  /// value that no longer decodes is reported to [reporter] and answered with
-  /// [defaultValue].
-  static Secure<int> int_(String key, int defaultValue, {Reporter reporter = const SilentReporter()}) =>
-      Secure.int_(_instance, key, defaultValue, reporter: reporter);
+  /// An entry holding an [int], on the registered [SecureStorage].
+  static Secure<int> int_(String key, int defaultValue) => _SecureInt(_instance, key, defaultValue);
 
-  /// An entry holding a [bool], on the registered [SecureStorage]. A stored
-  /// value that no longer decodes is reported to [reporter] and answered with
-  /// [defaultValue].
-  static Secure<bool> bool_(String key, bool defaultValue, {Reporter reporter = const SilentReporter()}) =>
-      Secure.bool_(_instance, key, defaultValue, reporter: reporter);
+  /// An entry holding a [bool], on the registered [SecureStorage].
+  static Secure<bool> bool_(String key, bool defaultValue) => _SecureBool(_instance, key, defaultValue);
 
   /// Keeps [value] under [key] in the vault, or forgets [key] when [value] is
   /// `null`, and only then updates what is held in memory.
   Future<void> _write(String key, String? value) async {
     if (value == null) {
-      await _vault.delete(key);
+      await _vault.delete(key: key);
       _values.remove(key);
     } else {
-      await _vault.write(key, value);
+      await _vault.write(key: key, value: value);
       _values[key] = value;
     }
   }
@@ -366,10 +260,10 @@ class SecureStorage {
 
 /// One entry of a [SecureStorage], read and written in the vault as text.
 ///
-/// Never constructed directly: [string_], [bytes_], [int_] and [bool_] are the
-/// only ways to declare one, each fixing which shape it reads and writes so a
-/// project never has to name (or get wrong) the private class actually
-/// backing it.
+/// Never constructed directly: [SecureStorage.string_], [SecureStorage.bytes_],
+/// [SecureStorage.int_] and [SecureStorage.bool_] are the only ways to declare
+/// one, each fixing which shape it reads and writes so a project never has to
+/// name (or get wrong) the private class actually backing it.
 sealed class Secure<T> extends Observable<T> {
   final SecureStorage _storage;
   final String _key;
@@ -383,40 +277,6 @@ sealed class Secure<T> extends Observable<T> {
   Secure._(this._storage, this._key, this._defaultValue) {
     _storage._requireOwnKey(_key);
   }
-
-  /// An entry holding a [String].
-  static Secure<String> string_(SecureStorage storage, String key, String defaultValue) =>
-      _SecureString(storage, key, defaultValue);
-
-  /// An entry holding bytes, stored as text.
-  static Secure<Uint8List> bytes_(
-    SecureStorage storage,
-    String key,
-    Uint8List defaultValue, {
-    Reporter reporter = const SilentReporter(),
-  }) => _SecureBytes(storage, key, defaultValue, reporter: reporter);
-
-  /// An entry holding an [int].
-  static Secure<int> int_(
-    SecureStorage storage,
-    String key,
-    int defaultValue, {
-    Reporter reporter = const SilentReporter(),
-  }) => _SecureInt(storage, key, defaultValue, reporter: reporter);
-
-  /// An entry holding a [bool].
-  static Secure<bool> bool_(
-    SecureStorage storage,
-    String key,
-    bool defaultValue, {
-    Reporter reporter = const SilentReporter(),
-  }) => _SecureBool(storage, key, defaultValue, reporter: reporter);
-
-  /// The key this entry occupies in the vault.
-  String get key => _key;
-
-  /// What answers a key nothing has written to yet.
-  T get defaultValue => _defaultValue;
 
   @override
   T get value => _valueSubject.value;
@@ -435,10 +295,22 @@ sealed class Secure<T> extends Observable<T> {
   @override
   Stream<T> get values => stream;
 
-  /// Decodes what the vault holds for this entry, [_defaultValue] when nothing.
-  /// Runs exactly once, to seed [_valueSubject]: every read after that answers
-  /// from the cache, kept in step by [set].
-  T _fetch();
+  /// Decodes what the vault holds for this entry, the default when nothing, or
+  /// when what is held no longer decodes. Runs exactly once, to seed
+  /// [_valueSubject]: every read after that answers from the cache, kept in step
+  /// by [set].
+  T _fetch() {
+    final stored = _storage._values[_key];
+    if (stored == null) return _defaultValue;
+    try {
+      return _decode(stored) ?? _defaultValue;
+    } on FormatException {
+      return _defaultValue;
+    }
+  }
+
+  /// The value [stored] holds, or `null` when it holds none.
+  T? _decode(String stored);
 
   /// This entry's value as the text the vault keeps.
   String _encode(T value);
@@ -458,7 +330,7 @@ sealed class Secure<T> extends Observable<T> {
     if (!_valueSubject.isClosed) _valueSubject.add(next);
   }
 
-  /// Forgets the value in the vault and publishes [defaultValue] on [stream].
+  /// Forgets the value in the vault and publishes the default on [stream].
   Future<void> clear() async {
     await _storage._write(_key, null);
     if (!_valueSubject.isClosed) _valueSubject.add(_defaultValue);
@@ -468,36 +340,23 @@ sealed class Secure<T> extends Observable<T> {
   Future<void> dispose() => _valueSubject.close();
 }
 
-/// The [Secure] behind [Secure.string_].
+/// The [Secure] behind [SecureStorage.string_].
 final class _SecureString extends Secure<String> {
   _SecureString(super.storage, super.key, super.defaultValue) : super._();
 
   @override
-  String _fetch() => _storage._values[key] ?? defaultValue;
+  String _decode(String stored) => stored;
 
   @override
   String _encode(String value) => value;
 }
 
-/// The [Secure] behind [Secure.bytes_].
+/// The [Secure] behind [SecureStorage.bytes_].
 final class _SecureBytes extends Secure<Uint8List> {
-  _SecureBytes(super.storage, super.key, super.defaultValue, {required Reporter reporter})
-    : _reporter = reporter,
-      super._();
-
-  final Reporter _reporter;
+  _SecureBytes(super.storage, super.key, super.defaultValue) : super._();
 
   @override
-  Uint8List _fetch() {
-    final stored = _storage._values[key];
-    if (stored == null) return defaultValue;
-    try {
-      return base64Url.decode(stored);
-    } catch (error, stackTrace) {
-      _reporter.recordError(error, stackTrace, context: {'secret': key});
-      return defaultValue;
-    }
-  }
+  Uint8List _decode(String stored) => base64Url.decode(stored);
 
   @override
   String _encode(Uint8List value) => base64Url.encode(value);
@@ -512,45 +371,27 @@ final class _SecureBytes extends Secure<Uint8List> {
   }
 }
 
-/// The [Secure] behind [Secure.int_].
+/// The [Secure] behind [SecureStorage.int_].
 final class _SecureInt extends Secure<int> {
-  _SecureInt(super.storage, super.key, super.defaultValue, {required Reporter reporter})
-    : _reporter = reporter,
-      super._();
-
-  final Reporter _reporter;
+  _SecureInt(super.storage, super.key, super.defaultValue) : super._();
 
   @override
-  int _fetch() {
-    final stored = _storage._values[key];
-    if (stored == null) return defaultValue;
-    final parsed = int.tryParse(stored);
-    if (parsed != null) return parsed;
-    _reporter.recordError(FormatException('not an int', stored), StackTrace.current, context: {'secret': key});
-    return defaultValue;
-  }
+  int? _decode(String stored) => int.tryParse(stored);
 
   @override
   String _encode(int value) => '$value';
 }
 
-/// The [Secure] behind [Secure.bool_].
+/// The [Secure] behind [SecureStorage.bool_].
 final class _SecureBool extends Secure<bool> {
-  _SecureBool(super.storage, super.key, super.defaultValue, {required Reporter reporter})
-    : _reporter = reporter,
-      super._();
-
-  final Reporter _reporter;
+  _SecureBool(super.storage, super.key, super.defaultValue) : super._();
 
   @override
-  bool _fetch() {
-    final stored = _storage._values[key];
-    if (stored == null) return defaultValue;
-    if (stored == 'true') return true;
-    if (stored == 'false') return false;
-    _reporter.recordError(FormatException('not a bool', stored), StackTrace.current, context: {'secret': key});
-    return defaultValue;
-  }
+  bool? _decode(String stored) => switch (stored) {
+    'true' => true,
+    'false' => false,
+    _ => null,
+  };
 
   @override
   String _encode(bool value) => '$value';
