@@ -34,35 +34,49 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-library;
-
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'src/auth/auth.dart';
-import 'src/database/own_database.dart';
-import 'src/users/users.dart';
+import '../../clients/rest/rest.dart';
+import '../../clients/rest/signal.dart';
+import '../database/own_database.dart';
+import '../database/user.dart';
 
-final class GroundSdk extends Sdk {
-  late final Auth auth;
-  late final Users users;
-  late final OwnDatabase database;
+enum UsersError { signedOut, unknown }
 
-  static GroundSdk get I => Sdk.instance<GroundSdk>();
-  static GroundSdk get instance => I;
+/// The users of the account, read from the local database and refreshed from the
+/// network.
+///
+/// A screen reads `value` and follows `stream`, which are always what is stored,
+/// and calls `refresh()` to bring it up to date. `status` says how the last
+/// refresh went, and the users stay readable whatever it says.
+final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
+  UsersList() : super(initial: const [], offlineSignals: const {RestSignal.noRoute});
 
   @override
-  Future<void> initialize() async {
-    await super.initialize();
+  bool get isAuthenticated => true;
 
-    auth = const Auth();
-    users = const Users();
-    database = OwnDatabase();
-    await database.initialize();
+  @override
+  Future<List<User>> fetch() => RestGroundSdk.I.users.list();
+
+  @override
+  Future<void> response(List<User> users) {
+    final database = OwnDatabase.I;
+    return database.runTransaction((transaction) async {
+      for (final user in users) {
+        await transaction.from(database.users).upsert(user);
+      }
+    });
   }
 
   @override
-  Future<void> dispose() async {
-    if (isInitialized) await database.dispose();
-    await super.dispose();
+  Stream<List<User>> watchLocal() {
+    final database = OwnDatabase.I;
+    return database.from(database.users).orderBy([database.users.name.asc()]).watch();
   }
+
+  @override
+  UsersError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
+    RestSignal.unauthorized || RestSignal.forbidden => UsersError.signedOut,
+    _ => UsersError.unknown,
+  };
 }

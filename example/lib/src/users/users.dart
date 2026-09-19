@@ -34,35 +34,11 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-library;
+import 'users_list.dart';
 
-import 'package:fiber_pylon/fiber_pylon.dart';
+final class Users {
+  const Users();
 
-import 'src/auth/auth.dart';
-import 'src/database/own_database.dart';
-import 'src/users/users.dart';
-
-final class GroundSdk extends Sdk {
-  late final Auth auth;
-  late final Users users;
-  late final OwnDatabase database;
-
-  static GroundSdk get I => Sdk.instance<GroundSdk>();
-  static GroundSdk get instance => I;
-
-  @override
-  Future<void> initialize() async {
-    await super.initialize();
-
-    auth = const Auth();
-    users = const Users();
-    database = OwnDatabase();
-    await database.initialize();
-  }
-
-  @override
-  Future<void> dispose() async {
-    if (isInitialized) await database.dispose();
-    await super.dispose();
-  }
+  /// The users' repository, made where a screen needs it and disposed with it.
+  UsersList list() => UsersList();
 }

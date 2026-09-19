@@ -40,6 +40,7 @@ import 'classifier.dart';
 import 'configuration.dart';
 import 'signal.dart';
 import 'src/auth/auth.dart';
+import 'src/users/users.dart';
 
 RestGroundSdk rest = RestGroundSdk();
 
@@ -50,6 +51,7 @@ final class RestGroundSdk extends RestSdkClient {
 
   late final RestClient<RestSignal> _client;
   late final AuthGroundSdk auth;
+  late final UsersGroundSdk users;
 
   @override
   Environments? get environments => _configuration;
@@ -63,7 +65,9 @@ final class RestGroundSdk extends RestSdkClient {
       classifier: const RestGroundSdkClassifier(),
       guard: CallGuard<RestSignal>(duplicateSignal: RestSignal.duplicateCall),
     );
-    auth = AuthGroundSdk(RestNode<RestSignal>(_client));
+    final node = RestNode<RestSignal>(_client);
+    auth = AuthGroundSdk(node);
+    users = UsersGroundSdk(node);
 
     await super.initialize();
   }

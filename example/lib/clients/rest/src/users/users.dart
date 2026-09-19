@@ -34,35 +34,25 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-library;
-
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'src/auth/auth.dart';
-import 'src/database/own_database.dart';
-import 'src/users/users.dart';
+import '../../../../src/database/user.dart';
+import '../../caller.dart';
 
-final class GroundSdk extends Sdk {
-  late final Auth auth;
-  late final Users users;
-  late final OwnDatabase database;
+final class UsersGroundSdk {
+  const UsersGroundSdk(this._caller);
 
-  static GroundSdk get I => Sdk.instance<GroundSdk>();
-  static GroundSdk get instance => I;
+  final Caller _caller;
 
-  @override
-  Future<void> initialize() async {
-    await super.initialize();
-
-    auth = const Auth();
-    users = const Users();
-    database = OwnDatabase();
-    await database.initialize();
-  }
-
-  @override
-  Future<void> dispose() async {
-    if (isInitialized) await database.dispose();
-    await super.dispose();
+  /// Every user the account can see.
+  ///
+  /// Throws a [Fault] naming what went wrong, which is what `SdkRepository.fetch`
+  /// promises.
+  Future<List<User>> list() async {
+    final response = await _caller.path((p) => p.segment('users')).get().send();
+    return [
+      for (final row in response.list.cast<Map<String, dynamic>>())
+        User(id: '${row['id']}', name: row['name'] as String, age: row['age'] as int, city: row['city'] as String?),
+    ];
   }
 }
