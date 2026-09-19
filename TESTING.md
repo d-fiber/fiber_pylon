@@ -31,13 +31,14 @@ nobody, write the test.
 Pylon owns policy, and policy is exercised with fakes. There is no network in this suite
 and there should not be one.
 
-- A `CredentialRefresher` that returns a scripted sequence, or blocks on a `Completer`, is
-  how renewal, deduplication and revocation are tested.
+- An exchange plugged into `Credentials.renewWith` that returns a scripted sequence, or
+  blocks on a `Completer`, is how renewal, deduplication and revocation are tested.
+  `Credentials.forTesting` holds the credential in memory instead of the vault.
 - `MockClient` from `package:http/testing.dart` answers `RestClient` without a socket.
 - A `SocketLink` backed by a `StreamController` drives `SocketChannel`, including the cases
   a real server will not produce on demand: a link that goes quiet without closing, a join
   the server refuses, two opens at once.
-- `MemoryKeyValueStore` and `MemoryCredentialStore` stand in for storage.
+- `MemoryKeyValueStore` and the credential's in-memory store stand in for storage.
 
 If something can only be tested against a live server, that is usually a sign the seam is
 in the wrong place.

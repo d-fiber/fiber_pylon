@@ -39,7 +39,7 @@ lib/src/barrier/               what a port touches: Result, Fault, FaultResolver
 lib/src/toolkit/               what only an Sdk implementation touches: CallGuard,
                                 HealthMonitor, Observable, Reporter, RestClient and
                                 what it needs, ChannelKeeper, SocketChannel, Backoff,
-                                CredentialManager and what it needs, Preferences
+                                Credentials, Preferences
 test/src/                      mirrors lib/src/: one file per subject, at the path of the
                                 lib file it covers, named after it with `_test`
 test/public_surface_test.dart  what a project importing the barrel can and cannot write
@@ -62,7 +62,7 @@ Two questions catch most of it:
   until a project spells one differently, and then it wires the wrong thing silently.
 
 Where pylon has to act on something only the project knows, it takes it as a required
-argument. `fatalSignals`, `renewOn`, `duplicateSignal`, `expiresAt` and `fallback` all have
+argument. `fatalSignals`, `renewOn`, `duplicateSignal` and `fallback` all have
 no default for this reason, and adding one would be a regression.
 
 ## Before you push

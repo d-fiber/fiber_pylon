@@ -65,7 +65,7 @@ changes.
 
 The backend writes one method for that, `DummyRefresher.refresh`. Renewing ahead of expiry,
 collapsing simultaneous attempts into one exchange, retrying a failure that may pass and
-revoking one that will not are all `CredentialManager`, and the other two backends get them
+clearing one that will not are all `Credentials`, and the other two backends get them
 for free by not needing them at all.
 
 ## The tests

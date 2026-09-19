@@ -22,7 +22,7 @@ be right most of the time.
 what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
-`RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
+`RealtimeNode` to a real server: `RestClient`, `Credentials`, `CallGuard`,
 `SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `PreferencesStorage`, `SecureStorage`, `LocalDatabase`,
 `Database`, `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
 second time.
@@ -146,7 +146,7 @@ resolver and never decides which failures a port distinguishes. A raw exception,
 quietly becoming `readBrand.fallback` — nothing here decides that for the caller either.
 
 Wherever pylon has to act on a failure it is handed a set of signals rather than left to
-interpret one. `CredentialManager` is told which signals mean the credential is dead,
+interpret one. `Credentials.renewWith` is told which signals mean the credential is dead,
 `CallGuard` which are worth renewing for, and even the refusal `CallGuard` issues for a
 duplicate call is named by you.
 
@@ -161,8 +161,8 @@ final client = RestClient<AdminSignal>(
   classifier: const AdminClassifier(),
   guard: guard,
   headers: (request) async => {
-    if (credentials.value case final session?)
-      'authorization': 'Bearer ${session.accessToken}',
+    if (Credentials.value case final credential?)
+      'authorization': 'Bearer ${credential.token}',
     'x-app-key': appKey,
   },
 );
@@ -211,87 +211,81 @@ the resource does not exist yet. Both exist, and both are entitled to say so her
 
 ## Credentials
 
-Pylon does not define what a session is. The credential is your own type, opaque, and the
-only things the renewal policy needs to know are asked for.
+One singleton answers everybody: `Credentials`. A screen, the local database and the REST
+client all ask it, from anywhere, and everything behind it stays internal.
 
 ```dart
-final credentials = CredentialManager<Ticket, AdminSignal>(
-  store: StoredCredential<Ticket>(
-    SecureStorage.string_('ticket', ''),
-    encode: (ticket) => ticket.serialise(),
-    decode: Ticket.parse,
-  ),
-  refresher: AdminRefresher(),
-  expiresAt: (ticket) => ticket.expiresAt,
+await Credentials.set(Credential(token: 'abc', refreshToken: 'again', expiresAt: expiry));
+
+Credentials.isHeld;                        // is there one?
+Credentials.value?.token;                  // what a call carries
+Credentials.held.stream.listen(route);     // follow a sign-in and a sign-out
+Credentials.stream.listen(reconnect);      // the credential now, then each one that replaces it
+Credentials.isStale;                       // within minutes of expiry: a renewal is due
+
+await Credentials.clear();                 // signing out
+```
+
+It reads like a `Preference`: `value`, `stream` and `values`, and `set` and `clear` write.
+A `Credential` is one opaque `token`, and pylon never looks inside it. The rest is optional
+and says only what renewing takes: a `refreshToken`, an `expiresAt`, and a `holder`, the
+account it belongs to.
+
+It is kept in the operating system's vault through `SecureStorage`, never in the
+preferences: a token in `PreferencesStorage` sits in a file anyone can copy off the device.
+It is found again before `configureSdk` returns, so nobody ever asks it a question it
+cannot yet answer, and `held` moves only on a sign-in or a sign-out, never on a renewal.
+
+### Renewing
+
+The backend writes one function, the exchange, and plugs it in once, right after
+`configureSdk`:
+
+```dart
+Credentials.renewWith(
+  refresh: (current) => api.exchange(current.refreshToken!),
   fatalSignals: {AdminSignal.unauthorized, AdminSignal.forbidden},
 );
 ```
 
-The backend writes `refresh(current)` and nothing else. The rest is policy, and it is the
-same everywhere: renew ahead of expiry rather than after a call has already failed,
-collapse simultaneous attempts into one exchange so a screen firing six requests does not
-burn six refresh tokens, keep a failed attempt pending instead of dropping it, and revoke
-on the signals it was told mean the credential is dead.
+The rest is policy, and it is the same everywhere: renew ahead of expiry rather than after
+a call has already failed, collapse simultaneous attempts into one exchange so a screen
+firing six requests does not burn six refresh tokens, keep a failed attempt pending instead
+of dropping it, and clear the credential on the signals it was told mean it is dead. The
+exchange throws a `Fault` naming what went wrong. A credential without a `refreshToken` is
+held and never renewed.
 
 `fatalSignals` has no default on purpose. Pylon cannot know which of an adapter's signals
 means the credential was rejected rather than that the server was unreachable, and getting
 it wrong is expensive in both directions: too wide a set signs people out during an outage,
 too narrow a one leaves them retrying a credential that is gone.
 
-The credential is kept in the operating system's vault through `SecureStorage`, never in
-the preferences: a token in `PreferencesStorage` sits in a file anyone can copy off the
-device.
-
-### Who is signed in
-
-One manager answers everybody, so a screen, the local database and the REST client all ask
-the same object. It reads like a `Preference`: `value`, a call, `stream` and `values`.
-
-```dart
-await credentials.start();                 // reads the vault once, at launch
-
-credentials.value;                         // the credential in force, or null
-credentials();                             // same
-credentials.stream.listen(send);           // the credential now, then each one that replaces it
-credentials.status.value;                  // pending, held or absent
-credentials.status.stream.listen(route);   // follow a sign-in and a sign-out
-credentials.isStale;                       // within `buffer` of expiry: a renewal is due
-```
-
-`status` has three values because the moment before the vault has been read is neither of
-the other two: a router that took it for "absent" would flash a sign-in form at someone who
-is signed in. A renewal does not move it, so it wakes a listener only on a sign-in or a
-sign-out. `stream` publishes the credential itself, renewals included, for a consumer that
-needs the token.
-
 ### The local database
 
 ```dart
-Tenant.follow(credentials, idOf: (ticket) => ticket.accountId);
-await credentials.start();
+await configureSdk();
+Tenant.follow();
 ```
 
-Isolated tables then hold the signed-in account's rows, the anonymous ones after a
-sign-out, and the previous account's never. A listener of `stream` has run before `start`,
-`grant`, `revoke` or a renewal returns, so once `status` says `held` the tenant is already
-the right one.
+Isolated tables then hold the account the credential names as its `holder`, the anonymous
+rows after a sign-out, and the previous account's never. A listener of `stream` has run
+before `set`, `clear` or a renewal returns, so once `held` moves the tenant is already the
+right one.
 
 ### The REST client
 
 ```dart
 final guard = CallGuard<AdminSignal>.renewing(
-  credentials: credentials,
   renewOn: {AdminSignal.unauthorized},
   duplicateSignal: AdminSignal.duplicateCall,
 );
 ```
 
-Every authenticated call renews ahead of expiry, replays once after a renewal, and revokes
-when the replay is refused too. `RestClient`'s `headers` reads `credentials.value`, so
-the token it sends is the one just renewed.
+Every authenticated call renews ahead of expiry, replays once after a renewal, and clears
+the credential when the replay is refused too. `RestClient`'s `headers` reads
+`Credentials.value`, so the token it sends is the one just renewed.
 
-A project with no notion of a credential never builds one of these. Nothing else requires
-it.
+A project with no notion of a credential never sets one. Nothing else requires it.
 
 ## Calls that collide
 
