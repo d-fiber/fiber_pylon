@@ -37,7 +37,7 @@
 part of '../database.dart';
 
 /// A project's own model that knows how to turn its own fields into a
-/// [DatabaseRow] — the same role [ValkeryJson] plays for [ValkeryStorage],
+/// [DatabaseRow] — the same role [PreferenceJson] plays for [PreferencesStorage],
 /// spelled out for a table's own row shape instead of a JSON document.
 ///
 /// [LocalDatabase.insert] and [LocalDatabase.update] never reach into a

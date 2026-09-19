@@ -56,7 +56,7 @@ enum SdkClientKind {
 /// An implementation that says which [SdkClientKind] it talks to, standing
 /// next to [Sdk] rather than under it.
 ///
-/// [Sdk] is the implementation that resolves a project's own [ValkeryStorage];
+/// [Sdk] is the implementation that resolves a project's own [PreferencesStorage];
 /// this is the implementation for a backend that manages its own bootstrap,
 /// or needs none, and gets [initialize] and [dispose] as they are, with
 /// nothing of its own to add before registering.

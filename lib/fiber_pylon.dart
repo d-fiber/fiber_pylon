@@ -62,7 +62,7 @@
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
 /// needs, [CredentialManager], [CallGuard], [SocketChannel], [ChannelKeeper],
-/// [HealthMonitor], [ValkeryStorage], [Observable], [Reporter], [Backoff]. Each
+/// [HealthMonitor], [PreferencesStorage], [Observable], [Reporter], [Backoff]. Each
 /// is a mechanism every backend would otherwise rewrite, and rewrite worse
 /// the second time.
 ///
@@ -168,7 +168,7 @@ export 'src/mutation/mutation.dart';
 export 'src/mutation/mutation_queue.dart';
 export 'src/mutation/mutation_store.dart';
 export 'src/storage/secure_storage.dart' show SecureStorage, Secure, Fingerprint, FingerprintError;
-export 'src/storage/valkery_storage.dart';
+export 'src/storage/preferences_storage.dart';
 export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';
 export 'src/sdk/clients/local/database/database.dart';

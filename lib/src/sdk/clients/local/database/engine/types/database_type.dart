@@ -127,8 +127,8 @@ sealed class DatabaseType extends Equatable {
 
   /// [value] as a [Varchar] holding its own name.
   ///
-  /// The same convention [ValkeryStorage] already uses for its own
-  /// [Valkery.enum_]: stored by name rather than by index, so reordering a
+  /// The same convention [PreferencesStorage] already uses for its own
+  /// [Preference.enum_]: stored by name rather than by index, so reordering a
   /// project's own enum never silently changes what an existing row reads
   /// back as. Read one back with `asEnum`, given the same enum's own
   /// `values`.

@@ -37,5 +37,5 @@
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 final class AppPreferences {
-  static final vibrations = ValkeryStorage.bool_('vibrations', true);
+  static final vibrations = PreferencesStorage.bool_('vibrations', true);
 }

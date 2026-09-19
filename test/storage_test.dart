@@ -51,10 +51,10 @@ class Ticket {
   const Ticket(this.value);
 }
 
-Future<ValkeryStorage> _preferences() async {
+Future<PreferencesStorage> _preferences() async {
   await GetIt.instance.reset();
   await configureSdk();
-  return GetIt.instance<ValkeryStorage>();
+  return GetIt.instance<PreferencesStorage>();
 }
 
 Future<_AppPreferences> _appPreferences() async {
@@ -135,7 +135,7 @@ void main() {
     });
   });
 
-  group('ValkeryStorage', () {
+  group('PreferencesStorage', () {
     test('every entry answers its default value before anything is written', () async {
       final prefs = await _appPreferences();
 
@@ -246,14 +246,14 @@ void main() {
 enum Mood { happy, sad, neutral }
 
 class _AppPreferences {
-  late final volume = ValkeryStorage.int_('volume', 50);
-  late final enabled = ValkeryStorage.bool_('enabled', false);
-  late final ratio = ValkeryStorage.double_('ratio', 1.0);
-  late final label = ValkeryStorage.string_('label', 'default');
-  late final mood = ValkeryStorage.enum_('mood', Mood.values, Mood.neutral);
-  late final profile = ValkeryStorage.json_('profile', const _Profile(name: 'anonymous'), _Profile.fromJson);
-  late final scores = ValkeryStorage.list_<int>('scores', const [], (json) => json as int);
-  late final crew = ValkeryStorage.list_<_Profile>(
+  late final volume = PreferencesStorage.int_('volume', 50);
+  late final enabled = PreferencesStorage.bool_('enabled', false);
+  late final ratio = PreferencesStorage.double_('ratio', 1.0);
+  late final label = PreferencesStorage.string_('label', 'default');
+  late final mood = PreferencesStorage.enum_('mood', Mood.values, Mood.neutral);
+  late final profile = PreferencesStorage.json_('profile', const _Profile(name: 'anonymous'), _Profile.fromJson);
+  late final scores = PreferencesStorage.list_<int>('scores', const [], (json) => json as int);
+  late final crew = PreferencesStorage.list_<_Profile>(
     'crew',
     const [],
     (json) => _Profile.fromJson(json as Map<String, dynamic>),
@@ -261,7 +261,7 @@ class _AppPreferences {
   );
 }
 
-class _Profile implements ValkeryJson {
+class _Profile implements PreferenceJson {
   final String name;
 
   const _Profile({required this.name});

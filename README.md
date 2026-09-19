@@ -23,7 +23,7 @@ what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
-`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `ValkeryStorage`, `SecureStorage`, `AppStorage`,
+`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `PreferencesStorage`, `SecureStorage`, `AppStorage`,
 `Database`, `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
 second time.
 
@@ -344,7 +344,7 @@ instead of minting a new one, since that would orphan the file.
 ### The secrets
 
 `SecureStorage` is the operating system's vault as typed entries, in the same style as
-`ValkeryStorage`: registered by `configureSdk()`, first of everything, and reached through static
+`PreferencesStorage`: registered by `configureSdk()`, first of everything, and reached through static
 factories without holding a reference of its own.
 
 ```dart

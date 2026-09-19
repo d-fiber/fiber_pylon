@@ -37,8 +37,8 @@
 part of '../database.dart';
 
 /// Encodes a [T] into a JSON-backed [DatabaseType.varchar] and decodes it
-/// back, the same convention [ValkeryStorage] already uses for its own
-/// [Valkery.json_] — a column holds one [T] exactly the way a preference
+/// back, the same convention [PreferencesStorage] already uses for its own
+/// [Preference.json_] — a column holds one [T] exactly the way a preference
 /// entry does, through a [fromJson] and [toJson] a project supplies once.
 /// [DatabaseType.point] is this same convention, already applied to
 /// [Location]; reach for [Json] for every other shape a project
@@ -65,7 +65,7 @@ part of '../database.dart';
 /// Nothing here validates what [fromJson] does with a shape that no longer
 /// matches: a stored value from an older version of a project's own [T] is
 /// exactly the situation [fromJson] itself is responsible for handling, the
-/// same as [ValkeryJson] leaves it.
+/// same as [PreferenceJson] leaves it.
 final class Json<T> {
   /// Codes a [T] through [fromJson] and [toJson].
   const Json({required this.fromJson, required this.toJson});

@@ -6,7 +6,7 @@ Three backends behind one contract, and a console script that cannot tell them a
 flutter run -t lib/main.dart
 ```
 
-Plain `dart run` cannot start this: pylon's storage toolkit (`LocalStorage`, `ValkeryStorage`)
+Plain `dart run` cannot start this: pylon's storage toolkit (`LocalStorage`, `PreferencesStorage`)
 depends on `sqflite` and `shared_preferences`, real Flutter plugins that pull in `dart:ui`,
 which the bare Dart VM does not have. A connected device or simulator is enough; nothing here
 opens a window.

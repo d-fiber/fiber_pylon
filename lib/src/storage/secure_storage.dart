@@ -233,7 +233,7 @@ Uint8List hkdfSha256(List<int> ikm, {List<int>? salt, List<int> info = const [],
 /// ```
 ///
 /// Everything the vault holds is read once, when `configureSdk` runs, so an
-/// entry answers at once, like a [Valkery]; a write goes to the vault first,
+/// entry answers at once, like a [Preference]; a write goes to the vault first,
 /// and the entry only changes — and only tells its listeners — once the vault
 /// has kept it.
 ///
