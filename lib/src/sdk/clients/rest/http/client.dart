@@ -75,7 +75,7 @@ typedef RestHeaders = Future<Map<String, String>> Function(RestRequest request);
 ///   classifier: const AdminClassifier(),
 ///   guard: guard,
 ///   headers: (request) async => {
-///     if (credentials.credential case final session?)
+///     if (credentials.value case final session?)
 ///       'authorization': 'Bearer ${session.accessToken}',
 ///     'x-app-key': appKey,
 ///   },
@@ -144,18 +144,10 @@ class RestClient<S extends Object> {
   Future<RestResponse> send(RestRequest request) {
     final shareKey = request.shareKey;
     if (shareKey != null) {
-      return _guard.share(
-        () => _perform(request),
-        key: shareKey,
-        authenticated: request.authenticated,
-      );
+      return _guard.share(() => _perform(request), key: shareKey, authenticated: request.authenticated);
     }
 
-    return _guard.run(
-      () => _perform(request),
-      dedupKey: request.dedupKey,
-      authenticated: request.authenticated,
-    );
+    return _guard.run(() => _perform(request), dedupKey: request.dedupKey, authenticated: request.authenticated);
   }
 
   /// Closes the underlying HTTP client, when this created it.
@@ -170,15 +162,9 @@ class RestClient<S extends Object> {
 
     final RestResponse response;
     try {
-      response = request.isMultipart
-          ? await _sendMultipart(request)
-          : await _sendPlain(request);
+      response = request.isMultipart ? await _sendMultipart(request) : await _sendPlain(request);
     } catch (error, stackTrace) {
-      throw Fault<S>(
-        _classifier.ofTransport(error, stackTrace),
-        cause: error,
-        stackTrace: stackTrace,
-      );
+      throw Fault<S>(_classifier.ofTransport(error, stackTrace), cause: error, stackTrace: stackTrace);
     }
 
     final signal = _classifier.ofResponse(response);
@@ -190,10 +176,7 @@ class RestClient<S extends Object> {
     final body = request.body;
     final encoded = body == null ? null : jsonEncode(body);
 
-    final message = http.Request(
-      request.method.name.toUpperCase(),
-      _resolve(request),
-    );
+    final message = http.Request(request.method.name.toUpperCase(), _resolve(request));
     message.headers.addAll({
       'accept': 'application/json',
       if (encoded != null) 'content-type': 'application/json; charset=utf-8',
@@ -205,14 +188,8 @@ class RestClient<S extends Object> {
   }
 
   Future<RestResponse> _sendMultipart(RestRequest request) async {
-    final message = http.MultipartRequest(
-      request.method.name.toUpperCase(),
-      _resolve(request),
-    );
-    message.headers.addAll({
-      'accept': 'application/json',
-      ...await _headersFor(request),
-    });
+    final message = http.MultipartRequest(request.method.name.toUpperCase(), _resolve(request));
+    message.headers.addAll({'accept': 'application/json', ...await _headersFor(request)});
     message.fields.addAll(request.fields);
     for (final upload in request.files) {
       message.files.add(
@@ -228,13 +205,8 @@ class RestClient<S extends Object> {
     return _decode(await _dispatch(message, request));
   }
 
-  Future<http.Response> _dispatch(
-    http.BaseRequest message,
-    RestRequest request,
-  ) async {
-    final streamed = await _http
-        .send(message)
-        .timeout(request.timeout ?? _timeout);
+  Future<http.Response> _dispatch(http.BaseRequest message, RestRequest request) async {
+    final streamed = await _http.send(message).timeout(request.timeout ?? _timeout);
     return http.Response.fromStream(streamed);
   }
 
@@ -249,15 +221,9 @@ class RestClient<S extends Object> {
       ..._baseUrl.pathSegments.where((segment) => segment.isNotEmpty),
       ...asked.pathSegments.where((segment) => segment.isNotEmpty),
     ];
-    final queryParameters = <String, String>{
-      ...asked.queryParameters,
-      ...request.queryParameters,
-    };
+    final queryParameters = <String, String>{...asked.queryParameters, ...request.queryParameters};
 
-    return _baseUrl.replace(
-      pathSegments: segments,
-      queryParameters: queryParameters.isEmpty ? null : queryParameters,
-    );
+    return _baseUrl.replace(pathSegments: segments, queryParameters: queryParameters.isEmpty ? null : queryParameters);
   }
 
   RestResponse _decode(http.Response response) {
@@ -272,11 +238,6 @@ class RestClient<S extends Object> {
       }
     }
 
-    return RestResponse(
-      status: response.statusCode,
-      headers: response.headers,
-      bytes: response.bodyBytes,
-      body: body,
-    );
+    return RestResponse(status: response.statusCode, headers: response.headers, bytes: response.bodyBytes, body: body);
   }
 }

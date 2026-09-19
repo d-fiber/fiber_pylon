@@ -35,13 +35,15 @@
 // LICENSE file, the LICENSE file governs.
 
 import '../common/reporter.dart';
-import '../storage/preferences_storage.dart';
+import '../storage/secure_storage.dart';
 
 /// Where the credential survives a restart.
 ///
-/// Separate from [PreferencesStorage] because credentials often belong somewhere the
-/// rest of a project's preferences do not, typically a platform keychain, and
-/// because pylon must not decide where they go.
+/// A store of its own rather than a setting, because a credential is a secret
+/// and the place a project keeps its preferences is not one: what sits in them
+/// can be read off the device by anyone who copies the app's files. [StoredCredential]
+/// is the store to use, and it keeps the credential in the operating system's
+/// vault.
 abstract interface class CredentialStore<C extends Object> {
   /// The stored credential, or `null` when there is none.
   Future<C?> read();
@@ -77,27 +79,36 @@ class MemoryCredentialStore<C extends Object> implements CredentialStore<C> {
   }
 }
 
-/// A [CredentialStore] backed by a [PreferencesStorage] entry.
+/// A [CredentialStore] backed by a [Secure] entry, which keeps the credential in
+/// the operating system's vault.
 ///
 /// The project supplies [encode] and [decode], so the stored shape is entirely
-/// its own: pylon writes the string it is handed under the key it is given and
-/// never looks at either. A credential that fails to decode is reported and read
-/// back as absent rather than thrown, because this runs at startup and a shape
-/// that changed between two versions of an app must not stop it from opening.
+/// its own: pylon writes the string it is handed and never looks at it. A
+/// credential that fails to decode is reported and read back as absent rather
+/// than thrown, because this runs at startup and a shape that changed between
+/// two versions of an app must not stop it from opening.
+///
+/// ```dart
+/// final store = StoredCredential<Ticket>(
+///   SecureStorage.string_('ticket', ''),
+///   encode: (ticket) => ticket.serialise(),
+///   decode: Ticket.parse,
+/// );
+/// ```
 class StoredCredential<C extends Object> implements CredentialStore<C> {
-  final Preference<String> _entry;
+  final Secure<String> _entry;
   final String Function(C credential) _encode;
   final C Function(String raw) _decode;
   final Reporter _reporter;
 
-  /// Stores the credential in [preferences] under [key].
+  /// Stores the credential in [entry], which is declared with
+  /// [SecureStorage.string_] and reads as an empty string while nothing is kept.
   StoredCredential(
-    PreferencesStorage preferences, {
-    required String key,
+    Secure<String> entry, {
     required String Function(C credential) encode,
     required C Function(String raw) decode,
     Reporter reporter = const SilentReporter(),
-  }) : _entry = Preference.string_(preferences, key, ''),
+  }) : _entry = entry,
        _encode = encode,
        _decode = decode,
        _reporter = reporter;

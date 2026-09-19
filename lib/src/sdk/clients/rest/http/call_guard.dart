@@ -126,11 +126,7 @@ class CallGuard<S extends Object> {
   ///
   /// Throws whatever [call] throws, which for an adapter respecting the contract
   /// is always a [Fault].
-  Future<T> run<T>(
-    Future<T> Function() call, {
-    String? dedupKey,
-    bool authenticated = true,
-  }) async {
+  Future<T> run<T>(Future<T> Function() call, {String? dedupKey, bool authenticated = true}) async {
     if (dedupKey != null && !_inFlight.add(dedupKey)) {
       throw Fault<S>(_duplicateSignal);
     }
@@ -169,11 +165,7 @@ class CallGuard<S extends Object> {
   /// fresh call.
   ///
   /// Throws whatever [call] throws, to every caller that joined.
-  Future<T> share<T>(
-    Future<T> Function() call, {
-    required String key,
-    bool authenticated = true,
-  }) {
+  Future<T> share<T>(Future<T> Function() call, {required String key, bool authenticated = true}) {
     final running = _shared[key];
     if (running != null) return running.then((value) => value as T);
 
@@ -189,10 +181,7 @@ class CallGuard<S extends Object> {
   /// Whether a shared call is in flight under [key].
   bool isShared(String key) => _shared.containsKey(key);
 
-  Future<T> _execute<T>(
-    Future<T> Function() call, {
-    required bool authenticated,
-  }) async {
+  Future<T> _execute<T>(Future<T> Function() call, {required bool authenticated}) async {
     final credentials = _credentials;
     if (authenticated && credentials != null) {
       await credentials.ensureFresh();
@@ -200,23 +189,18 @@ class CallGuard<S extends Object> {
     return _attempt(call, authenticated: authenticated);
   }
 
-  Future<T> _attempt<T>(
-    Future<T> Function() call, {
-    required bool authenticated,
-  }) async {
+  Future<T> _attempt<T>(Future<T> Function() call, {required bool authenticated}) async {
     try {
       return await call();
     } on Fault<S> catch (fault) {
       final credentials = _credentials;
-      if (!authenticated ||
-          credentials == null ||
-          !_renewOn.contains(fault.signal)) {
+      if (!authenticated || credentials == null || !_renewOn.contains(fault.signal)) {
         rethrow;
       }
 
-      final before = credentials.credential;
+      final before = credentials.value;
       await credentials.renew();
-      final after = credentials.credential;
+      final after = credentials.value;
       if (after == null || identical(after, before)) rethrow;
 
       try {

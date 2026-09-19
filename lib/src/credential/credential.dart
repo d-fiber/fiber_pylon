@@ -34,44 +34,24 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'package:equatable/equatable.dart';
-
-/// What happened to the credential held by a [CredentialManager].
-enum CredentialEvent {
-  /// A credential was found in storage when the manager started.
-  ///
-  /// Published even when nothing was found, so a caller waiting to know where to
-  /// route has one signal to wait for rather than two.
-  restored,
-
-  /// A credential was handed to the manager.
-  granted,
-
-  /// The credential was exchanged for a fresh one and the previous is now stale.
-  renewed,
-
-  /// There is no credential any more, whether the holder asked or the backend
-  /// refused to renew.
-  revoked,
-}
-
-/// One transition of the credential state.
+/// Whether a [CredentialManager] holds a credential, as a screen deciding where
+/// to route asks it.
 ///
-/// `C` is whatever the project calls its credential. Pylon never looks inside
-/// it.
-class CredentialChange<C extends Object> extends Equatable {
-  /// What happened.
-  final CredentialEvent event;
+/// Three values rather than a boolean, because the moment before the storage has
+/// been read is neither of the other two: a router that took it for "absent"
+/// would flash a sign-in form at someone who is in fact signed in.
+enum CredentialStatus {
+  /// The storage has not been read yet, so nothing is known.
+  ///
+  /// Lasts until [CredentialManager.start] finishes, or until a credential is
+  /// granted or revoked.
+  pending,
 
-  /// The credential in force after the transition, `null` after a revocation.
-  final C? credential;
+  /// A credential is in force, possibly an expired one that can still be
+  /// renewed.
+  held,
 
-  /// Describes the transition [event] leaving [credential] in force.
-  const CredentialChange(this.event, this.credential);
-
-  @override
-  String toString() => 'CredentialChange(${event.name})';
-
-  @override
-  List<Object?> get props => [event, credential];
+  /// There is no credential: none was stored, the holder signed out, or the
+  /// backend refused to renew it.
+  absent,
 }

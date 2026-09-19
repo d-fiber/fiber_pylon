@@ -161,7 +161,7 @@ final client = RestClient<AdminSignal>(
   classifier: const AdminClassifier(),
   guard: guard,
   headers: (request) async => {
-    if (credentials.credential case final session?)
+    if (credentials.value case final session?)
       'authorization': 'Bearer ${session.accessToken}',
     'x-app-key': appKey,
   },
@@ -245,31 +245,34 @@ device.
 ### Who is signed in
 
 One manager answers everybody, so a screen, the local database and the REST client all ask
-the same object.
+the same object. It reads like a `Preference`: `value`, a call, `stream` and `values`.
 
 ```dart
-await credentials.start();               // reads the vault once, at launch
+await credentials.start();                 // reads the vault once, at launch
 
-credentials.status.value;                // pending, held or absent
-credentials.status.values.listen(route); // follow a sign-in and a sign-out
-credentials.credential;                  // the credential in force, or null
-credentials.isStale;                     // within `buffer` of expiry: a renewal is due
+credentials.value;                         // the credential in force, or null
+credentials();                             // same
+credentials.stream.listen(send);           // the credential now, then each one that replaces it
+credentials.status.value;                  // pending, held or absent
+credentials.status.stream.listen(route);   // follow a sign-in and a sign-out
+credentials.isStale;                       // within `buffer` of expiry: a renewal is due
 ```
 
 `status` has three values because the moment before the vault has been read is neither of
 the other two: a router that took it for "absent" would flash a sign-in form at someone who
 is signed in. A renewal does not move it, so it wakes a listener only on a sign-in or a
-sign-out. `credentials.changes` carries every transition, including renewals, for a
-consumer that needs the credential itself.
+sign-out. `stream` publishes the credential itself, renewals included, for a consumer that
+needs the token.
 
 ### The local database
 
 ```dart
 Tenant.follow(credentials, idOf: (ticket) => ticket.accountId);
+await credentials.start();
 ```
 
 Isolated tables then hold the signed-in account's rows, the anonymous ones after a
-sign-out, and the previous account's never. A listener of `changes` has run before `start`,
+sign-out, and the previous account's never. A listener of `stream` has run before `start`,
 `grant`, `revoke` or a renewal returns, so once `status` says `held` the tenant is already
 the right one.
 
@@ -284,7 +287,7 @@ final guard = CallGuard<AdminSignal>.renewing(
 ```
 
 Every authenticated call renews ahead of expiry, replays once after a renewal, and revokes
-when the replay is refused too. `RestClient`'s `headers` reads `credentials.credential`, so
+when the replay is refused too. `RestClient`'s `headers` reads `credentials.value`, so
 the token it sends is the one just renewed.
 
 A project with no notion of a credential never builds one of these. Nothing else requires

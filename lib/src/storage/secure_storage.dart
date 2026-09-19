@@ -308,6 +308,9 @@ sealed class Secure<T> extends Observable<T> {
     _storage._requireOwnKey(_key);
   }
 
+  /// The key this entry occupies in the vault.
+  String get key => _key;
+
   @override
   T get value => _valueSubject.value;
 

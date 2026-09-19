@@ -80,7 +80,8 @@ enum TransferConflict {
 ///
 /// Pylon holds no opinion about what a tenant id is: an account id, a profile
 /// name, a workspace. The current tenant is not remembered across launches; the
-/// project that knows who is signed in calls [use] at startup.
+/// project that knows who is signed in calls [use] at startup, or hands that to
+/// the credential it already keeps with [follow].
 ///
 /// An operation started while one tenant is current finishes on that tenant,
 /// even if [use] is called before it does, and a `watch()` on an isolated
@@ -112,6 +113,40 @@ abstract final class Tenant {
     if (_current == null) return;
     _current = null;
     _changes.add(null);
+  }
+
+  /// Makes the current tenant the account [credentials] holds, for as long as
+  /// the returned subscription is not cancelled.
+  ///
+  /// [idOf] reads the tenant id out of a credential, since pylon does not know
+  /// what one looks like. The tenant is [use]d for each credential the manager's
+  /// `stream` publishes, and left when it publishes `null`, which is what a
+  /// sign-in and a sign-out come down to. A renewal keeps the same account and
+  /// changes nothing.
+  ///
+  /// Before [CredentialManager.start] has read the storage nothing is known, so
+  /// nothing is touched: the restored credential, or the lack of one, is what
+  /// sets the tenant.
+  ///
+  /// ```dart
+  /// Tenant.follow(credentials, idOf: (ticket) => ticket.accountId);
+  /// await credentials.start();
+  /// ```
+  ///
+  /// Throws an [ArgumentError], from inside the subscription, when [idOf]
+  /// answers an empty id: the previous account's rows must not stay visible
+  /// because of it.
+  static StreamSubscription<void> follow<C extends Object, S extends Object>(
+    CredentialManager<C, S> credentials, {
+    required String Function(C credential) idOf,
+  }) {
+    void apply(C? credential) => credential == null ? leave() : use(idOf(credential));
+
+    // Applied now rather than through the subscription, whose first value, the
+    // credential in force, only arrives a moment after it starts. While pending
+    // that value is only the absence of a credential not looked for yet.
+    if (credentials.status.value != CredentialStatus.pending) apply(credentials.value);
+    return credentials.stream.skip(1).listen(apply);
   }
 }
 

@@ -46,8 +46,7 @@ class Ticket {
   const Ticket(this.value, this.expiresAt);
 }
 
-Ticket ticketLasting(Duration lifetime, {String value = 'first'}) =>
-    Ticket(value, DateTime.now().add(lifetime));
+Ticket ticketLasting(Duration lifetime, {String value = 'first'}) => Ticket(value, DateTime.now().add(lifetime));
 
 enum HouseSignal { rejected, unreachable }
 
@@ -96,15 +95,16 @@ CredentialManager<Ticket, HouseSignal> managerFor(
 
 void main() {
   group('CredentialManager', () {
-    test('publishes restored even when storage held nothing', () async {
+    test('publishes nothing held even when storage held nothing', () async {
       final manager = managerFor(ScriptedRefresher([]));
-      final seen = <CredentialEvent>[];
-      manager.changes.listen((change) => seen.add(change.event));
+      final seen = <Ticket?>[];
+      manager.values.listen(seen.add);
 
       await manager.start();
       await pumpEventQueue();
 
-      expect(seen, [CredentialEvent.restored]);
+      expect(seen, [null, null]);
+      expect(manager.status.value, CredentialStatus.absent);
       expect(manager.isHeld, isFalse);
       await manager.dispose();
     });
@@ -115,17 +115,14 @@ void main() {
 
       await manager.start();
 
-      expect(manager.credential, same(stored));
+      expect(manager.value, same(stored));
       expect(manager.isHeld, isTrue);
       await manager.dispose();
     });
 
     test('leaves a credential alone while it is far from expiry', () async {
       final refresher = ScriptedRefresher([]);
-      final manager = managerFor(
-        refresher,
-        stored: ticketLasting(const Duration(hours: 1)),
-      );
+      final manager = managerFor(refresher, stored: ticketLasting(const Duration(hours: 1)));
       await manager.start();
 
       await manager.ensureFresh();
@@ -137,36 +134,24 @@ void main() {
     test('renews a credential that entered the buffer window', () async {
       final renewed = ticketLasting(const Duration(hours: 1), value: 'second');
       final refresher = ScriptedRefresher([renewed]);
-      final manager = managerFor(
-        refresher,
-        stored: ticketLasting(const Duration(minutes: 2)),
-      );
+      final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2)));
       await manager.start();
 
       await manager.ensureFresh();
 
       expect(refresher.callCount, 1);
-      expect(manager.credential, same(renewed));
+      expect(manager.value, same(renewed));
       await manager.dispose();
     });
 
     test('collapses concurrent renewals into a single exchange', () async {
       final refresher = BlockingRefresher();
-      final manager = managerFor(
-        refresher,
-        stored: ticketLasting(const Duration(minutes: 2)),
-      );
+      final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2)));
       await manager.start();
 
-      final waiting = [
-        manager.ensureFresh(),
-        manager.ensureFresh(),
-        manager.renew(),
-      ];
+      final waiting = [manager.ensureFresh(), manager.ensureFresh(), manager.renew()];
       await pumpEventQueue();
-      refresher.release.complete(
-        ticketLasting(const Duration(hours: 1), value: 'second'),
-      );
+      refresher.release.complete(ticketLasting(const Duration(hours: 1), value: 'second'));
       await Future.wait(waiting);
 
       expect(refresher.callCount, 1);
@@ -175,73 +160,54 @@ void main() {
 
     test('revokes when the backend refuses the credential', () async {
       final refresher = ScriptedRefresher([const Fault(HouseSignal.rejected)]);
-      final manager = managerFor(
-        refresher,
-        stored: ticketLasting(const Duration(minutes: 2)),
-      );
-      final seen = <CredentialEvent>[];
+      final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2)));
+      final seen = <Ticket?>[];
       await manager.start();
-      manager.changes.listen((change) => seen.add(change.event));
+      manager.stream.listen(seen.add);
 
       await manager.renew();
 
       expect(manager.isHeld, isFalse);
-      expect(seen, contains(CredentialEvent.revoked));
+      expect(seen.last, isNull);
       await manager.dispose();
     });
 
-    test(
-      'keeps the credential when renewal fails for a transient reason',
-      () async {
-        final stored = ticketLasting(const Duration(minutes: 2));
-        final refresher = ScriptedRefresher([
-          const Fault(HouseSignal.unreachable),
-        ]);
-        final manager = managerFor(refresher, stored: stored);
-        await manager.start();
+    test('keeps the credential when renewal fails for a transient reason', () async {
+      final stored = ticketLasting(const Duration(minutes: 2));
+      final refresher = ScriptedRefresher([const Fault(HouseSignal.unreachable)]);
+      final manager = managerFor(refresher, stored: stored);
+      await manager.start();
 
-        await manager.renew();
+      await manager.renew();
 
-        expect(manager.isHeld, isTrue);
-        expect(manager.credential, same(stored));
-        await manager.dispose();
-      },
-    );
+      expect(manager.isHeld, isTrue);
+      expect(manager.value, same(stored));
+      await manager.dispose();
+    });
 
-    test(
-      'retries a deferred renewal as soon as connectivity is restored',
-      () async {
-        final renewed = ticketLasting(
-          const Duration(hours: 1),
-          value: 'second',
-        );
-        final refresher = ScriptedRefresher([
-          const Fault(HouseSignal.unreachable),
-          renewed,
-        ]);
-        final manager = managerFor(
-          refresher,
-          stored: ticketLasting(const Duration(minutes: 2)),
-          retryDelay: const Duration(seconds: 30),
-        );
-        await manager.start();
-        await manager.renew();
+    test('retries a deferred renewal as soon as connectivity is restored', () async {
+      final renewed = ticketLasting(const Duration(hours: 1), value: 'second');
+      final refresher = ScriptedRefresher([const Fault(HouseSignal.unreachable), renewed]);
+      final manager = managerFor(
+        refresher,
+        stored: ticketLasting(const Duration(minutes: 2)),
+        retryDelay: const Duration(seconds: 30),
+      );
+      await manager.start();
+      await manager.renew();
 
-        manager.onConnectivityRestored();
-        await pumpEventQueue();
+      manager.onConnectivityRestored();
+      await pumpEventQueue();
 
-        expect(refresher.callCount, 2);
-        expect(manager.credential, same(renewed));
-        await manager.dispose();
-      },
-    );
+      expect(refresher.callCount, 2);
+      expect(manager.value, same(renewed));
+      await manager.dispose();
+    });
 
     test('never renews a credential it was told is not renewable', () async {
       final refresher = ScriptedRefresher([]);
       final manager = CredentialManager<Ticket, HouseSignal>(
-        store: MemoryCredentialStore<Ticket>(
-          ticketLasting(const Duration(minutes: 2)),
-        ),
+        store: MemoryCredentialStore<Ticket>(ticketLasting(const Duration(minutes: 2))),
         refresher: refresher,
         expiresAt: (ticket) => ticket.expiresAt,
         fatalSignals: const {HouseSignal.rejected},
@@ -268,7 +234,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
 
       expect(refresher.callCount, 1);
-      expect(manager.credential, same(renewed));
+      expect(manager.value, same(renewed));
       await manager.dispose();
     });
 
@@ -280,6 +246,233 @@ void main() {
 
       await manager.grant(ticketLasting(const Duration(minutes: 2)));
       expect(manager.isStale, isTrue);
+      await manager.dispose();
+    });
+  });
+
+  group('CredentialManager as an Observable', () {
+    test('reads the credential with value and with a call', () async {
+      final stored = ticketLasting(const Duration(hours: 1));
+      final manager = managerFor(ScriptedRefresher([]), stored: stored);
+      expect(manager.value, isNull);
+
+      await manager.start();
+
+      expect(manager.value, same(stored));
+      expect(manager(), same(stored));
+      await manager.dispose();
+    });
+
+    test('gives a new listener the credential in force, then each one that replaces it', () async {
+      final stored = ticketLasting(const Duration(minutes: 2), value: 'first');
+      final renewed = ticketLasting(const Duration(hours: 1), value: 'second');
+      final manager = managerFor(ScriptedRefresher([renewed]), stored: stored);
+      await manager.start();
+      final seen = <Ticket?>[];
+      manager.stream.listen(seen.add);
+
+      await manager.renew();
+      await manager.revoke();
+      await pumpEventQueue();
+
+      expect(seen, [same(stored), same(renewed), isNull]);
+      await manager.dispose();
+    });
+
+    test('follows the same through values as through stream', () async {
+      final manager = managerFor(ScriptedRefresher([]));
+      final viaStream = <Ticket?>[];
+      final viaValues = <Ticket?>[];
+      manager.stream.listen(viaStream.add);
+      manager.values.listen(viaValues.add);
+
+      await manager.grant(ticketLasting(const Duration(hours: 1)));
+      await pumpEventQueue();
+
+      expect(viaValues, viaStream);
+      await manager.dispose();
+    });
+  });
+
+  group('CredentialManager status', () {
+    test('is pending until the storage has been read', () async {
+      final manager = managerFor(ScriptedRefresher([]));
+
+      expect(manager.status.value, CredentialStatus.pending);
+
+      await manager.start();
+
+      expect(manager.status.value, CredentialStatus.absent);
+      await manager.dispose();
+    });
+
+    test('is held once a stored credential is restored', () async {
+      final manager = managerFor(ScriptedRefresher([]), stored: ticketLasting(const Duration(hours: 1)));
+
+      await manager.start();
+
+      expect(manager.status.value, CredentialStatus.held);
+      await manager.dispose();
+    });
+
+    test('follows a sign-in and a sign-out', () async {
+      final manager = managerFor(ScriptedRefresher([]));
+      final seen = <CredentialStatus>[];
+      manager.status.values.listen(seen.add);
+      await manager.start();
+
+      await manager.grant(ticketLasting(const Duration(hours: 1)));
+      await manager.revoke();
+      await pumpEventQueue();
+
+      expect(seen, [CredentialStatus.pending, CredentialStatus.absent, CredentialStatus.held, CredentialStatus.absent]);
+      await manager.dispose();
+    });
+
+    test('does not wake a listener when the credential is renewed', () async {
+      final refresher = ScriptedRefresher([ticketLasting(const Duration(hours: 1), value: 'second')]);
+      final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2)));
+      await manager.start();
+      final seen = <CredentialStatus>[];
+      manager.status.stream.skip(1).listen(seen.add);
+
+      await manager.renew();
+      await pumpEventQueue();
+
+      expect(refresher.callCount, 1);
+      expect(seen, isEmpty);
+      await manager.dispose();
+    });
+
+    test('becomes absent when the backend rejects the credential', () async {
+      final manager = managerFor(
+        ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.rejected)]),
+        stored: ticketLasting(const Duration(minutes: 2)),
+      );
+      await manager.start();
+
+      await manager.renew();
+
+      expect(manager.status.value, CredentialStatus.absent);
+      await manager.dispose();
+    });
+
+    test('stays held when the backend is only unreachable', () async {
+      final manager = managerFor(
+        ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.unreachable)]),
+        stored: ticketLasting(const Duration(minutes: 2)),
+        retryDelay: const Duration(seconds: 30),
+      );
+      await manager.start();
+
+      await manager.renew();
+
+      expect(manager.status.value, CredentialStatus.held);
+      await manager.dispose();
+    });
+  });
+
+  group('Tenant.follow', () {
+    tearDown(Tenant.leave);
+
+    String accountOf(Ticket ticket) => ticket.value;
+
+    test('uses the restored account once the storage has been read', () async {
+      final manager = managerFor(ScriptedRefresher([]), stored: ticketLasting(const Duration(hours: 1), value: 'ada'));
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+      expect(Tenant.current, isNull);
+
+      await manager.start();
+
+      expect(Tenant.current, 'ada');
+      await subscription.cancel();
+      await manager.dispose();
+    });
+
+    test('takes the account of a manager that is already started', () async {
+      final manager = managerFor(ScriptedRefresher([]), stored: ticketLasting(const Duration(hours: 1), value: 'ada'));
+      await manager.start();
+
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+
+      expect(Tenant.current, 'ada');
+      await subscription.cancel();
+      await manager.dispose();
+    });
+
+    test('touches nothing while the storage has not been read', () async {
+      final manager = managerFor(ScriptedRefresher([]));
+      Tenant.use('set-by-hand');
+
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+
+      expect(Tenant.current, 'set-by-hand');
+      await subscription.cancel();
+      await manager.dispose();
+    });
+
+    test('switches with a sign-in and leaves with a sign-out', () async {
+      final manager = managerFor(ScriptedRefresher([]));
+      await manager.start();
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+
+      await manager.grant(ticketLasting(const Duration(hours: 1), value: 'ada'));
+      expect(Tenant.current, 'ada');
+
+      await manager.grant(ticketLasting(const Duration(hours: 1), value: 'bob'));
+      expect(Tenant.current, 'bob');
+
+      await manager.revoke();
+      expect(Tenant.current, isNull);
+
+      await subscription.cancel();
+      await manager.dispose();
+    });
+
+    test('keeps the tenant through a renewal', () async {
+      final refresher = ScriptedRefresher([ticketLasting(const Duration(hours: 1), value: 'ada')]);
+      final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2), value: 'ada'));
+      await manager.start();
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+      final seen = <String?>[];
+      final watching = Tenant.changes.listen(seen.add);
+
+      await manager.renew();
+      await pumpEventQueue();
+
+      expect(refresher.callCount, 1);
+      expect(seen, isEmpty);
+      expect(Tenant.current, 'ada');
+      await watching.cancel();
+      await subscription.cancel();
+      await manager.dispose();
+    });
+
+    test('leaves the tenant when the backend rejects the credential', () async {
+      final manager = managerFor(
+        ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.rejected)]),
+        stored: ticketLasting(const Duration(minutes: 2), value: 'ada'),
+      );
+      await manager.start();
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+      expect(Tenant.current, 'ada');
+
+      await manager.renew();
+
+      expect(Tenant.current, isNull);
+      await subscription.cancel();
+      await manager.dispose();
+    });
+
+    test('stops following once cancelled', () async {
+      final manager = managerFor(ScriptedRefresher([]));
+      await manager.start();
+      final subscription = Tenant.follow(manager, idOf: accountOf);
+      await subscription.cancel();
+
+      await manager.grant(ticketLasting(const Duration(hours: 1), value: 'ada'));
+
+      expect(Tenant.current, isNull);
       await manager.dispose();
     });
   });

@@ -36,7 +36,10 @@
 
 import 'dart:async';
 
+import 'package:rxdart/rxdart.dart';
+
 import '../common/fault.dart';
+import '../common/observable.dart';
 import '../common/reporter.dart';
 import 'credential.dart';
 import 'refresher.dart';
@@ -67,7 +70,7 @@ import 'store.dart';
 /// issues. When it is not, this renews at half of what a credential has left
 /// rather than immediately, which keeps a misconfiguration slow instead of
 /// turning it into a loop.
-class CredentialManager<C extends Object, S extends Object> {
+class CredentialManager<C extends Object, S extends Object> extends Observable<C?> {
   final CredentialStore<C> _store;
   final CredentialRefresher<C> _refresher;
   final DateTime Function(C credential) _expiresAt;
@@ -77,8 +80,13 @@ class CredentialManager<C extends Object, S extends Object> {
   final Duration _retryDelay;
   final Reporter _reporter;
 
-  final StreamController<CredentialChange<C>> _changes =
-      StreamController<CredentialChange<C>>.broadcast();
+  /// The credential in force and its changes. Synchronous, so that a listener
+  /// has run before the operation that caused the change returns: every
+  /// publication follows an `await` on the store, which is what keeps a listener
+  /// from re-entering the subject.
+  final BehaviorSubject<C?> _subject = BehaviorSubject<C?>.seeded(null, sync: true);
+
+  final _StatusObservable _status = _StatusObservable();
 
   C? _current;
   Timer? _renewTimer;
@@ -130,19 +138,51 @@ class CredentialManager<C extends Object, S extends Object> {
        _reporter = reporter;
 
   /// The credential in force, or `null` when there is none.
-  C? get credential => _current;
+  @override
+  C? get value => _current;
+
+  /// The credential in force, same as [value], so that `credentials()` reads as
+  /// well as `credentials.value`.
+  C? call() => _current;
+
+  /// The credential in force for each new listener, followed by every one that
+  /// replaces it: a sign-in, a renewal, and `null` on a sign-out.
+  ///
+  /// Nothing tells a renewal from a sign-in here, since a consumer that wants
+  /// the credential wants the new one either way. A consumer that only wants to
+  /// know whether someone is signed in follows [status].
+  ///
+  /// A listener runs before [start], [grant], [revoke] or the renewal that
+  /// caused the change returns, and before [status] moves. What must be in
+  /// place once the credential is known, such as the tenant that `Tenant.follow`
+  /// sets, therefore is by the time anyone can ask. A listener must not wait on
+  /// this manager, which is still finishing the operation.
+  @override
+  Stream<C?> get stream => _subject.stream;
+
+  /// The credential in force followed by every change, same as [stream].
+  @override
+  Stream<C?> get values => stream;
 
   /// Whether a credential is in force.
   ///
   /// True for an expired credential that can still be renewed: it has not been
   /// revoked, so a screen must not send the holder back to a sign-in form.
+  ///
+  /// False before [start] has finished as well, which is why a router asks
+  /// [status] instead: it tells that moment apart from an absent credential.
   bool get isHeld => _current != null;
 
-  /// Every transition of the credential, from the moment of subscription.
+  /// Whether a credential is in force, read with `status.value` and followed
+  /// with `status.stream`.
   ///
-  /// [CredentialEvent.restored] is published by [start], so a listener attached
-  /// before it runs learns what was found in storage.
-  Stream<CredentialChange<C>> get changes => _changes.stream;
+  /// [CredentialStatus.pending] until [start] has read the storage, then
+  /// [CredentialStatus.held] or [CredentialStatus.absent] for as long as this
+  /// manager lives. Renewing a credential does not change it, so following it
+  /// wakes a listener only when someone signs in or out.
+  ///
+  /// Read-only for a consumer: only this manager publishes to it.
+  Observable<CredentialStatus> get status => _status;
 
   /// How long before expiry renewal starts.
   Duration get buffer => _buffer;
@@ -159,15 +199,15 @@ class CredentialManager<C extends Object, S extends Object> {
 
   /// Restores the stored credential and schedules its renewal.
   ///
-  /// Publishes [CredentialEvent.restored] whether or not something was found.
-  /// Calling this twice does nothing the second time.
+  /// Moves [status] out of [CredentialStatus.pending] whether or not something
+  /// was found. Calling this twice does nothing the second time.
   Future<void> start() async {
     if (_started || _disposed) return;
     _started = true;
 
     final stored = await _store.read();
     _current = stored;
-    _publish(CredentialEvent.restored, stored);
+    _publish(stored);
 
     if (stored == null) return;
     _schedule(stored);
@@ -180,21 +220,21 @@ class CredentialManager<C extends Object, S extends Object> {
     await _store.write(credential);
     _current = credential;
     _lastRenewal = DateTime.now();
-    _publish(CredentialEvent.granted, credential);
+    _publish(credential);
     _schedule(credential);
   }
 
   /// Drops the credential and everything scheduled for it.
   ///
-  /// Publishes [CredentialEvent.revoked] even when nothing was held, because a
-  /// caller reacting to it wants the state, not the transition.
+  /// Publishes `null` on [stream] even when nothing was held, because a caller
+  /// reacting to it wants the state, not the transition.
   Future<void> revoke() async {
     _cancelTimers();
     _retryPending = false;
     _lastRenewal = null;
     _current = null;
     await _store.clear();
-    _publish(CredentialEvent.revoked, null);
+    _publish(null);
   }
 
   /// Renews the credential when it is close enough to expiry to be worth it.
@@ -236,18 +276,18 @@ class CredentialManager<C extends Object, S extends Object> {
     unawaited(_renew());
   }
 
-  /// Stops every timer and closes [changes].
+  /// Stops every timer and closes [stream] and [status].
   ///
   /// The credential is left in storage: disposing is the app shutting down, not
   /// the holder signing out.
   Future<void> dispose() async {
     _disposed = true;
     _cancelTimers();
-    await _changes.close();
+    await _status.dispose();
+    await _subject.close();
   }
 
-  bool _isExpired(C credential) =>
-      !DateTime.now().isBefore(_expiresAt(credential));
+  bool _isExpired(C credential) => !DateTime.now().isBefore(_expiresAt(credential));
 
   bool get _renewedWithinCooldown {
     final last = _lastRenewal;
@@ -255,9 +295,9 @@ class CredentialManager<C extends Object, S extends Object> {
     return DateTime.now().difference(last) < _retryDelay;
   }
 
-  void _publish(CredentialEvent event, C? credential) {
-    if (_changes.isClosed) return;
-    _changes.add(CredentialChange<C>(event, credential));
+  void _publish(C? credential) {
+    if (!_subject.isClosed) _subject.add(credential);
+    _status.publish(credential == null ? CredentialStatus.absent : CredentialStatus.held);
   }
 
   void _cancelTimers() {
@@ -318,7 +358,7 @@ class CredentialManager<C extends Object, S extends Object> {
 
       await _store.write(renewed);
       _current = renewed;
-      _publish(CredentialEvent.renewed, renewed);
+      _publish(renewed);
       _schedule(renewed);
     } on Fault<S> catch (fault) {
       if (_disposed) return;
@@ -331,11 +371,7 @@ class CredentialManager<C extends Object, S extends Object> {
       _bufferRetry();
     } catch (error, stackTrace) {
       if (_disposed) return;
-      _reporter.recordError(
-        error,
-        stackTrace,
-        context: {'operation': 'credential renewal'},
-      );
+      _reporter.recordError(error, stackTrace, context: {'operation': 'credential renewal'});
       _bufferRetry();
     }
   }
@@ -352,3 +388,31 @@ class CredentialManager<C extends Object, S extends Object> {
 }
 
 bool _alwaysRenewable(Object credential) => true;
+
+/// The [Observable] behind [CredentialManager.status].
+final class _StatusObservable extends Observable<CredentialStatus> {
+  final BehaviorSubject<CredentialStatus> _subject = BehaviorSubject<CredentialStatus>.seeded(
+    CredentialStatus.pending,
+    sync: true,
+  );
+
+  @override
+  CredentialStatus get value => _subject.value;
+
+  /// The current status, same as [value].
+  CredentialStatus call() => _subject.value;
+
+  @override
+  Stream<CredentialStatus> get stream => _subject.stream;
+
+  @override
+  Stream<CredentialStatus> get values => stream;
+
+  /// Publishes [next], unless it is the status already held.
+  void publish(CredentialStatus next) {
+    if (next == _subject.value || _subject.isClosed) return;
+    _subject.add(next);
+  }
+
+  Future<void> dispose() => _subject.close();
+}
