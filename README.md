@@ -23,8 +23,8 @@ what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `CredentialManager`, `CallGuard`,
-`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `ValkeryStorage`, `AppStorage`, `Database`,
-`Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
+`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `ValkeryStorage`, `AppStorage`, `Fingerprint`,
+`Database`, `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
 second time.
 
 `package:fiber_pylon/fiber_pylon_io.dart` carries the one piece that needs `dart:io`, a `SocketLink`
@@ -313,122 +313,159 @@ for every kind of channel, with a jittered backoff.
 
 ## The local database
 
-`configureSdk()` opens one SQLite file, named after the app (`<app name>.db`), once, and
-keeps it open for as long as the app runs. `AppStorage` is how anything reaches it, as static
-calls, from anywhere:
+Everything stored on the device goes through one SQLite file, named after the app
+(`<app name>.db`), opened once by `configureSdk()` and kept open for as long as the app
+runs. Three things sit on it, and each is one decision.
+
+### The file
+
+Every launch checks it first. A missing file is created, a readable one is used as it is,
+and one that cannot be read or fails `PRAGMA quick_check` is deleted and created again: its
+content is lost, since nothing in it can be read.
+
+It is **encrypted** with SQLCipher, by a key derived from the app's own `Fingerprint`, so a
+copy of the `.db` taken off the device cannot be read. The fingerprint is 256 random bits,
+created the first time the app runs and kept in the operating system's vault (Keychain,
+Keystore). Nothing hands it out: what leaves it is derived from it, one derivation per
+purpose. A vault that fails, or holds something that is not a fingerprint, stops the launch
+instead of minting a new one, since that would orphan the file.
+
+- SQLCipher exists on **Android, iOS and macOS** only. `AppStorage.encryption` says what to do
+  elsewhere: `EncryptionPolicy.whenAvailable` (the default) leaves the file in clear and
+  `AppStorage.isEncrypted` says so; `required` refuses to start; `off` never encrypts.
+- A database in clear that is already there is never deleted to encrypt over it: the launch
+  stops with a message, so that nothing is lost silently.
+- What this guarantees is that the secret cannot be guessed and is in no file. It does not
+  stop code running inside the app from asking for a derivation, and a device whose vault
+  gives way loses the fingerprint with it.
+- The encryption itself is SQLCipher's, which the test suite does not have on the desktop: it
+  is checked on a device, and the tests prove what surrounds it.
+
+### The tables
+
+A table is declared once, as a class, and the engine creates it, adds the columns it gained,
+and reads and writes it typed:
 
 ```dart
-await AppStorage.execute('CREATE TABLE IF NOT EXISTS todos (...)');
-final id = await AppStorage.insert<Todo>((i) => i.into('todos').values(todo));
+final class UsersTable extends DatabaseKeyedTable<User, String> {
+  UsersTable() : super('users');
+
+  late final id = column.text('id').primaryKey();
+  late final name = column.text('name');
+  late final age = column.integer('age');
+
+  @override
+  Tunnel get tunnel => Tunnel.isolated;
+
+  @override
+  List<DatabaseField<Object?>> get columns => [id, name, age];
+
+  @override
+  User read(DatabaseReader row) => User(id: row(id), name: row(name), age: row(age));
+
+  @override
+  List<DatabaseAssignment> write(User user) => [id.to(user.id), name.to(user.name), age.to(user.age)];
+}
 ```
 
-Every launch checks the file first. A missing one is created, a readable one is used as it
-is, and one that cannot be read or fails `PRAGMA quick_check` is deleted and created again:
-its content is lost, since nothing in it can be read.
+Every filter, order and update is written with the table's own columns:
+`usersTable.age.isGreaterThan(18)`, `usersTable.name.asc()`, `usersTable.age.incrementBy(1)`. A
+value of the wrong type, or a column that does not exist, does not compile. Comparisons that
+need an order exist only on types that have one.
 
-On top of it, `Database` is a typed, document-style store that follows Firestore's Flutter
-API, with everything typed on your own models and stored locally, one table per collection.
-You declare the collections, each with the model it stores:
+Reads can be **watched**: the same query as a stream that sends the rows now, and again after
+each write that changes them — an insert, an update, a delete, a batch, a committed
+transaction, never a rolled back one.
+
+### The Firestore-like layer
+
+`Database` is the same vocabulary as Firestore's Flutter API — collections, documents, queries,
+snapshots, batches, transactions — over those tables, with no query language of its own:
 
 ```dart
 final class OwnDatabase extends Database {
-  final users = Collection<User>('users', User.fromJson, indexes: [User.age_]);
-  final items = Collection<Item>('items', Item.fromJson);
+  final usersTable = UsersTable();
+  late final users = Collection(usersTable);
+
+  @override
+  List<Collection<Object, Object>> get collections => [users];
 }
 
 await OwnDatabase().initialize(); // once, after configureSdk()
 
 final db = Database.instance<OwnDatabase>(); // from anywhere afterwards
-await db.users.doc('ada').set(const User(name: 'Ada', age: 36));
+await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
+await db.users.doc('ada').update([db.usersTable.age.incrementBy(1)]);
 final adults = await db.users
-    .where((w) => w(User.age_).isGreaterThanOrEqualTo(18))
-    .orderBy((o) => [o.asc(User.name_)])
+    .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
+    .orderBy([db.usersTable.name.asc()])
     .get();
-db.users.snapshots().listen((snapshot) => print(snapshot.items));
+db.users.snapshots().listen((snapshot) => print(snapshot.docChanges));
 ```
 
-A model implements `Model` (its `id` and a `toJson`). Every field a query, an order, a cursor or
-an update names is declared once as a `Field<int>`, `Field<String>`, `Field<DateTime>` or
-`ListField<String>` next to the model, and nothing takes a field as a bare string. A static
-`Field` cannot share its name with the instance field it names, hence `User.age_`.
+There are documents, queries with `where`, `orderBy`, `limit` and `offset`, live `snapshots()`
+with `docChanges`, `WriteBatch` and `runTransaction`. What differs from Firestore, because this
+is typed SQLite on one device:
 
-Everything is composed in a callback that hands you a typed builder, the way `LocalDatabase`
-composes its own filters, and the compiler checks each value against its field:
+- A document is a record with a column per field. There are no free-form nested documents, and
+  no `arrayUnion` or `arrayRemove` on an array: a list is a column of its own, written whole.
+- `increment` is `incrementBy` on a numeric column, done by the database in one statement.
+  `serverTimestamp` is `column.to(DateTime.now())`, the device's clock.
+- Collections are flat: no sub-collections, no collection group queries.
+- `runTransaction` applies each write at once and never retries: SQLite runs one transaction at
+  a time, so there is no conflict to retry.
+- A `watch` hears writes made through the engine. A write from another process, or another
+  connection on the same file, is not heard.
 
-```dart
-users.where((w) => w(User.age_).isGreaterThanOrEqualTo(18));   // 'w(User.age_).isGreaterThan("18")' does not compile
-users.where((w) => w.or([w(User.age_).isLessThan(13), w(User.name_).startsWith('A')]));
-users.where((w) => w.list(User.tags_).arrayContains('code'));
-users.orderBy((o) => [o.asc(User.city_), o.desc(User.age_)]);
-users.orderBy((o) => [o.asc(User.age_)]).startAfter((c) => [c(User.age_).at(28)]);
-await users.doc('ada').update((u) => [u(User.age_).increment(1), u.list(User.tags_).arrayUnion(['math'])]);
-await users.sum(User.age_);                                   // only numeric fields
-```
-
-A list is not asked what a number is asked (`w.list(...)`), only a number can be incremented,
-only a `DateTime` can take the server timestamp, and an order or a cursor cannot name a list.
-The field, not the method, fixes the type of the value: that is why it is `w(field).op(value)`
-and not `w.op(field, value)`, which Dart would let widen to `Object`.
-
-There are documents, queries with `where`, `orderBy`, cursors and `limit`, live `snapshots()`
-with `docChanges`, `FieldValue`, `WriteBatch` and `runTransaction`. What differs from
-Firestore, because this is SQLite on one device:
-
-- Collections are flat: no sub-collections, no collection group queries. Tenants are the one
-  thing that partitions a collection.
-- Nothing is limited to one inequality field, and no index has to exist before a query runs;
-  `indexes:` only makes a large collection fast.
-- A document lacking a field it is ordered by is left out, and a missing field reads the same
-  as `null`.
-- `FieldValue.serverTimestamp` is the device's clock.
-- `runTransaction` applies each write at once and never retries: SQLite runs one transaction
-  at a time, so there is no conflict to retry.
-- `snapshots()` hears writes made through a `Collection`, `DocumentReference`, `WriteBatch` or
-  `Transaction`. A write made straight through `AppStorage`, or from another isolate, is not
-  heard.
-- Queries use SQLite's JSON functions. `Database.initialize()` checks they are there and
-  fails naming them when they are not, which is possible on some older Android system
-  SQLite: open the app database through one that bundles them.
-
-### Accounts: one tunnel per collection
+### Accounts: two mechanisms that do not mix
 
 An app with sign-in must not show one account what another saved on the same device, and
-sometimes it does want data shared. Each `Collection` picks its `Tunnel`:
+sometimes it does want to see everything. Those are two mechanisms, and nothing lets one slip
+into the other.
+
+**The tenant mechanism** is what a table's `tunnel` chooses, and what `Tenant` drives:
 
 ```dart
-final class OwnDatabase extends Database {
-  final notes = Collection<Note>('notes', Note.fromJson);                                  // isolated: the default
-  final catalogue = Collection<Product>('catalogue', Product.fromJson, tunnel: Tunnel.shared);
-}
-
 Tenant.use(account.id); // on sign-in
 Tenant.leave();         // on sign-out
 ```
 
-- **`Tunnel.isolated`** (the default) gives every tenant documents of its own. The same id
-  under two tenants is two documents, and neither can read, list, count or overwrite the
-  other's. Isolation is applied where queries are built, so no call can forget it. Without a
-  current `Tenant`, an isolated collection holds the anonymous, signed-out documents; leaving
-  an account never brings its documents back into view.
-- **`Tunnel.shared`** keeps one copy for everyone, whichever tenant is current.
+- `Tunnel.isolated` gives every tenant rows of its own. The same key under two tenants is two
+  rows, and neither can read, list, count or overwrite the other's. The engine adds the tenant
+  to every read and write, so no call can forget it, and the key, the unique columns, the
+  indexes and the foreign keys between isolated tables are per tenant too: a row can never
+  point at another tenant's. Without a current `Tenant`, an isolated table holds the anonymous,
+  signed-out rows; leaving an account never brings its rows back into view.
+- `Tunnel.shared` (the default) keeps one copy for everyone, whichever tenant is current.
+- An operation finishes on the tenant it started on even if `Tenant.use` is called meanwhile, a
+  batch and a transaction keep to the one that was current when they began, and a watched
+  query is handed the new tenant's rows from scratch, never the previous one's.
+- `db.adoptAnonymousRows()` carries what was saved before signing in over to the account that
+  just did, and `db.purgeCurrentTenant()` deletes the account's rows. Neither reads or touches
+  another tenant's.
+- Nothing in this mechanism reaches another tenant: not a row, not a count, not the name of a
+  tenant. `Tenant.current` is not remembered across launches; the project that knows who is
+  signed in calls `Tenant.use` at startup. Changing the tunnel of a table that already holds
+  rows needs a migration.
 
-An operation finishes on the tenant it started on even if `Tenant.use` is called meanwhile,
-and `snapshots()` listeners on an isolated collection are handed the new tenant's documents
-from scratch, never the previous one's. `Tenant.current` is not remembered across launches:
-the project that knows who is signed in calls `Tenant.use` at startup.
-
-Mixing accounts is possible, but always spelled out:
+**The whole-database mechanism** is a separate entry point that reads every tenant, and it is
+only opened by the app's fingerprint:
 
 ```dart
-db.notes.inTenant('other').doc('n1').get();               // one account's view, whoever is current
-db.notes.acrossTenants(only: ['a', 'b']).orderBy((o) => [o.asc(Note.at_)]);   // several at once; each snapshot has .tenant
-await Tenant.transfer(to: account.id);                    // carry the signed-out documents over on first sign-in
-await Tenant.purge(account.id);                           // delete an account's data everywhere
-await Tenant.list();                                      // every tenant that holds data
+final everything = db.users.onWholeDatabase(Fingerprint.instance); // reads and edits across tenants
+final whole = db.wholeDatabase(Fingerprint.instance);
+await whole.tenants();                       // every tenant that holds rows
+await whole.transfer(from: 'a', to: 'b');    // move one tenant's rows to another
+await whole.purge('a');                      // delete one tenant's rows
 ```
 
-A table made before tenants existed is rebuilt the first time it is used, its documents
-landing in the anonymous partition.
+Any other fingerprint is refused, and so is a database that was opened without one. The raw
+calls of `AppStorage` — `execute`, `insert`, `query`, `rawQuery`, `update`, `delete`,
+`transaction`, `batch`, `tableExists`, `tableNames`, `columns`, `checkpoint` — read the whole
+database too, so each takes the fingerprint first: `AppStorage.rawQuery(Fingerprint.instance, sql)`.
+
+The engine itself — `LocalDatabase`, the schema DSL, the migrations — is the package's own
+plumbing and is not exported.
 
 ## What is deliberately absent
 

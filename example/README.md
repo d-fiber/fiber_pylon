@@ -79,21 +79,22 @@ backend is for.
 
 ## The local database
 
-`lib/src/database/` shows a project's own typed database: `User` is a `Model` with its
-`Field`s declared next to the fields they name, and `OwnDatabase` declares the `users`
-collection. `GroundSdk` initializes it in its own `initialize()` and closes it in `dispose()`,
-so it needs `configureSdk()` to have run first, like everything that lives in the app's own
-database file.
+`lib/src/database/` shows a project's own typed database: `UsersTable` declares the `users`
+table with its columns, `User` is the record it holds, and `OwnDatabase` declares the
+collection over it. `GroundSdk` initializes it in its own `initialize()` and closes it in
+`dispose()`, so it needs `configureSdk()` to have run first, like everything that lives in the
+app's own database file.
 
 ```dart
 final db = GroundSdk.I.database;
-await db.users.doc('ada').set(const User(name: 'Ada', age: 36));
+await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
 final adults = await db.users
-    .where((w) => w(User.age_).isGreaterThanOrEqualTo(18))
-    .orderBy((o) => [o.asc(User.name_)])
+    .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
+    .orderBy([db.usersTable.name.asc()])
     .get();
 ```
 
-Its `users` collection is isolated, so on sign-in `Tenant.use(account.id)` gives each account
-its own users, and `Tenant.leave()` on sign-out goes back to the anonymous ones. A collection
-declared with `tunnel: Tunnel.shared` would be one copy for everybody.
+Every query is written with the table's own columns, so a misspelled column or a value of the
+wrong type does not compile. `UsersTable` is `Tunnel.isolated`: on sign-in `Tenant.use(account.id)`
+gives each account its own users, and `Tenant.leave()` on sign-out goes back to the anonymous
+ones. A table left at the default `Tunnel.shared` would be one copy for everybody.
