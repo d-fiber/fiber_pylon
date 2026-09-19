@@ -42,48 +42,44 @@ import '../../environments.dart';
 import '../local_sdk.dart';
 import 'engine/database.dart';
 
-part 'collection.dart';
-part 'document_reference.dart';
-part 'query.dart';
-part 'snapshot.dart';
-part 'write_batch.dart';
+part 'batch.dart';
 
-/// A project's own database: the collections it declares, each on a table the
-/// engine creates and keeps in the app's own database file.
+/// A project's own database: the tables it declares, which the engine creates
+/// and keeps in the app's own database file, and the statements it runs on them.
 ///
-/// A project declares one table per kind of record, the way `LocalDatabase`
-/// documents it, and one [Collection] over each:
+/// A project declares one [KeyedTable] per kind of record, lists them in
+/// [tables], and reaches each one with [from]:
 ///
 /// ```dart
 /// final class OwnDatabase extends Database {
-///   final usersTable = UsersTable();
-///   late final users = Collection(usersTable);
+///   final users = UsersTable();
 ///
 ///   @override
-///   List<Collection<Object, Object>> get collections => [users];
+///   List<KeyedTable<Object, Object>> get tables => [users];
 /// }
 ///
 /// await OwnDatabase().initialize(); // once, after configureSdk()
 ///
 /// final db = Database.instance<OwnDatabase>(); // from anywhere afterwards
-/// await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
-/// final adults = await db.users
-///     .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
-///     .orderBy([db.usersTable.name.asc()])
-///     .get();
-/// db.users.snapshots().listen((snapshot) => print(snapshot.items));
+/// await db.from(db.users).insert(const User(id: 'ada', name: 'Ada', age: 36));
+/// final adults = await db
+///     .from(db.users)
+///     .where(db.users.age.isGreaterThanOrEqualTo(18))
+///     .orderBy([db.users.name.asc()])
+///     .limit(20)
+///     .select();
+/// db.from(db.users).watch().listen(print);
 /// ```
 ///
-/// The vocabulary is Firestore's — collections, documents, queries, snapshots,
-/// batches, transactions — over typed tables: a filter, an order or an update
-/// is written with the table's own columns, so a misspelled name or a value of
-/// the wrong type does not compile. There is no query language of its own here:
-/// everything is the engine's.
+/// The vocabulary is SQL's: `from`, `where`, `orderBy`, `limit`, `offset`,
+/// `select`, `insert`, `upsert`, `update`, `delete`, `count`, `exists`. A filter,
+/// an order or an update is written with the table's own columns, so a
+/// misspelled name or a value of the wrong type does not compile.
 ///
-/// Whose rows a collection holds is its table's tunnel: isolated per [Tenant] by
-/// default for a table that says so, so that two accounts on one device never
-/// see each other's data, or shared. Reading the whole database is another
-/// mechanism, opened only by the app's [Fingerprint].
+/// Whose rows a table holds is its `tunnel`: isolated per [Tenant] by default
+/// for a table that says so, so that two accounts on one device never see each
+/// other's data, or shared. Reading the whole database is another mechanism,
+/// opened only by the app's [Fingerprint].
 ///
 /// A [Database] is a [LocalSdkClient], so it gets [initialize], [dispose] and
 /// [Database.instance] the way every pylon client does, and is `base`: a
@@ -99,16 +95,16 @@ abstract base class Database extends LocalSdkClient {
   @override
   Environments? get environments => null;
 
-  /// Every collection this database has, which [initialize] declares — the
-  /// tables are created, and what a table gained since the file was written is
-  /// added — before anything is registered.
+  /// Every table this database has, which [initialize] declares: the tables are
+  /// created, and what a table gained since the file was written is added,
+  /// before anything is registered.
   ///
-  /// A collection missing from this list has no table: reading it fails.
-  List<Collection<Object, Object>> get collections;
+  /// A table missing from this list does not exist: reading it fails.
+  List<KeyedTable<Object, Object>> get tables;
 
-  /// Checks that [LocalDatabase] is ready, declares the tables of [collections],
-  /// then registers this database under its own type so [Database.instance] can
-  /// hand it back.
+  /// Checks that [LocalDatabase] is ready, declares the [tables], then
+  /// registers this database under its own type so [Database.instance] can hand
+  /// it back.
   ///
   /// Throws a [StateError] when `configureSdk` has not run yet, and the
   /// engine's own error when a table cannot be declared.
@@ -120,13 +116,31 @@ abstract base class Database extends LocalSdkClient {
     } on StateError catch (error) {
       throw StateError('$runtimeType needs configureSdk() to have run first: ${error.message}');
     }
-    await LocalDatabase.declare([for (final collection in collections) collection.table]);
+    await LocalDatabase.declare(tables);
     await super.initialize();
   }
 
-  /// Starts a [WriteBatch]: writes queued here, none of which touch the
-  /// database until [WriteBatch.commit] applies all of them together, or none.
-  WriteBatch batch() => WriteBatch._();
+  /// The rows of [table], to read with `where`, `orderBy`, `limit`, `offset` and
+  /// `select`, or to write with `insert`, `upsert`, `update`, `delete`, `get`
+  /// and `remove`.
+  ///
+  /// Reads and writes nothing until a statement is run, and answers the current
+  /// [Tenant]'s rows only, on an isolated table.
+  ///
+  /// Throws a [StateError] when [table] is not one of the [tables] this
+  /// database declares.
+  KeyedAccess<R, K> from<R extends Object, K extends Object>(KeyedTable<R, K> table) =>
+      table.on(LocalDatabase.instance);
+
+  /// [table] across every tenant: the whole-database mechanism, opened only by
+  /// the app's [Fingerprint]. It reads, and edits or removes what a filter
+  /// keeps; see [WholeRows].
+  WholeRows<R> fromWholeDatabase<R extends Object>(TypedTable<R> table, Fingerprint fingerprint) =>
+      table.onWholeDatabase(LocalDatabase.instance, fingerprint);
+
+  /// Starts a [Batch]: writes queued here, none of which touch the database
+  /// until [Batch.commit] applies all of them together, or none.
+  Batch batch() => Batch._();
 
   /// Runs [action] as one transaction: every read and write made through the
   /// [Transaction] it is given commits together, or none of them do if
@@ -134,7 +148,7 @@ abstract base class Database extends LocalSdkClient {
   ///
   /// It runs on the tenant that was current when it began, however long it
   /// takes. [action] only ever reaches the database through that
-  /// [Transaction]: calling a collection directly from inside it waits on the
+  /// [Transaction]: calling [from] on the database from inside it waits on the
   /// transaction it is already inside, and never returns. Nothing is retried:
   /// SQLite runs one transaction at a time, so there is no conflict to retry.
   Future<R> runTransaction<R>(Future<R> Function(Transaction transaction) action) {
@@ -142,8 +156,8 @@ abstract base class Database extends LocalSdkClient {
     return LocalDatabase.instance.runTransaction((txn) => action(Transaction._(txn, tenant)));
   }
 
-  /// Moves every anonymous row — what was saved before anyone signed in — to
-  /// the current [Tenant], in every isolated table, and answers how many moved.
+  /// Moves every anonymous row (what was saved before anyone signed in) to the
+  /// current [Tenant], in every isolated table, and answers how many moved.
   /// See [LocalDatabaseTenants.adoptAnonymousRows].
   Future<int> adoptAnonymousRows({TransferConflict onConflict = TransferConflict.keepTarget}) =>
       LocalDatabase.instance.adoptAnonymousRows(onConflict: onConflict);

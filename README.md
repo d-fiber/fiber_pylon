@@ -450,45 +450,47 @@ Reads can be **watched**: the same query as a stream that sends the rows now, an
 each write that changes them — an insert, an update, a delete, a batch, a committed
 transaction, never a rolled back one.
 
-### The Firestore-like layer
+### The database layer
 
-`Database` is the same vocabulary as Firestore's Flutter API — collections, documents, queries,
-snapshots, batches, transactions — over those tables, with no query language of its own:
+`Database` puts those tables behind SQL's own words (`from`, `where`, `orderBy`, `limit`,
+`select`, `insert`, `upsert`, `update`, `delete`), with no query language of its own:
 
 ```dart
 final class OwnDatabase extends Database {
-  final usersTable = UsersTable();
-  late final users = Collection(usersTable);
+  final users = UsersTable();
 
   @override
-  List<Collection<Object, Object>> get collections => [users];
+  List<KeyedTable<Object, Object>> get tables => [users];
 }
 
 await OwnDatabase().initialize(); // once, after configureSdk()
 
 final db = Database.instance<OwnDatabase>(); // from anywhere afterwards
-await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
-await db.users.doc('ada').update([db.usersTable.age.incrementBy(1)]);
-final adults = await db.users
-    .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
-    .orderBy([db.usersTable.name.asc()])
-    .get();
-db.users.snapshots().listen((snapshot) => print(snapshot.docChanges));
+await db.from(db.users).upsert(const User(id: 'ada', name: 'Ada', age: 36));
+await db.from(db.users).where(db.users.id.isEqualTo('ada')).update([db.users.age.incrementBy(1)]);
+final adults = await db
+    .from(db.users)
+    .where(db.users.age.isGreaterThanOrEqualTo(18))
+    .orderBy([db.users.name.asc()])
+    .select();
+db.from(db.users).watch().listen(print);
 ```
 
-There are documents, queries with `where`, `orderBy`, `limit` and `offset`, live `snapshots()`
-with `docChanges`, `WriteBatch` and `runTransaction`. What differs from Firestore, because this
-is typed SQLite on one device:
+`from(table)` opens the rows of a table. It reads with `where`, `orderBy`, `limit`, `offset`,
+`select`, `first`, `count`, `exists` and `watch`, and writes with `insert`, `upsert`, `update`,
+`delete`, `get(key)` and `remove(key)`. `db.batch()` queues `insert`, `upsert`, `update` and
+`remove`, then `commit()` applies them together or not at all, and `db.runTransaction` hands
+over a `Transaction` with the same `from`. What is specific to typed SQLite on one device:
 
-- A document is a record with a column per field. There are no free-form nested documents, and
-  no `arrayUnion` or `arrayRemove` on an array: a list is a column of its own, written whole.
-- `increment` is `incrementBy` on a numeric column, done by the database in one statement.
-  `serverTimestamp` is `column.to(DateTime.now())`, the device's clock.
-- Collections are flat: no sub-collections, no collection group queries.
+- A row has a column per field. There are no free-form nested documents, and no `arrayUnion`
+  or `arrayRemove` on an array: a list is a column of its own, written whole.
+- `incrementBy` is done by the database in one statement, on a numeric column.
+  A server timestamp is `column.to(DateTime.now())`, the device's clock.
+- Tables are flat: no sub-collections, no group queries.
 - `runTransaction` applies each write at once and never retries: SQLite runs one transaction at
   a time, so there is no conflict to retry.
-- A `watch` hears writes made through the engine. A write from another process, or another
-  connection on the same file, is not heard.
+- A `watch` sends the rows again, not what changed in them. It hears writes made through the
+  engine; a write from another process, or another connection on the same file, is not heard.
 
 ### Accounts: two mechanisms that do not mix
 

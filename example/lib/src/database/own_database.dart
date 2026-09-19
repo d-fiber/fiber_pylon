@@ -38,8 +38,8 @@ import 'package:fiber_pylon/fiber_pylon.dart';
 
 import 'user.dart';
 
-/// The project's own local database: one [Collection] per kind of record, each
-/// over the table that describes it.
+/// The project's own local database: one table per kind of record, each declared
+/// once and listed in [tables].
 ///
 /// Needs `configureSdk()` to have run, since it lives in the app's own
 /// [LocalDatabase] file. After `await OwnDatabase().initialize()` it is reachable
@@ -47,18 +47,18 @@ import 'user.dart';
 ///
 /// ```dart
 /// final db = OwnDatabase.I;
-/// await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
-/// final adults = await db.users
-///     .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
-///     .orderBy([db.usersTable.name.asc()])
-///     .get();
+/// await db.from(db.users).upsert(const User(id: 'ada', name: 'Ada', age: 36));
+/// final adults = await db
+///     .from(db.users)
+///     .where(db.users.age.isGreaterThanOrEqualTo(18))
+///     .orderBy([db.users.name.asc()])
+///     .select();
 /// ```
 final class OwnDatabase extends Database {
   static OwnDatabase get I => Database.instance<OwnDatabase>();
 
-  final usersTable = UsersTable();
-  late final users = Collection(usersTable);
+  final users = UsersTable();
 
   @override
-  List<Collection<Object, Object>> get collections => [users];
+  List<KeyedTable<Object, Object>> get tables => [users];
 }

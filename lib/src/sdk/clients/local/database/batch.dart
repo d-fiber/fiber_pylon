@@ -36,37 +36,70 @@
 
 part of 'database.dart';
 
-/// Writes queued together and applied all at once: every one lands, or — if
-/// any fails — none does. Started with [Database.batch].
+/// A row named by its key that a table does not hold, reached by a write that
+/// needs one, such as [Batch.update].
+final class RowNotFoundError implements Exception {
+  /// The row [key] of [table] that was not found.
+  const RowNotFoundError(this.table, this.key);
+
+  /// The table that was searched.
+  final String table;
+
+  /// The key that was not there.
+  final Object key;
+
+  @override
+  String toString() => 'RowNotFoundError(no row "$key" in "$table")';
+}
+
+/// Writes queued together and applied all at once: every one lands, or, if any
+/// fails, none does. Started with [Database.batch].
 ///
 /// ```dart
 /// final batch = db.batch()
-///   ..set(db.users.doc('u1'), user)
-///   ..update(db.items.doc('i1'), [db.itemsTable.stock.incrementBy(-1)])
-///   ..delete(db.items.doc('i2'));
+///   ..upsert(db.users, user)
+///   ..update(db.items, 'i1', [db.items.stock.incrementBy(-1)])
+///   ..remove(db.items, 'i2');
 /// await batch.commit();
 /// ```
 ///
 /// It commits on the tenant that was current when [commit] began.
-final class WriteBatch {
-  WriteBatch._();
+final class Batch {
+  Batch._();
 
   final List<Future<void> Function(Connection session, String? tenant)> _operations = [];
   bool _committed = false;
 
-  /// Queues [DocumentReference.set].
-  void set<R extends Object, K extends Object>(DocumentReference<R, K> reference, R record) =>
-      _queue((session, tenant) => reference._set(reference._table.onHeldTenant(session, tenant), record));
+  /// Queues an insert of [record] into [table].
+  void insert<R extends Object, K extends Object>(KeyedTable<R, K> table, R record) => _queue((session, tenant) async {
+    await table.onHeldTenant(session, tenant).insert(record);
+  });
 
-  /// Queues [DocumentReference.update].
-  void update<R extends Object, K extends Object>(
-    DocumentReference<R, K> reference,
-    List<Assignment> assignments,
-  ) => _queue((session, tenant) => reference._update(reference._table.onHeldTenant(session, tenant), assignments));
+  /// Queues an upsert of [record] into [table]: it replaces the row that holds
+  /// its key, or is inserted when none does.
+  void upsert<R extends Object, K extends Object>(KeyedTable<R, K> table, R record) => _queue((session, tenant) async {
+    await table.onHeldTenant(session, tenant).upsert(record);
+  });
 
-  /// Queues [DocumentReference.delete].
-  void delete<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
-      _queue((session, tenant) => reference._delete(reference._table.onHeldTenant(session, tenant)));
+  /// Queues a change of the columns [assignments] name on the row of [table]
+  /// held under [key], leaving the rest as they are.
+  ///
+  /// Throws a [RowNotFoundError] when [commit] runs and no row holds [key],
+  /// and nothing is applied.
+  void update<R extends Object, K extends Object>(KeyedTable<R, K> table, K key, List<Assignment> assignments) =>
+      _queue((session, tenant) async {
+        final changed = await table
+            .onHeldTenant(session, tenant)
+            .where(table.keyField.isEqualTo(key))
+            .update(assignments);
+        if (changed == 0) throw RowNotFoundError(table.tableName, key);
+      });
+
+  /// Queues the removal of the row of [table] held under [key]. Removing one
+  /// that does not exist is not an error.
+  void remove<R extends Object, K extends Object>(KeyedTable<R, K> table, K key) => _queue((session, tenant) async {
+    await table.onHeldTenant(session, tenant).remove(key);
+  });
 
   /// Applies every queued write in one transaction.
   ///
@@ -89,39 +122,23 @@ final class WriteBatch {
   }
 
   void _checkOpen() {
-    if (_committed) throw StateError('This WriteBatch was already committed.');
+    if (_committed) throw StateError('This Batch was already committed.');
   }
 }
 
 /// The reads and writes of one [Database.runTransaction].
 ///
-/// Every call below runs inside that transaction, so a read sees the writes
-/// made before it, and all of them commit together or not at all. Each call
-/// must be awaited before the next starts.
+/// Every statement run through [from] happens inside that transaction, so a read
+/// sees the writes made before it, and all of them commit together or not at
+/// all. Each call must be awaited before the next starts.
 final class Transaction {
   Transaction._(this._session, this._tenant);
 
   final Connection _session;
   final String? _tenant;
 
-  KeyedAccess<R, K> _access<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
-      reference._table.onHeldTenant(_session, _tenant);
-
-  /// Reads [reference], which need not exist.
-  Future<DocumentSnapshot<R, K>> get<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
-      reference._read(_access(reference));
-
-  /// Does what [DocumentReference.set] does, inside this transaction.
-  Future<void> set<R extends Object, K extends Object>(DocumentReference<R, K> reference, R record) =>
-      reference._set(_access(reference), record);
-
-  /// Does what [DocumentReference.update] does, inside this transaction.
-  Future<void> update<R extends Object, K extends Object>(
-    DocumentReference<R, K> reference,
-    List<Assignment> assignments,
-  ) => reference._update(_access(reference), assignments);
-
-  /// Does what [DocumentReference.delete] does, inside this transaction.
-  Future<void> delete<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
-      reference._delete(_access(reference));
+  /// The rows of [table], inside this transaction, on the tenant that was
+  /// current when it began. The same statements [Database.from] offers.
+  KeyedAccess<R, K> from<R extends Object, K extends Object>(KeyedTable<R, K> table) =>
+      table.onHeldTenant(_session, _tenant);
 }

@@ -38,7 +38,7 @@
 // that with the analyzer itself, on programs that import nothing else: the
 // engine is the package's own plumbing, so a project neither opens a database
 // by hand nor builds a schema with the DSL, and it can do everything it is
-// meant to — declare a table, open a collection, switch tenant, reach the app
+// meant to — declare a table, read it with from, switch tenant, reach the app
 // database with the app's fingerprint.
 
 import 'dart:io';
@@ -77,11 +77,10 @@ final class Notes extends KeyedTable<Note, String> {
 }
 
 final class Own extends Database {
-  final notesTable = Notes();
-  late final notes = Collection(notesTable);
+  final notes = Notes();
 
   @override
-  List<Collection<Object, Object>> get collections => [notes];
+  List<KeyedTable<Object, Object>> get tables => [notes];
 }
 
 Future<void> program(Own db) async {
@@ -98,24 +97,31 @@ final class _Program {
 }
 
 const _programs = [
-  _Program('a table, a collection and a typed query', '''
-await db.notes.where(db.notesTable.title.isEqualTo('a')).orderBy([db.notesTable.title.asc()]).get();
+  _Program('a table and a typed query', '''
+await db.from(db.notes).where(db.notes.title.isEqualTo('a')).orderBy([db.notes.title.asc()]).select();
 ''', compiles: true),
   _Program('a write, an update and a delete', '''
-await db.notes.doc('a').set(const Note(id: 'a', title: 't'));
-await db.notes.doc('a').update([db.notesTable.title.to('u')]);
-await db.notes.doc('a').delete();
+await db.from(db.notes).upsert(const Note(id: 'a', title: 't'));
+await db.from(db.notes).where(db.notes.id.isEqualTo('a')).update([db.notes.title.to('u')]);
+await db.from(db.notes).remove('a');
 ''', compiles: true),
-  _Program('a watched query with its changes', '''
-db.notes.snapshots().listen((snapshot) => snapshot.docChanges.map((change) => change.type));
+  _Program('a watched query', '''
+db.from(db.notes).where(db.notes.title.isEqualTo('a')).watch().listen((notes) => notes.length);
 ''', compiles: true),
   _Program('switching tenant', '''
 Tenant.use('account');
 Tenant.leave();
 ''', compiles: true),
   _Program('a batch and a transaction', '''
-await db.batch().commit();
-await db.runTransaction((tx) => tx.get(db.notes.doc('a')));
+await (db.batch()
+      ..insert(db.notes, const Note(id: 'a', title: 't'))
+      ..update(db.notes, 'a', [db.notes.title.to('u')])
+      ..remove(db.notes, 'a'))
+    .commit();
+await db.runTransaction((tx) => tx.from(db.notes).get('a'));
+''', compiles: true),
+  _Program('a table across every tenant', '''
+await db.fromWholeDatabase(db.notes, SecureStorage.fingerprint).select();
 ''', compiles: true),
   _Program('reaching the whole database with the app fingerprint', '''
 await db.wholeDatabase(SecureStorage.fingerprint).tenants();
