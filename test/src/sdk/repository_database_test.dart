@@ -97,7 +97,7 @@ final class NotesDatabase extends pylon.Database {
 }
 
 final class NotesList extends Repository<List<Note>, List<Note>, HouseError, HouseSignal> {
-  NotesList(this._database, this.answer) : super(offlineSignals: const {HouseSignal.noRoute});
+  NotesList(this._database, this.answer);
 
   final NotesDatabase _database;
   List<Note> answer;
@@ -191,15 +191,15 @@ void main() {
       expect(call.status.value, const StatusIdle<HouseError>());
     });
 
-    test('keeps what is stored when the network is out of reach', () async {
+    test('keeps what is stored when a refresh fails', () async {
       await database.from(database.notes).upsert(const Note(id: 'old', title: 'kept'));
-      final call = _Unreachable(database);
+      final call = _Failing(database);
       addTearDown(call.dispose);
       await becomes(call, (notes) => notes.isNotEmpty);
 
       final status = await call.refresh();
 
-      expect(status, const StatusOffline<HouseError>());
+      expect(status, const StatusFailed<HouseError>(HouseError.unknown));
       expect(call.data.value, [const Note(id: 'old', title: 'kept')]);
     });
 
@@ -224,8 +224,8 @@ void main() {
   });
 }
 
-final class _Unreachable extends NotesList {
-  _Unreachable(NotesDatabase database) : super(database, const []);
+final class _Failing extends NotesList {
+  _Failing(NotesDatabase database) : super(database, const []);
 
   @override
   Future<List<Note>> fetch() async => throw const Fault<HouseSignal>(HouseSignal.noRoute);

@@ -102,17 +102,15 @@ final class StatusSucceeded<E> extends Status<E> {
   String toString() => 'StatusSucceeded';
 }
 
-/// The last refresh could not reach the network.
+/// The last refresh made no request because the network is out of reach.
 ///
-/// Decided before the request when the repository observes the connection and
-/// `Network` or its health monitor says it is out, and after it when the request
-/// failed with a signal the project listed as meaning the network is out of
-/// reach. What is stored is still what the repository reads.
+/// Decided before the request, by a repository that observes the connection when
+/// `Network` says it is out. What is stored is still what the repository reads.
 ///
-/// A repository that observes the connection stays here until the connection is
-/// back, and answers a refresh without a request in the meantime. One that does
-/// not cannot know when it returns, so it announces this once, like any other
-/// outcome.
+/// It stays here until the connection is back, and answers a refresh without a
+/// request in the meantime. A repository that does not observe the connection
+/// never ends here: it tries the request, and a failure is a [StatusFailed] whose
+/// error the project chose.
 final class StatusOffline<E> extends Status<E> {
   /// The network was out of reach.
   const StatusOffline();

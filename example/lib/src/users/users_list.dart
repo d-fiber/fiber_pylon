@@ -41,7 +41,7 @@ import '../../clients/rest/signal.dart';
 import '../database/own_database.dart';
 import '../database/user.dart';
 
-enum UsersError { signedOut, unknown }
+enum UsersError { signedOut, network, unknown }
 
 /// The users of the account, read from the local database and refreshed from the
 /// network.
@@ -50,8 +50,6 @@ enum UsersError { signedOut, unknown }
 /// and calls `refresh()` to bring it up to date. `status` announces how each
 /// refresh went, and the users stay readable whatever it says.
 final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
-  UsersList() : super(offlineSignals: const {RestSignal.noRoute});
-
   @override
   bool get isAuthenticated => true;
 
@@ -80,6 +78,7 @@ final class UsersList extends Repository<List<User>, List<User>, UsersError, Res
   @override
   UsersError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
     RestSignal.unauthorized || RestSignal.forbidden => UsersError.signedOut,
+    RestSignal.noRoute => UsersError.network,
     _ => UsersError.unknown,
   };
 }

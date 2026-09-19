@@ -561,8 +561,6 @@ piece of data it shows, with its parameters in its own fields.
 
 ```dart
 final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
-  UsersList() : super(offlineSignals: const {RestSignal.noRoute});
-
   @override bool get isAuthenticated => true;
   @override bool get observesConnection => true;
   @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
@@ -606,9 +604,9 @@ for a refresh that went through, `Running`, `Failed(error)`, `Idle` for one that
 states do not let go at once. `StatusRunning` lasts until what it is doing is done, and only
 then does the outcome replace it. `StatusOffline` lasts until the connection is back, for a
 repository that observes it: it watches `Network`, answers a `refresh` without a request
-while it says the network is out, and goes idle when it says it is back.
-A repository that does not observe the connection cannot know when it returns, so it announces
-`StatusOffline` once, like the others.
+while it says the network is out, and goes idle when it says it is back. A repository that does
+not observe the connection never ends offline: it tries the request, and a failure is a
+`StatusFailed` with the error `resolve` chose.
 
 ```dart
 users.status.stream.listen((status) => switch (status) {
@@ -622,16 +620,16 @@ users.status.stream.listen((status) => switch (status) {
 
 The variants are only what pylon can decide by itself: the life of the refresh, whether a
 credential was held to make it (`isAuthenticated` and `Credentials`), and whether the network
-was reachable (`Network`, or the `offlineSignals` the project listed).
+was reachable (`Network`).
 
 Whether to look at the connection before asking is the repository's to say, with
 `observesConnection`, and has no default because it depends on what `fetch` talks to. A REST
 read says `true`: with no connection there is nothing to ask, and it ends `StatusOffline`
 without a request. A REST write says `false`: the request is worth trying, and its own failure
 is the honest answer. A call to a vendor's package over bluetooth or a local network needs no
-internet at all and says `false` too. Everything else
-is the project's own error `E`, which `resolve` produces from the fault, as a `FaultResolver`
-does. `offlineSignals` has no default, for the reason `fatalSignals` has none.
+internet at all and says `false` too. Everything else is the project's own error `E`, which
+`resolve` produces from the fault, as a `FaultResolver` does: that is where a project says that a
+request which never reached the server means the network.
 
 Six screens asking at once make one request: a `refresh` under way is joined. An error that is
 not a `Fault` is a bug and propagates.

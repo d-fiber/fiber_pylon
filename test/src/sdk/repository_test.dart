@@ -52,8 +52,7 @@ final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSign
     this.readFails = false,
     this.holdsNothing = false,
     List<int> stored = const [],
-  }) : stored = [...stored],
-       super(offlineSignals: const {HouseSignal.noRoute});
+  }) : stored = [...stored];
 
   final bool authenticated;
   final bool observes;
@@ -295,10 +294,10 @@ void main() {
       await shelf.dispose();
     });
 
-    test('ends offline for a signal it was told means the network is out of reach', () async {
+    test('ends failed with the project error when the request could not be made', () async {
       final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
 
-      expect(await shelf.refresh(), const StatusOffline<HouseError>());
+      expect(await shelf.refresh(), const StatusFailed<HouseError>(HouseError.unknown));
       await shelf.dispose();
     });
 
@@ -365,11 +364,11 @@ void main() {
       await shelf.dispose();
     });
 
-    test('ends offline on its own signal even when it does not observe the connection', () async {
+    test('ends failed, and never offline, when it does not observe the connection', () async {
       await connect(reachable: false);
       final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
 
-      expect(await shelf.refresh(), const StatusOffline<HouseError>());
+      expect(await shelf.refresh(), const StatusFailed<HouseError>(HouseError.unknown));
       expect(shelf.fetches, 1);
       await shelf.dispose();
     });
@@ -559,53 +558,6 @@ void main() {
       expect(status, const StatusOffline<HouseError>());
       expect(shelf.fetches, 0);
       expect(seen, isEmpty);
-      await shelf.dispose();
-    });
-
-    test(
-      'stays offline after a request that failed on its own signal, until the connection drops and returns',
-      () async {
-        final changes = await reachability(reachable: true);
-        final shelf = Shelf(observes: true)..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
-        await shelf.refresh();
-        await pumpEventQueue();
-        expect(shelf.status.value, const StatusOffline<HouseError>());
-
-        changes.add(false);
-        await pumpEventQueue();
-        expect(shelf.status.value, const StatusOffline<HouseError>());
-
-        changes.add(true);
-        await pumpEventQueue();
-
-        expect(shelf.status.value, const StatusIdle<HouseError>());
-        await shelf.dispose();
-      },
-    );
-
-    test('tries again when the connection is not what kept it offline', () async {
-      await reachability(reachable: true);
-      final shelf = Shelf(observes: true)..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
-      await shelf.refresh();
-      shelf.failure = null;
-
-      final status = await shelf.refresh();
-
-      expect(status, const StatusSucceeded<HouseError>());
-      expect(shelf.fetches, 2);
-      await shelf.dispose();
-    });
-
-    test('announces offline once and goes idle when it does not observe the connection', () async {
-      await reachability(reachable: false);
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
-      final seen = await watching(shelf);
-
-      await shelf.refresh();
-      await pumpEventQueue();
-
-      expect(seen, const [StatusRunning<HouseError>(), StatusOffline<HouseError>(), StatusIdle<HouseError>()]);
-      expect(shelf.status.value, const StatusIdle<HouseError>());
       await shelf.dispose();
     });
   });

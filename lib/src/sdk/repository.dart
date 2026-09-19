@@ -77,8 +77,7 @@ import 'status.dart';
 ///
 /// ```dart
 /// final class AdultsList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
-///   AdultsList(this._database, this._rest, {required this.minAge})
-///     : super(offlineSignals: const {RestSignal.noRoute});
+///   AdultsList(this._database, this._rest, {required this.minAge});
 ///
 ///   final OwnDatabase _database;
 ///   final RestUsers _rest;
@@ -130,18 +129,11 @@ import 'status.dart';
 abstract base class Repository<R, T, E, S extends Object> {
   /// A repository whose [data] is empty until the database has told what it holds,
   /// which it starts listening to right after it is made.
-  ///
-  /// [offlineSignals] lists the signals that mean the network is out of reach. A
-  /// [Fault] carrying one of them makes the refresh [StatusOffline] rather than
-  /// [StatusFailed]. It is required and has no default: pylon cannot know which of
-  /// an adapter's signals means the network rather than the server, and a project
-  /// that has none says so with an empty set.
-  Repository({required Set<S> offlineSignals}) : _offlineSignals = offlineSignals {
+  Repository() {
     scheduleMicrotask(_follow);
   }
 
   final MutableObservable<T?> _data = MutableObservable<T?>(null);
-  final Set<S> _offlineSignals;
   final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusRunning<E>());
 
   final List<StreamSubscription<bool>> _waiting = [];
@@ -166,7 +158,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   ///
   /// When it does and `Network` says the device is offline, no request is made
   /// and the refresh ends [StatusOffline]. When it does not, the request is
-  /// always tried, and only its own failure says the network was out.
+  /// always tried, and its own failure ends the refresh [StatusFailed].
   ///
   /// It is the project's to say, and has no default, since it depends on what
   /// [fetch] talks to. A REST write says `false`: attempting it without a
@@ -196,9 +188,9 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// [data].
   Future<void> response(R response);
 
-  /// Turns the [Fault] a refresh failed with into the project's own error.
-  ///
-  /// Not called for a signal listed in `offlineSignals`.
+  /// Turns the [Fault] a refresh failed with into the project's own error, which
+  /// is where a project says that a request that never reached the server means
+  /// the network.
   E resolve(Fault<S> fault);
 
   /// What the database holds, read with `data.value` and followed with
@@ -323,7 +315,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   }
 
   void _conclude(Status<E> outcome) {
-    if (outcome is StatusOffline<E> && observesConnection) return _holdOffline(outcome);
+    if (outcome is StatusOffline<E>) return _holdOffline(outcome);
     _announce(outcome);
   }
 
@@ -358,7 +350,6 @@ abstract base class Repository<R, T, E, S extends Object> {
       await response(await fetch());
       return StatusSucceeded<E>();
     } on Fault<S> catch (fault) {
-      if (_offlineSignals.contains(fault.signal)) return StatusOffline<E>();
       return StatusFailed<E>(resolve(fault));
     }
   }
