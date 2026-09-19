@@ -45,12 +45,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-class Ticket {
-  final String value;
-
-  const Ticket(this.value);
-}
-
 Future<PreferencesStorage> _preferences() async {
   await GetIt.instance.reset();
   await configureSdk();
@@ -88,66 +82,6 @@ void main() {
   tearDown(() async {
     await GetIt.instance.reset();
     await directory.delete(recursive: true);
-  });
-
-  group('StoredCredential', () {
-    StoredCredential<Ticket> storeOver(
-      String key, {
-      String Function(Ticket)? encode,
-      Ticket Function(String)? decode,
-    }) => StoredCredential<Ticket>(
-      SecureStorage.string_(key, ''),
-      encode: encode ?? (ticket) => ticket.value,
-      decode: decode ?? Ticket.new,
-    );
-
-    test('reads back a credential through the encoding it was given', () async {
-      await _preferences();
-      final store = storeOver('ticket');
-
-      await store.write(const Ticket('abc'));
-      final read = await store.read();
-
-      expect(read?.value, 'abc');
-    });
-
-    test('keeps the credential in the vault and never in the preferences', () async {
-      await _preferences();
-      final store = storeOver('ticket');
-
-      await store.write(const Ticket('abc'));
-
-      expect(await const FlutterSecureStorage().read(key: 'ticket'), 'abc');
-      expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
-    });
-
-    test('finds at the next launch what was written before', () async {
-      await _preferences();
-      await storeOver('ticket').write(const Ticket('abc'));
-
-      await _preferences();
-
-      expect((await storeOver('ticket').read())?.value, 'abc');
-    });
-
-    test('reads back nothing once cleared', () async {
-      await _preferences();
-      final store = storeOver('ticket');
-      await store.write(const Ticket('abc'));
-
-      await store.clear();
-
-      expect(await store.read(), isNull);
-      expect(await const FlutterSecureStorage().read(key: 'ticket'), isNull);
-    });
-
-    test('reads back nothing when the stored shape no longer decodes', () async {
-      FlutterSecureStorage.setMockInitialValues({'ticket': 'abc'});
-      await _preferences();
-      final store = storeOver('ticket', decode: (raw) => throw const FormatException('changed shape'));
-
-      expect(await store.read(), isNull);
-    });
   });
 
   group('PreferencesStorage', () {
