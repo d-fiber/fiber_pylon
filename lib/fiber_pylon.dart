@@ -172,8 +172,13 @@ export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';
 export 'src/sdk/clients/local/database/database.dart';
 export 'src/sdk/clients/local/database/engine/app.dart' show AppStorage, EncryptionPolicy;
-export 'src/sdk/clients/local/database/engine/database.dart';
-export 'src/sdk/clients/local/database/engine/schema/schema.dart';
+// The engine is the package's own plumbing: a project declares tables and
+// reaches them through the Firestore-like layer above, or through AppStorage.
+// The database class itself, the migrations, the drift report and the schema DSL
+// stay inside.
+export 'src/sdk/clients/local/database/engine/database.dart'
+    hide LocalDatabase, LocalDatabaseTenants, DatabaseSession, DatabaseMigration, SchemaDifference, DifferenceKind;
+export 'src/sdk/clients/local/database/engine/schema/schema.dart' show ReferentialAction, Collation, ColumnType;
 export 'src/sdk/clients/local/database/engine/sort_order.dart';
 export 'src/sdk/clients/local/local_sdk.dart';
 export 'src/sdk/clients/rest/http/cache_policy.dart';

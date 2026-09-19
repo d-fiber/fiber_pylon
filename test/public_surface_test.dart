@@ -34,22 +34,55 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+// What a project sees of pylon is the barrel, and only the barrel. This checks
+// that with the analyzer itself, on programs that import nothing else: the
+// engine is the package's own plumbing, so a project neither opens a database
+// by hand nor builds a schema with the DSL, and it can do everything it is
+// meant to — declare a table, open a collection, switch tenant, reach the app
+// database with the app's fingerprint.
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
 const _prelude = '''
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/schema/schema.dart';
+import 'package:fiber_pylon/fiber_pylon.dart';
 
-final class Todo implements DatabaseRecord {
-  const Todo();
+final class Note {
+  const Note({required this.id, required this.title});
 
-  @override
-  DatabaseRow toRow() => {'title': DatabaseType.varchar('a')};
+  final String id;
+  final String title;
 }
 
-Future<void> program(LocalDatabase db) async {
+final class Notes extends DatabaseKeyedTable<Note, String> {
+  Notes() : super('notes');
+
+  late final id = column.text('id').primaryKey();
+  late final title = column.text('title');
+
+  @override
+  Tunnel get tunnel => Tunnel.isolated;
+
+  @override
+  List<DatabaseField<Object?>> get columns => [id, title];
+
+  @override
+  Note read(DatabaseReader row) => Note(id: row(id), title: row(title));
+
+  @override
+  List<DatabaseAssignment> write(Note note) => [id.to(note.id), title.to(note.title)];
+}
+
+final class Own extends Database {
+  final notesTable = Notes();
+  late final notes = Collection(notesTable);
+
+  @override
+  List<Collection<Object, Object>> get collections => [notes];
+}
+
+Future<void> program(Own db) async {
 ''';
 
 final class _Program {
@@ -63,42 +96,42 @@ final class _Program {
 }
 
 const _programs = [
-  _Program('a table declaration assembled by hand', "const DeclaredTable(name: 't', columns: {});", compiles: false),
+  _Program('a table, a collection and a typed query', '''
+await db.notes.where(db.notesTable.title.isEqualTo('a')).orderBy([db.notesTable.title.asc()]).get();
+''', compiles: true),
+  _Program('a write, an update and a delete', '''
+await db.notes.doc('a').set(const Note(id: 'a', title: 't'));
+await db.notes.doc('a').update([db.notesTable.title.to('u')]);
+await db.notes.doc('a').delete();
+''', compiles: true),
+  _Program('a watched query with its changes', '''
+db.notes.snapshots().listen((snapshot) => snapshot.docChanges.map((change) => change.type));
+''', compiles: true),
+  _Program('switching tenant', '''
+Tenant.use('account');
+Tenant.leave();
+''', compiles: true),
+  _Program('a batch and a transaction', '''
+await db.batch().commit();
+await db.runTransaction((tx) => tx.get(db.notes.doc('a')));
+''', compiles: true),
+  _Program('reaching the whole database with the app fingerprint', '''
+await db.wholeDatabase(Fingerprint.instance).tenants();
+await AppStorage.tableNames(Fingerprint.instance);
+''', compiles: true),
+  _Program('reading the encryption of the app database', '''
+AppStorage.encryption = EncryptionPolicy.required;
+print(AppStorage.isEncrypted);
+''', compiles: true),
+  _Program('opening a database by hand', "LocalDatabase(name: 'x.db');", compiles: false),
   _Program(
-    'a column definition assembled by hand',
-    'const ColumnDefinition(type: ColumnType.text, notNull: false, isPrimary: false, unique: false, autoincrement: true);',
+    'declaring tables on a database by hand',
+    "LocalDatabase.declared(name: 'x.db', tables: []);",
     compiles: false,
   ),
-  _Program(
-    'a foreign key assembled by hand',
-    "const TableForeignKey(columns: ['a', 'b'], referencedTable: 'x', referencedColumns: ['id']);",
-    compiles: false,
-  ),
-  _Program('a primary key assembled by hand', 'const PrimaryKeyConstraint(columns: []);', compiles: false),
-  _Program('an index assembled by hand', "const TableIndex(name: 'i', columns: []);", compiles: false),
-  _Program('a unique constraint assembled by hand', 'const UniqueConstraint(columns: []);', compiles: false),
-  _Program('a check assembled by hand', "const CheckConstraint(expression: '');", compiles: false),
-  _Program(
-    'an any column in a table SQLite does not type-check',
-    "TableBuilder('t').columns((c) => {'a': c.any()});",
-    compiles: false,
-  ),
-  _Program(
-    'an any column opened by a strict column factory built by hand',
-    "TableBuilder('t').columns((c) => {'a': const StrictColumnFactory().any()});",
-    compiles: false,
-  ),
-  _Program(
-    'an any column in a strict table',
-    "TableBuilder('t').strict().columns((c) => {'a': c.any()});",
-    compiles: true,
-  ),
-  _Program(
-    'an any column in a table made strict after another option',
-    "TableBuilder('t').withoutRowid().strict().columns((c) => {'a': c.any()});",
-    compiles: true,
-  ),
-  _Program('a strict table asked to be strict again', "TableBuilder('t').strict().strict();", compiles: false),
+  _Program('building a schema with the DSL', "TableBuilder('t');", compiles: false),
+  _Program('a schema migration', 'const DatabaseMigration? migration = null;', compiles: false),
+  _Program('a drift report', 'const DifferenceKind? kind = null;', compiles: false),
 ];
 
 Future<Map<String, List<String>>> _analyzeEachProgram(Directory directory) async {
@@ -120,7 +153,7 @@ void main() {
   late Map<String, List<String>> errorsByFile;
 
   setUpAll(() async {
-    directory = await Directory('test/_compile_refusals').create();
+    directory = await Directory('test/_public_surface').create();
     errorsByFile = await _analyzeEachProgram(directory);
   });
 
@@ -128,10 +161,10 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  group('the analyzer', () {
+  group('a project that imports the barrel', () {
     for (var index = 0; index < _programs.length; index++) {
       final program = _programs[index];
-      test('${program.compiles ? 'accepts' : 'refuses'} ${program.name}', () {
+      test('${program.compiles ? 'can write' : 'cannot write'} ${program.name}', () {
         final errors = errorsByFile['program_$index.dart'] ?? const <String>[];
 
         expect(errors.isEmpty, program.compiles, reason: 'analyzer errors: $errors');

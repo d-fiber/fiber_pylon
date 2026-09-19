@@ -39,8 +39,8 @@
 
 import 'dart:io';
 
-import 'package:fiber_pylon/fiber_pylon.dart' hide Database, Tenant, Tunnel, TransferConflict;
-import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart' show TransferConflict, Tenant, Tunnel;
+import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
+import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:fiber_pylon/src/security/fingerprint.dart' show SecretStore;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';

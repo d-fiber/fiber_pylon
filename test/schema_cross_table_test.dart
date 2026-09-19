@@ -33,7 +33,7 @@
 //
 // This header is a summary written for convenience. Where it differs from the
 
-import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/sdk/clients/local/database/engine/schema/schema.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Matcher refusedWith(List<String> fragments) => throwsA(
