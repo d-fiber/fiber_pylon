@@ -38,7 +38,7 @@ import 'package:equatable/equatable.dart';
 
 /// Either a successful value ([OK]) or a typed error ([Failure]).
 ///
-/// `T` is the success payload and `E` the error, typically an enum the project
+/// [T] is the success payload and [E] the error, typically an enum the project
 /// declares itself. A port returns this instead of throwing, so a caller cannot
 /// forget that an operation can fail:
 ///
@@ -80,24 +80,23 @@ sealed class Result<T, E> {
     Failure<T, E>() => fallback,
   };
 
-  /// Collapses both variants into a single value.
-  R fold<R>({
-    required R Function(T data) ok,
-    required R Function(E error) failure,
-  }) => switch (this) {
+  /// The result of [ok] on the value, or of [failure] on the error.
+  R fold<R>({required R Function(T data) ok, required R Function(E error) failure}) => switch (this) {
     OK<T, E>(:final data) => ok(data),
     Failure<T, E>(:final error) => failure(error),
   };
 
-  /// Applies [transform] to the value, leaving a failure untouched.
+  /// This result with its value replaced by [transform] of it, a failure staying
+  /// as it is.
   Result<R, E> map<R>(R Function(T data) transform) => switch (this) {
     OK<T, E>(:final data) => OK<R, E>(transform(data)),
     Failure<T, E>(:final error) => Failure<R, E>(error),
   };
 
-  /// Applies [transform] to the error, leaving a success untouched.
+  /// This result with its error replaced by [transform] of it, a success staying
+  /// as it is.
   ///
-  /// This is how a service layer converts the SDK's errors into its own
+  /// It is how a service layer converts the errors of the SDK into its own
   /// vocabulary without unwrapping the result.
   Result<T, F> mapError<F>(F Function(E error) transform) => switch (this) {
     OK<T, E>(:final data) => OK<T, F>(data),

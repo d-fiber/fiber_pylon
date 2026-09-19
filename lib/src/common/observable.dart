@@ -36,12 +36,11 @@
 
 import 'package:rxdart/rxdart.dart';
 
-/// A value that can be read now and followed.
+/// A value that can be read now and followed for changes.
 ///
-/// Pylon hands these out for anything a caller both queries and follows: a
-/// session, a health flag, a stored preference. Reading is synchronous so a
-/// caller never has to wait for a first event, which is the failure mode of
-/// exposing a bare [Stream].
+/// Pylon hands these out for anything a caller both queries and follows, such as
+/// a session, a health flag or a stored preference. Reading is immediate, so
+/// nobody waits for a first event as they would with a bare [Stream].
 abstract class Observable<T> {
   /// Allows subclasses to be const.
   const Observable();
@@ -55,21 +54,22 @@ abstract class Observable<T> {
   Stream<T> get stream;
 }
 
-/// An [Observable] whose holder can publish new values, on a `BehaviorSubject`.
+/// An [Observable] whose holder can publish new values.
 ///
 /// The writer keeps this reference and hands out the [Observable] view, so a
 /// consumer that receives one cannot write to it.
 class MutableObservable<T> extends Observable<T> {
-  /// Starts out holding [initial]. A listener is notified in a later event.
+  /// Starts out holding [initial]. Listeners are notified in a later event, not
+  /// during the publishing call.
   MutableObservable(T initial) : _subject = BehaviorSubject<T>.seeded(initial);
 
-  /// Starts out holding [initial]. A listener has run before a publication
-  /// returns, which is what a change that must be in place before anyone can ask
-  /// needs.
+  /// Starts out holding [initial]. Listeners are notified before the publishing
+  /// call returns, for a change that must be in place before anyone can ask.
   ///
   /// A listener must not publish again while it runs.
   MutableObservable.synchronous(T initial) : _subject = BehaviorSubject<T>.seeded(initial, sync: true);
 
+  /// The current value and its changes.
   final BehaviorSubject<T> _subject;
 
   @override

@@ -43,11 +43,11 @@ import 'package:meta/meta.dart';
 
 import 'observable.dart';
 
-/// Whether the network can be reached, from anywhere.
+/// The connection state of the device, readable from anywhere in the app.
 ///
 /// ```dart
-/// Network.isReachable.value;                          // can it be?
-/// Network.isReachable.stream.listen(showBanner);      // the answer now, then every change
+/// final now = Network.isReachable.value;
+/// Network.isReachable.stream.listen(showBanner);
 /// ```
 ///
 /// It is what the operating system says about the connection: a network
@@ -60,13 +60,12 @@ import 'observable.dart';
 /// When the system cannot say, because the platform gives no answer or the
 /// plugin is missing, it is reachable: nothing is ever refused on a guess.
 ///
-/// Read before `configureSdk` returns, so nobody asks it a question it cannot
-/// yet answer.
+/// It is ready to be read once `configureSdk` has run.
 @Singleton()
 class Network {
   Network._(this._reachable, this._changes);
 
-  /// Whether the network can be reached, and its changes.
+  /// Backs [isReachable].
   final MutableObservable<bool> _reachable;
 
   /// What follows the operating system, `null` when there is nothing to follow.
@@ -102,6 +101,9 @@ class Network {
   static bool reads(List<ConnectivityResult> results) =>
       results.isNotEmpty && results.any((result) => result != ConnectivityResult.none);
 
+  /// A network that starts as [initial] and follows [changes].
+  ///
+  /// An error on [changes] is ignored, since the last answer stays the best one.
   static Network _following(bool initial, Stream<bool> changes) {
     final reachable = MutableObservable<bool>(initial);
     return Network._(reachable, changes.listen((next) => reachable.value = next, onError: (Object _) {}));
@@ -109,9 +111,10 @@ class Network {
 
   static Network get _instance => GetIt.instance<Network>();
 
-  /// Whether the network can be reached, read with `isReachable.value` and
-  /// followed with `isReachable.stream`, which gives a new listener the current
-  /// answer first.
+  /// Whether the network can be reached, now and as it changes.
+  ///
+  /// Read it with `isReachable.value` and follow it with `isReachable.stream`,
+  /// which gives a new listener the current answer first.
   static Observable<bool> get isReachable => _instance._reachable;
 
   /// Stops following the operating system and closes [isReachable], when

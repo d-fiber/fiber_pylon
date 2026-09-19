@@ -34,15 +34,14 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-/// Where pylon sends its breadcrumbs and its unexpected errors.
+/// The place pylon sends its log messages and its unexpected errors to.
 ///
-/// Pylon needs to report without knowing what the host app reports to. An app
-/// on Crashlytics implements this over Crashlytics, an app on Sentry over
-/// Sentry, a test over a list it later asserts on. Nothing in pylon depends on
-/// any of them.
+/// Pylon does not know what the host app reports to. An app on Crashlytics
+/// implements this over Crashlytics, an app on Sentry over Sentry, and a test
+/// over a list it later asserts on.
 ///
-/// Implementations must never throw: they are called from `finally` blocks and
-/// from timer callbacks where a failure would replace the real error with a
+/// Implementations must never throw. They are called from `finally` blocks and
+/// from timer callbacks, where a failure would replace the real error with a
 /// meaningless one.
 abstract interface class Reporter {
   /// Records that [message] happened, as context for a later error.
@@ -50,26 +49,22 @@ abstract interface class Reporter {
 
   /// Records [error] as something that should not have happened.
   ///
-  /// [fatal] tells the host whether the app can carry on, and [context] carries
-  /// the few values that make the report actionable, such as the operation
-  /// being performed.
-  void recordError(
-    Object error,
-    StackTrace? stackTrace, {
-    bool fatal = false,
-    Map<String, Object?> context = const {},
-  });
+  /// [stackTrace] is the stack of [error], when there is one. [fatal] tells the
+  /// host whether the app can carry on, and [context] carries the few values that
+  /// make the report actionable, such as the operation being performed.
+  void recordError(Object error, StackTrace? stackTrace, {bool fatal = false, Map<String, Object?> context = const {}});
 
-  /// Attaches [identifier] to subsequent reports, or detaches it when `null`.
+  /// Attaches [identifier] to the reports that follow, or detaches it when
+  /// `null`.
   void identify(String? identifier);
 }
 
 /// A [Reporter] that drops everything.
 ///
-/// The default wherever pylon takes a reporter, so nothing is required to
-/// configure observability before the rest works.
+/// It is the default wherever pylon takes a reporter, so the rest works without
+/// any reporting being set up.
 class SilentReporter implements Reporter {
-  /// Creates the silent reporter.
+  /// Creates a reporter that drops everything.
   const SilentReporter();
 
   @override
