@@ -36,59 +36,71 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.update] (or [StatementBatch.update]) call. Never
-/// constructed directly — [LocalDatabase.update] hands one to its own
-/// callback. The only method here is [table]: nothing can follow `UPDATE`
-/// before naming a table, so nothing else is offered here either.
+/// An update that has not yet named its table.
+///
+/// [LocalDatabase.update] and [StatementBatch.update] hand one to their
+/// callback, which names the table with [table], gives the new values with
+/// [UpdateTable.set] and returns the result.
 ///
 /// ```dart
-/// final changed = await db.update<Todo>(
+/// final changed = await LocalDatabase.update<Todo>(
 ///   (u) => u.table('todos').set(done).where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
 /// );
 /// ```
 final class Update<T extends Storable> {
   Update._();
 
-  /// Updates rows in [name], the same table name a raw `UPDATE table` names.
+  /// Updates rows of the table called [name].
   UpdateTable<T> table(String name) => UpdateTable._(_quotedIdentifier(name));
 }
 
-/// A [Update] that has named its table, opened by [Update.table].
-/// The only method here is [set]: a raw `UPDATE table` still needs a `SET`
-/// clause before it means anything, so nothing else is offered here either.
+/// An update that has named its table and still needs the values to write.
 final class UpdateTable<T extends Storable> {
   UpdateTable._(this._table);
 
+  /// The name of the table to update.
   final String _table;
 
-  /// Writes [value], read into a row through [Storable.toRow], over
-  /// every matched row.
+  /// Writes the row [Storable.toRow] gives for [value] over every row the
+  /// update matches.
   UpdateSet<T> set(T value) => UpdateSet._(_table, value);
 }
 
-/// A fully composed update, opened by [UpdateTable.set] — the only
-/// shape [LocalDatabase.update] accepts back from its own callback. [where]
-/// and [onConflict] refine it further and may be called in either order,
-/// since neither changes what the other is allowed to be.
+/// An update that has its table and its values, and is complete as it stands.
+///
+/// Without [where] it changes every row of the table. [where] and
+/// [onConflict] may be called in either order.
 final class UpdateSet<T extends Storable> {
   UpdateSet._(this._table, this._data, [this._where, this._whereArgs, this._conflict]);
 
+  /// The name of the table to update.
   final String _table;
+
+  /// The value whose row is written.
   final T _data;
+
+  /// The condition a row must meet to be updated, or `null` for every row.
   final String? _where;
+
+  /// The values bound to the placeholders of [_where].
   final List<Value>? _whereArgs;
+
+  /// How to resolve a collision with another row, or `null` to abort.
   final ConflictAlgorithm? _conflict;
 
-  /// Keeps only the rows [build] matches, composed from an empty
-  /// [FilterBuilder]. Called again, both conditions must hold. Every row
-  /// in the table is matched when this is never called.
+  /// Updates only the rows [build] matches.
+  ///
+  /// [build] receives an empty [FilterBuilder]. Called again, a row must meet
+  /// both conditions to be updated.
   UpdateSet<T> where(Filter Function(FilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
     return UpdateSet._(_table, _data, _bothMatch(_where, clause), [...?_whereArgs, ...arguments], _conflict);
   }
 
-  /// Resolves the conflict, should [set] collide with a row already there.
-  /// Left unset, sqflite aborts the whole statement.
-  UpdateSet<T> onConflict(ConflictAlgorithm algorithm) =>
-      UpdateSet._(_table, _data, _where, _whereArgs, algorithm);
+  /// Resolves a collision between an updated row and another row of the table
+  /// with [algorithm].
+  ///
+  /// Left unset, a collision aborts the statement and throws a
+  /// [UniqueConstraintError].
+  UpdateSet<T> onConflict(ConflictAlgorithm algorithm) => UpdateSet._(_table, _data, _where, _whereArgs, algorithm);
 }

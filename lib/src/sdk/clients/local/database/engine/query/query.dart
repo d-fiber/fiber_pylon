@@ -36,28 +36,29 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.query] (or [TransactionScope.query]) call.
-/// Never constructed directly — [LocalDatabase.query] hands one to its own
-/// callback. The only method here is [from]: nothing can follow `SELECT`
-/// before naming a table, so nothing else is offered here either.
+/// A query that has not yet named its table.
+///
+/// [LocalDatabase.query], [TransactionScope.query] and [StatementBatch.query]
+/// hand one to their callback, which names the table with [from] and returns
+/// the result. [T] is the type each row is decoded into.
 ///
 /// ```dart
-/// final open = await db.query<Todo>(
+/// final open = await LocalDatabase.query<Todo>(
 ///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false))).map(Todo.fromRow),
 /// );
 /// ```
 final class Select<T extends Object> {
   Select._();
 
-  /// Reads from [name], the same `FROM` a raw `SELECT ... FROM ...` names.
+  /// Reads from the table called [name].
   QueryFrom<T> from(String name) => QueryFrom._(table: _quotedIdentifier(name));
 }
 
-/// A [Select] that has named its table, opened by [Select.from].
-/// Every method here answers a new [QueryFrom] rather than changing
-/// this one, and — unlike [from] itself — every one of them is optional and
-/// may be called in any order, since none of them changes what the next one
-/// is allowed to be.
+/// A query that has named its table, and is complete as it stands.
+///
+/// Without any further call it reads every column of every row. Each method
+/// answers a new [QueryFrom] and leaves this one unchanged, and they may be
+/// called in any order.
 final class QueryFrom<T extends Object> {
   const QueryFrom._({
     required String table,
@@ -85,64 +86,96 @@ final class QueryFrom<T extends Object> {
        _limit = limit,
        _offset = offset;
 
+  /// The name of the table to read from.
   final String _table;
+
+  /// Decodes a row into a [T], or `null` until [map] is called.
   final T Function(RawRow row)? _fromRow;
+
+  /// Whether a row that repeats one already read is skipped.
   final bool _distinct;
+
+  /// The columns to read, or `null` for every column.
   final List<String>? _columns;
+
+  /// The condition a row must meet to be read, or `null` for every row.
   final String? _where;
+
+  /// The values bound to the placeholders of [_where].
   final List<Value>? _whereArgs;
+
+  /// The columns rows are grouped by, or `null` for no grouping.
   final String? _groupBy;
+
+  /// The condition a group must meet to be read, or `null` for every group.
   final String? _having;
+
+  /// The values bound to the placeholders of [_having].
   final List<Value>? _havingArgs;
+
+  /// The terms rows are ordered by, or `null` for no promised order.
   final String? _orderBy;
+
+  /// The most rows to read, or `null` for no limit.
   final int? _limit;
+
+  /// The number of matching rows to skip, or `null` to skip none.
   final int? _offset;
 
-  /// Decodes each selected row into a [T] with [fromRow]. Required: nothing
-  /// here guesses how a row and a model relate.
+  /// Decodes each selected row into a [T] with [fromRow].
+  ///
+  /// [LocalDatabase.query] and [TransactionScope.query] throw a [StateError]
+  /// when the query runs without it. A [StatementBatch.query] does not read it,
+  /// since its rows come back undecoded.
   QueryFrom<T> map(T Function(RawRow row) fromRow) => _copyWith(fromRow: fromRow);
 
-  /// Skips a row that duplicates one already read, across the columns
-  /// [select] named.
+  /// Skips a row that repeats one already read, comparing the columns [select]
+  /// named, or every column when it was not called.
+  ///
+  /// Pass `false` to read repeated rows again.
   QueryFrom<T> distinct([bool value = true]) => _copyWith(distinct: value);
 
-  /// Reads only the columns named [columns], instead of every column the
-  /// table declares. Called again, it adds columns to the ones already named.
-  /// Each name is quoted, so it is read as a column and never
-  /// as SQL: an aggregate or an expression belongs in [LocalDatabase.rawQuery].
-  QueryFrom<T> select(List<String> columns) =>
-      _copyWith(columns: [...?_columns, ...columns.map(_quotedIdentifier)]);
+  /// Reads only the columns called [columns], instead of every column.
+  ///
+  /// Called again, it adds columns to the ones already named. Each name is read
+  /// as a column, never as SQL, so an aggregate or an expression belongs in
+  /// [LocalDatabase.rawQuery].
+  QueryFrom<T> select(List<String> columns) => _copyWith(columns: [...?_columns, ...columns.map(_quotedIdentifier)]);
 
-  /// Keeps only the rows [build] matches, composed from an empty
-  /// [FilterBuilder]. Called again, it narrows the rows the earlier
-  /// call kept: both conditions must hold.
+  /// Reads only the rows [build] matches.
+  ///
+  /// [build] receives an empty [FilterBuilder]. Called again, a row must meet
+  /// both conditions to be read.
   QueryFrom<T> where(Filter Function(FilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
     return _copyWith(where: _bothMatch(_where, clause), whereArgs: [...?_whereArgs, ...arguments]);
   }
 
-  /// Groups matching rows by the columns named [columns] before [having] and
-  /// [map] see them. Called again, it adds columns to the grouping. An empty
-  /// list changes nothing. Each name is quoted, so it is read as a column and never
-  /// as SQL.
+  /// Groups the matching rows by the columns called [columns].
+  ///
+  /// Called again, it adds columns to the grouping. An empty list changes
+  /// nothing. Each name is read as a column, never as SQL.
   QueryFrom<T> groupBy(List<String> columns) =>
       columns.isEmpty ? this : _copyWith(groupBy: _appended(_groupBy, columns.map(_quotedIdentifier)));
 
-  /// Keeps only the groups [build] matches, composed from an empty
-  /// [FilterBuilder]. Called again, both conditions must hold.
-  /// Meaningless without [groupBy].
+  /// Reads only the groups [build] matches.
   ///
-  /// A condition over an aggregate goes through [FilterBuilder.raw],
-  /// such as `w.raw('COUNT(*) > ?', [Value.integer(1)])`.
+  /// [build] receives an empty [FilterBuilder]. Called again, a group must meet
+  /// both conditions to be read. A condition over an aggregate goes through
+  /// [FilterBuilder.raw], such as `w.raw('COUNT(*) > ?', [Value.integer(1)])`.
+  ///
+  /// Needs [groupBy]: a query that has this without it throws an
+  /// [ArgumentError] when it runs or is queued in a [StatementBatch].
   QueryFrom<T> having(Filter Function(FilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
     return _copyWith(having: _bothMatch(_having, clause), havingArgs: [...?_havingArgs, ...arguments]);
   }
 
-  /// Orders the result by [orders], the first one deciding and each later one
-  /// only breaking the ties the one before it left. Called again, its terms
-  /// come after the ones already given, so they only break the remaining ties.
-  /// An empty list changes nothing.
+  /// Orders the rows by [orders], the first deciding and each later one only
+  /// breaking the ties the one before it left.
+  ///
+  /// Called again, its terms come after the ones already given. An empty list
+  /// changes nothing.
   QueryFrom<T> orderBy(List<Sort> orders) =>
       orders.isEmpty ? this : _copyWith(orderBy: _appended(_orderBy, orders.map(_renderOrder)));
 
@@ -152,9 +185,10 @@ final class QueryFrom<T extends Object> {
   /// no limit at all.
   QueryFrom<T> limit(int count) => _copyWith(limit: RangeError.checkNotNegative(count, 'count'));
 
-  /// Skips the first [count] matching rows, applied after [limit].
+  /// Skips the first [count] matching rows, before [limit] counts the ones to
+  /// read.
   ///
-  /// Throws a [RangeError] if [count] is negative.
+  /// Works without [limit]. Throws a [RangeError] if [count] is negative.
   QueryFrom<T> offset(int count) => _copyWith(offset: RangeError.checkNotNegative(count, 'count'));
 
   QueryFrom<T> _copyWith({
@@ -184,38 +218,33 @@ final class QueryFrom<T extends Object> {
     offset: offset ?? _offset,
   );
 
-  List<Value>? get _arguments =>
-      _whereArgs == null && _havingArgs == null ? null : [...?_whereArgs, ...?_havingArgs];
+  List<Value>? get _arguments => _whereArgs == null && _havingArgs == null ? null : [...?_whereArgs, ...?_havingArgs];
 
-  T Function(RawRow row) get _requiredFromRow =>
-      _fromRow ?? (throw StateError('QueryFrom.map was never set.'));
+  T Function(RawRow row) get _requiredFromRow => _fromRow ?? (throw StateError('QueryFrom.map was never set.'));
 }
 
 /// One term of a query's `ORDER BY`, with the [SortOrder] it sorts in.
 ///
-/// Built through one of two factories, so a column name and a raw SQL
-/// expression can never be mistaken for one another: [Sort.named]
-/// takes a column name and quotes it, [Sort.expression] takes SQL and
-/// leaves it as written. A `switch` over a [Sort] is exhaustive with
-/// [NamedSort] and [ExpressionSort].
+/// Built by one of two factories, so that a column name is never mistaken for
+/// SQL: [Sort.named] takes a column name and [Sort.expression] takes SQL. A
+/// `switch` over a [Sort] is exhaustive with [NamedSort] and [ExpressionSort].
 sealed class Sort extends Equatable {
   const Sort._({required this.order});
 
-  /// The column called [name], sorted in [order].
+  /// A term that sorts by the column called [name] in [order].
   const factory Sort.named(String name, {SortOrder order}) = NamedSort._;
 
-  /// The raw SQL [sql], sorted in [order], for a term a bare column cannot
-  /// express, such as `lower(title)`.
+  /// A term that sorts by the SQL expression [sql] in [order], for what a bare
+  /// column cannot express, such as `lower(title)`.
   ///
-  /// Nothing here validates it, the same choice made for every other raw SQL
-  /// fragment a caller supplies.
+  /// [sql] is not validated, as with every raw SQL fragment this package takes.
   const factory Sort.expression(String sql, {SortOrder order}) = ExpressionSort._;
 
   /// The direction this term sorts in.
   final SortOrder order;
 }
 
-/// A [Sort] that sorts by one column, by name.
+/// A term of an `ORDER BY` that sorts by one column, by name.
 final class NamedSort extends Sort {
   const NamedSort._(this.name, {super.order = SortOrder.asc}) : super._();
 
@@ -226,7 +255,7 @@ final class NamedSort extends Sort {
   List<Object?> get props => [name, order];
 }
 
-/// A [Sort] that sorts by a raw SQL expression.
+/// A term of an `ORDER BY` that sorts by a SQL expression.
 final class ExpressionSort extends Sort {
   const ExpressionSort._(this.sql, {super.order = SortOrder.asc}) : super._();
 

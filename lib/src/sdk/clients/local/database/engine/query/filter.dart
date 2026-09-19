@@ -36,46 +36,53 @@
 
 part of '../database.dart';
 
-/// One condition a `WHERE` clause can hold, built through
-/// [FilterBuilder] rather than written as a raw SQL string. Never
-/// implemented outside this file: [QueryFrom.where],
-/// [UpdateSet.where] and [DeleteFrom.where] each read one
-/// back into the raw `WHERE` clause and bound arguments sqflite itself
-/// takes.
+/// One condition a row must meet to be selected, updated or removed.
+///
+/// A filter is composed by a [FilterBuilder], which [QueryFrom.where],
+/// [UpdateSet.where] and [DeleteFrom.where] hand to their callback, or joined
+/// to another with the operators `&`, `|` and `~`.
 sealed class Filter {
   const Filter();
 
-  /// Rows every one of [filters] matches, and every row when [filters] is
-  /// empty. Meant for a list of conditions assembled at run time, where the
-  /// `&` operator would need a loop.
+  /// A filter that a row meets when it meets every one of [filters].
+  ///
+  /// Every row meets it when [filters] is empty. It suits a list of conditions
+  /// assembled at run time, where `&` would need a loop.
   factory Filter.all(List<Filter> filters) => _FilterCombination(_Connector.and, filters);
 
-  /// Rows at least one of [filters] matches, and no row when [filters] is
-  /// empty.
+  /// A filter that a row meets when it meets at least one of [filters].
+  ///
+  /// No row meets it when [filters] is empty.
   factory Filter.any(List<Filter> filters) => _FilterCombination(_Connector.or, filters);
 
-  /// A raw SQL predicate, every `?` in it bound to [arguments] in order.
+  /// A filter written as the SQL condition [sql], each `?` in it bound to the
+  /// next of [arguments].
   ///
-  /// Nothing here validates it, and a raw filter is not checked against the
-  /// table a query reads from.
-  factory Filter.raw(String sql, [List<Value>? arguments]) =>
-      _FilterRaw(sql, arguments ?? const []);
+  /// [sql] is not validated, and is not checked against the table the filter
+  /// is used on.
+  factory Filter.raw(String sql, [List<Value>? arguments]) => _FilterRaw(sql, arguments ?? const []);
 
-  /// Rows both this filter and [other] match.
+  /// A filter that a row meets when it meets both this filter and [other].
   Filter operator &(Filter other) => _FilterCombination(_Connector.and, [this, other]);
 
-  /// Rows this filter or [other] matches.
+  /// A filter that a row meets when it meets this filter or [other].
   Filter operator |(Filter other) => _FilterCombination(_Connector.or, [this, other]);
 
-  /// Rows this filter does not match, the rows it cannot decide on included,
-  /// the same way [FilterBuilder.not] reads it.
+  /// A filter that a row meets when it does not meet this filter, as
+  /// [FilterBuilder.not] does.
   Filter operator ~() => _FilterNot(this);
 
+  /// The tables of the typed columns this filter reads, empty for one built
+  /// from plain names.
+  ///
+  /// The typed tables read it to refuse a filter built from another table.
   Set<String> get _tables => const {};
 }
 
 enum _Comparison {
   equal('='),
+
+  /// `IS NOT` rather than `<>`, so that a null differs from every value.
   notEqual('IS NOT'),
   greaterThan('>'),
   greaterThanOrEqual('>='),
@@ -175,6 +182,10 @@ Value _orderable(Value value) => value is Nil
     ? throw ArgumentError.value(value, 'value', 'NULL has no order to compare against. Use isNull or isNotNull.')
     : value;
 
+/// The SQL condition for [filter] and the values bound to its placeholders.
+///
+/// A [_FilterNot] is wrapped so that a row the inner condition cannot decide
+/// on, one where it reads null, counts as not meeting it and so meets the not.
 (String, List<Value>) _renderDatabaseFilter(Filter filter) {
   switch (filter) {
     case _FilterComparison(:final column, :final comparison, :final value):
@@ -220,136 +231,147 @@ Value _orderable(Value value) => value is Nil
   }
 }
 
-/// Composes one [Filter], handed to the callback
-/// [QueryFrom.where], [UpdateSet.where] and
-/// [DeleteFrom.where] each take. Every method answers a leaf
-/// [Filter]; [and], [or] and [not] combine several into one.
+/// The methods that compose a [Filter], one condition each, and combine
+/// several into one with [and], [or] and [not].
+///
+/// [QueryFrom.where], [QueryFrom.having], [UpdateSet.where] and
+/// [DeleteFrom.where] hand one to their callback.
 ///
 /// ```dart
-/// db.query<Todo>(
+/// LocalDatabase.query<Todo>(
 ///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false))).map(Todo.fromRow),
 /// );
 /// ```
 ///
-/// What a filter can say depends on how a [Value] convention is
-/// stored. [isEqualTo], [isNotEqualTo] and [isIn] work on every one. The
-/// ordering methods ([isGreaterThan] and its siblings) give the order a
-/// person expects on a boolean, a timestamp, a date, a number, a text, a
-/// [Value.time] and a blob. On a [Value.enum_] they compare the
-/// member names alphabetically, not in declaration order: to filter on "after
-/// spring", pass [isIn] the later members. A list, a shape, an interval or a
-/// range is stored as JSON text, so equality holds only for the exact same
-/// text, and anything finer, such as whether a range contains a value, goes
-/// through [raw].
+/// What a condition can say depends on how the [Value] is stored. [isEqualTo],
+/// [isNotEqualTo] and [isIn] work on every one. The ordering methods, such as
+/// [isGreaterThan], give the order a person expects on a boolean, a timestamp,
+/// a date, a number, a text, a [Value.time] and a blob. On a [Value.enum_] they
+/// compare the member names alphabetically, not in declaration order, so to
+/// filter on "after spring" pass [isIn] the later members. A list, a shape, an
+/// interval or a range is stored as JSON text, so equality holds only for the
+/// exact same text, and anything finer, such as whether a range contains a
+/// value, goes through [raw].
 final class FilterBuilder {
-  /// Builds no filter on its own; each of its methods does.
+  /// A builder, which holds nothing: each method answers a new [Filter].
   const FilterBuilder();
 
-  /// Rows where [key] equals [value]. Rows where [key] is null when [value] is
-  /// a [Nil], which a plain SQL `=` would never match.
-  Filter isEqualTo({required String key, required Value value}) =>
-      _FilterComparison(key, _Comparison.equal, value);
+  /// A filter on the rows where [key] equals [value].
+  ///
+  /// When [value] is a [Nil] it matches the rows where [key] is null, which a
+  /// plain SQL `=` never would.
+  Filter isEqualTo({required String key, required Value value}) => _FilterComparison(key, _Comparison.equal, value);
 
-  /// Rows where [key] differs from [value], the rows where [key] is null
-  /// included: a null differs from every value. Rows where [key] is not null
-  /// when [value] is a [Nil].
+  /// A filter on the rows where [key] differs from [value].
+  ///
+  /// The rows where [key] is null are included, since a null differs from every
+  /// value. When [value] is a [Nil] it matches the rows where [key] is not
+  /// null.
   Filter isNotEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.notEqual, value);
 
-  /// Rows where [key] is strictly greater than [value].
+  /// A filter on the rows where [key] is strictly greater than [value].
   ///
-  /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
-  /// A null [key] never matches.
+  /// A row where [key] is null never matches. Throws an [ArgumentError] when
+  /// [value] is a [Nil], which has no order.
   Filter isGreaterThan({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.greaterThan, _orderable(value));
 
-  /// Rows where [key] is greater than [value], or equal to it.
+  /// A filter on the rows where [key] is greater than or equal to [value].
   ///
-  /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
-  /// A null [key] never matches.
+  /// A row where [key] is null never matches. Throws an [ArgumentError] when
+  /// [value] is a [Nil], which has no order.
   Filter isGreaterThanOrEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.greaterThanOrEqual, _orderable(value));
 
-  /// Rows where [key] is strictly less than [value].
+  /// A filter on the rows where [key] is strictly less than [value].
   ///
-  /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
-  /// A null [key] never matches.
+  /// A row where [key] is null never matches. Throws an [ArgumentError] when
+  /// [value] is a [Nil], which has no order.
   Filter isLessThan({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.lessThan, _orderable(value));
 
-  /// Rows where [key] is less than [value], or equal to it.
+  /// A filter on the rows where [key] is less than or equal to [value].
   ///
-  /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
-  /// A null [key] never matches.
+  /// A row where [key] is null never matches. Throws an [ArgumentError] when
+  /// [value] is a [Nil], which has no order.
   Filter isLessThanOrEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.lessThanOrEqual, _orderable(value));
 
-  /// Rows where [key] matches [pattern], where `%` stands for any run of
-  /// characters and `_` for exactly one.
+  /// A filter on the rows where [key] matches [pattern], in which `%` stands
+  /// for any run of characters and `_` for exactly one.
   ///
-  /// [pattern] is read as a pattern, so a `%` or `_` in text a user typed
-  /// matches more than itself. Reach for [contains], [startsWith] or
-  /// [endsWith] to match text as it is. SQLite ignores the case of ASCII
-  /// letters here.
+  /// A `%` or `_` in text a user typed matches more than itself, so use
+  /// [contains], [startsWith] or [endsWith] to match text as it is. The case of
+  /// ASCII letters is ignored.
   ///
   /// Throws an [ArgumentError] when [pattern] holds a NUL character, which
   /// SQLite reads as the end of the pattern.
   Filter isLike({required String key, required String pattern}) =>
       _FilterComparison(key, _Comparison.like, Value.varchar(_likeText(pattern, 'pattern')));
 
-  /// Rows where [key] holds [text] somewhere in it, `%` and `_` in [text]
-  /// matching themselves. SQLite ignores the case of ASCII letters here.
+  /// A filter on the rows where [key] holds [text] somewhere in it.
+  ///
+  /// A `%` or `_` in [text] matches itself. The case of ASCII letters is
+  /// ignored.
   ///
   /// Throws an [ArgumentError] when [text] holds a NUL character, which SQLite
-  /// reads as the end of a pattern and would match every row.
+  /// reads as the end of a pattern, so it would match every row.
   Filter contains({required String key, required String text}) =>
       _FilterLike(key, '%${_escapeLike(_likeText(text, 'text'))}%');
 
-  /// Rows where [key] begins with [text], `%` and `_` in [text] matching
-  /// themselves. SQLite ignores the case of ASCII letters here.
+  /// A filter on the rows where [key] begins with [text].
+  ///
+  /// A `%` or `_` in [text] matches itself. The case of ASCII letters is
+  /// ignored.
   ///
   /// Throws an [ArgumentError] when [text] holds a NUL character, as [contains]
   /// does.
   Filter startsWith({required String key, required String text}) =>
       _FilterLike(key, '${_escapeLike(_likeText(text, 'text'))}%');
 
-  /// Rows where [key] ends with [text], `%` and `_` in [text] matching
-  /// themselves. SQLite ignores the case of ASCII letters here.
+  /// A filter on the rows where [key] ends with [text].
+  ///
+  /// A `%` or `_` in [text] matches itself. The case of ASCII letters is
+  /// ignored.
   ///
   /// Throws an [ArgumentError] when [text] holds a NUL character, as [contains]
   /// does.
   Filter endsWith({required String key, required String text}) =>
       _FilterLike(key, '%${_escapeLike(_likeText(text, 'text'))}');
 
-  /// Rows where [key] is one of [values]. A [Nil] among them matches the rows
-  /// where [key] is null.
+  /// A filter on the rows where [key] is one of [values].
+  ///
+  /// A [Nil] among them matches the rows where [key] is null. No row matches
+  /// when [values] is empty.
   Filter isIn({required String key, required List<Value> values}) => _FilterIn(key, values);
 
-  /// Rows where [key] carries no value.
+  /// A filter on the rows where [key] is null.
   Filter isNull(String key) => _FilterNull(key, true);
 
-  /// Rows where [key] carries a value.
+  /// A filter on the rows where [key] is not null.
   Filter isNotNull(String key) => _FilterNull(key, false);
 
-  /// Rows every one of [filters] matches. `AND`s nothing, and matches every
-  /// row, when [filters] is empty.
+  /// A filter on the rows that meet every one of [filters].
+  ///
+  /// Every row meets it when [filters] is empty.
   Filter and(List<Filter> filters) => _FilterCombination(_Connector.and, filters);
 
-  /// Rows at least one of [filters] matches. Matches no row when [filters]
-  /// is empty.
+  /// A filter on the rows that meet at least one of [filters].
+  ///
+  /// No row meets it when [filters] is empty.
   Filter or(List<Filter> filters) => _FilterCombination(_Connector.or, filters);
 
-  /// Rows [filter] does not match.
+  /// A filter on the rows that do not meet [filter].
   ///
-  /// That includes the rows [filter] cannot decide on. A row where a column
-  /// is null is matched by neither [isEqualTo] nor [isGreaterThan] against a
-  /// value, so it is matched by [not] of either.
+  /// That includes the rows [filter] cannot decide on. A row where a column is
+  /// null meets neither [isEqualTo] nor [isGreaterThan] against a value, so it
+  /// meets [not] of either.
   Filter not(Filter filter) => _FilterNot(filter);
 
-  /// A raw SQL predicate, every `?` in it bound to [arguments] in order, for
-  /// a condition the rest of this builder cannot express.
+  /// A filter written as the SQL condition [sql], each `?` in it bound to the
+  /// next of [arguments], for what the other methods cannot express.
   ///
-  /// Nothing here validates it, the same choice pylon makes for every other
-  /// raw SQL fragment a caller supplies.
+  /// [sql] is not validated, as with every raw SQL fragment this package takes.
   Filter raw(String sql, [List<Value>? arguments]) => _FilterRaw(sql, arguments ?? const []);
 }

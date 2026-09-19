@@ -36,14 +36,19 @@
 
 part of '../database.dart';
 
-/// The same [LocalDatabase.insert], [LocalDatabase.query],
-/// [LocalDatabase.update] and [LocalDatabase.delete] a [LocalDatabase]
-/// offers, scoped to one [LocalDatabase.transaction]. Never constructed
-/// directly; [LocalDatabase.transaction] hands one to its own callback.
+/// The database as one [LocalDatabase.transaction] sees it.
+///
+/// [LocalDatabase.transaction] hands one to its callback. It offers the same
+/// statements as [LocalDatabase], and everything done through it is kept or
+/// undone together when the transaction ends.
 final class TransactionScope extends Connection {
   TransactionScope._(this._txn, this._owner);
 
+  /// The transaction every statement of this scope runs in.
   final Transaction _txn;
+
+  /// The database that started the transaction, which watchers are told of a
+  /// write through.
   final LocalDatabase _owner;
 
   @override
@@ -62,33 +67,31 @@ final class TransactionScope extends Connection {
   });
 
   /// See [LocalDatabase.insert].
-  Future<int> insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) =>
-      _guarded(() async {
-        final spec = build(Insert<T>._());
-        final rowId = await _txn.rawInsert(spec._sql, spec._arguments);
-        _owner._notifyWrite({_unquotedIdentifier(spec._table)});
-        return rowId;
-      });
+  Future<int> insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) => _guarded(() async {
+    final spec = build(Insert<T>._());
+    final rowId = await _txn.rawInsert(spec._sql, spec._arguments);
+    _owner._notifyWrite({_unquotedIdentifier(spec._table)});
+    return rowId;
+  });
 
   /// See [LocalDatabase.query].
-  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(Select<T> query) build) =>
-      _guarded(() async {
-        final spec = build(Select<T>._());
-        final rows = await _txn.query(
-          spec._table,
-          distinct: spec._distinct,
-          columns: spec._columns,
-          where: spec._where,
-          whereArgs: _toNativeArgs(spec._arguments),
-          groupBy: spec._groupBy,
-          having: spec._having,
-          orderBy: spec._orderBy,
-          limit: spec._limit,
-          offset: spec._offset,
-        );
-        final fromRow = spec._requiredFromRow;
-        return rows.map((row) => fromRow(_fromNativeRow(row))).toList();
-      });
+  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(Select<T> query) build) => _guarded(() async {
+    final spec = build(Select<T>._());
+    final rows = await _txn.query(
+      spec._table,
+      distinct: spec._distinct,
+      columns: spec._columns,
+      where: spec._where,
+      whereArgs: _toNativeArgs(spec._arguments),
+      groupBy: spec._groupBy,
+      having: spec._having,
+      orderBy: spec._orderBy,
+      limit: spec._limit,
+      offset: spec._offset,
+    );
+    final fromRow = spec._requiredFromRow;
+    return rows.map((row) => fromRow(_fromNativeRow(row))).toList();
+  });
 
   /// See [LocalDatabase.rawQuery].
   Future<List<RawRow>> rawQuery(String sql, [List<Value>? arguments]) => _guarded(() async {
@@ -97,19 +100,18 @@ final class TransactionScope extends Connection {
   });
 
   /// See [LocalDatabase.update].
-  Future<int> update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) =>
-      _guarded(() async {
-        final spec = build(Update<T>._());
-        final changed = await _txn.update(
-          spec._table,
-          _toNativeRow(spec._data.toRow()),
-          where: spec._where,
-          whereArgs: _toNativeArgs(spec._whereArgs),
-          conflictAlgorithm: spec._conflict,
-        );
-        if (changed > 0) _owner._notifyWrite({_unquotedIdentifier(spec._table)});
-        return changed;
-      });
+  Future<int> update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) => _guarded(() async {
+    final spec = build(Update<T>._());
+    final changed = await _txn.update(
+      spec._table,
+      _toNativeRow(spec._data.toRow()),
+      where: spec._where,
+      whereArgs: _toNativeArgs(spec._whereArgs),
+      conflictAlgorithm: spec._conflict,
+    );
+    if (changed > 0) _owner._notifyWrite({_unquotedIdentifier(spec._table)});
+    return changed;
+  });
 
   /// See [LocalDatabase.delete].
   Future<int> delete(DeleteFrom Function(Delete delete) build) => _guarded(() async {

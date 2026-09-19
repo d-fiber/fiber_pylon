@@ -36,34 +36,42 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.delete] (or [StatementBatch.delete]) call. Never
-/// constructed directly — [LocalDatabase.delete] hands one to its own
-/// callback. The only method here is [from]: nothing can follow `DELETE`
-/// before naming a table, so nothing else is offered here either.
+/// A delete that has not yet named its table.
+///
+/// [LocalDatabase.delete] and [StatementBatch.delete] hand one to their
+/// callback, which names the table with [from] and returns the result.
 ///
 /// ```dart
-/// final removed = await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))));
+/// final removed = await LocalDatabase.delete(
+///   (d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))),
+/// );
 /// ```
 final class Delete {
   const Delete._();
 
-  /// Removes rows from [name], the same `FROM` a raw `DELETE FROM ...` names.
+  /// Removes rows from the table called [name].
   DeleteFrom from(String name) => DeleteFrom._(_quotedIdentifier(name));
 }
 
-/// A [Delete] that has named its table, opened by [Delete.from] —
-/// already a fully composed delete, since `WHERE` is genuinely optional on
-/// a raw `DELETE FROM table` (it removes every row without one).
+/// A delete that has named its table, and is complete as it stands.
+///
+/// Without [where] it removes every row of the table.
 final class DeleteFrom {
   DeleteFrom._(this._table, [this._where, this._whereArgs]);
 
+  /// The name of the table to remove rows from.
   final String _table;
+
+  /// The condition a row must meet to be removed, or `null` for every row.
   final String? _where;
+
+  /// The values bound to the placeholders of [_where].
   final List<Value>? _whereArgs;
 
-  /// Keeps only the rows [build] matches, composed from an empty
-  /// [FilterBuilder]. Called again, both conditions must hold. Every row
-  /// in the table is removed when this is never called.
+  /// Removes only the rows [build] matches.
+  ///
+  /// [build] receives an empty [FilterBuilder]. Called again, a row must meet
+  /// both conditions to be removed.
   DeleteFrom where(Filter Function(FilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
     return DeleteFrom._(_table, _bothMatch(_where, clause), [...?_whereArgs, ...arguments]);

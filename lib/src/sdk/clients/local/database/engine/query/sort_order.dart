@@ -34,10 +34,10 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-/// Which way a sort runs, for an index column and for a query's `ORDER BY`
-/// alike.
+/// One direction a sort can run in, for an index column and for a term of a
+/// query's `ORDER BY`.
 enum SortOrder {
-  /// Smallest first. SQLite's own default when no order is given.
+  /// Smallest first, which is what SQLite does when no order is given.
   asc('ASC'),
 
   /// Largest first.
@@ -45,6 +45,6 @@ enum SortOrder {
 
   const SortOrder(this.sql);
 
-  /// The keyword SQL spells this order with.
+  /// The SQL keyword for this order.
   final String sql;
 }

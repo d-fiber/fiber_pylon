@@ -36,49 +36,51 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.insert] (or [StatementBatch.insert]) call. Never
-/// constructed directly — [LocalDatabase.insert] hands one to its own
-/// callback. The only method here is [into]: nothing can follow `INSERT`
-/// before naming a table, so nothing else is offered here either — the
-/// compiler refuses a callback that returns [Insert] itself, or
-/// anything short of a fully composed [InsertValues].
+/// An insert that has not yet named its table.
+///
+/// [LocalDatabase.insert] and [StatementBatch.insert] hand one to their
+/// callback, which names the table with [into], gives the row with
+/// [InsertInto.values] and returns the result.
 ///
 /// ```dart
-/// final id = await db.insert<Todo>((i) => i.into('todos').values(todo));
+/// final id = await LocalDatabase.insert<Todo>((i) => i.into('todos').values(todo));
 /// ```
 final class Insert<T extends Storable> {
   Insert._();
 
-  /// Inserts into [name], the same `INTO` a raw `INSERT INTO ...` names.
+  /// Inserts into the table called [name].
   InsertInto<T> into(String name) => InsertInto._(_quotedIdentifier(name));
 }
 
-/// A [Insert] that has named its table, opened by [Insert.into].
-/// The only method here is [values]: a raw `INSERT INTO table` still needs a
-/// `VALUES` clause before it means anything, so nothing else is offered
-/// here either.
+/// An insert that has named its table and still needs the row to insert.
 final class InsertInto<T extends Storable> {
   InsertInto._(this._table);
 
+  /// The name of the table to insert into.
   final String _table;
 
-  /// Inserts [value], read into a row through [Storable.toRow].
+  /// Inserts [value], as the row [Storable.toRow] gives.
   InsertValues<T> values(T value) => InsertValues._(_table, value);
 }
 
-/// A fully composed insert, opened by [InsertInto.values] — the only
-/// shape [LocalDatabase.insert] accepts back from its own callback, since
-/// naming a table and a value is everything a raw `INSERT INTO ... VALUES
-/// (...)` needs.
+/// An insert that has its table and its row, and is complete as it stands.
 final class InsertValues<T extends Storable> {
   InsertValues._(this._table, this._data, [this._conflict]);
 
+  /// The name of the table to insert into.
   final String _table;
+
+  /// The value whose row is inserted.
   final T _data;
+
+  /// How to resolve a collision with an existing row, or `null` to abort.
   final ConflictAlgorithm? _conflict;
 
-  /// Resolves the conflict, should [values] collide with a row already
-  /// there. Left unset, sqflite aborts the whole statement.
+  /// Resolves a collision between the row and one already in the table with
+  /// [algorithm].
+  ///
+  /// Left unset, a collision aborts the statement and throws a
+  /// [UniqueConstraintError].
   InsertValues<T> onConflict(ConflictAlgorithm algorithm) => InsertValues._(_table, _data, algorithm);
 
   String get _sql {

@@ -38,25 +38,43 @@ part of '../database.dart';
 
 enum _BatchStatement { insert, update, delete, execute, query }
 
-/// A sequence of writes queued against a [LocalDatabase], none of which
-/// touch it until [commit] or [apply] runs them. Never constructed directly;
-/// [LocalDatabase.batch] hands one back.
+/// A sequence of statements queued against a [LocalDatabase], none of which
+/// runs until [commit] or [apply] does.
+///
+/// [LocalDatabase.batch] gives one. A statement queued here answers nothing
+/// itself: its outcome is a [BatchResult] at the position it was queued in,
+/// in the list [commit] or [apply] answers.
+///
+/// A batch is much faster than an insert, update or delete per row in a loop,
+/// since each of those commits on its own.
 final class StatementBatch {
   StatementBatch._(this._executor, this._owner) : _batch = _executor.batch();
 
+  /// Where the queued statements run: the database, or the transaction this
+  /// batch was made inside.
   final DatabaseExecutor _executor;
+
+  /// The database this batch was made from, which its writes are announced on.
   final LocalDatabase _owner;
+
+  /// The statements queued since the last [commit] or [apply].
   Batch _batch;
+
+  /// The kind of each statement in [_batch], in queue order.
   List<_BatchStatement> _statements = [];
 
-  /// Queues a [LocalDatabase.insert].
+  /// Queues an insert composed by [build], as [LocalDatabase.insert] takes it.
+  ///
+  /// Its outcome is a [BatchInserted].
   void insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) {
     final spec = build(Insert<T>._());
     _batch.rawInsert(spec._sql, spec._arguments);
     _statements.add(_BatchStatement.insert);
   }
 
-  /// Queues a [LocalDatabase.update].
+  /// Queues an update composed by [build], as [LocalDatabase.update] takes it.
+  ///
+  /// Its outcome is a [BatchChanged].
   void update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) {
     final spec = build(Update<T>._());
     _batch.update(
@@ -69,26 +87,28 @@ final class StatementBatch {
     _statements.add(_BatchStatement.update);
   }
 
-  /// Queues a [LocalDatabase.delete].
+  /// Queues a delete composed by [build], as [LocalDatabase.delete] takes it.
+  ///
+  /// Its outcome is a [BatchChanged].
   void delete(DeleteFrom Function(Delete delete) build) {
     final spec = build(const Delete._());
     _batch.delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
     _statements.add(_BatchStatement.delete);
   }
 
-  /// Queues a [LocalDatabase.execute].
+  /// Queues the SQL [sql], each `?` in it bound to the next of [arguments], as
+  /// [LocalDatabase.execute] runs it.
+  ///
+  /// Its outcome is a [BatchExecuted].
   void execute(String sql, [List<Value>? arguments]) {
     _batch.execute(sql, _toNativeArgs(arguments));
     _statements.add(_BatchStatement.execute);
   }
 
-  /// Queues a query composed by [build] from an empty [Select], the
-  /// same builder [LocalDatabase.query] takes.
+  /// Queues a query composed by [build], as [LocalDatabase.query] takes it.
   ///
-  /// Its rows come back as a [BatchRows] at this call's own position
-  /// in the list [commit] or [apply] answers, undecoded: a batch runs every
-  /// statement before it hands anything back, so [QueryFrom.map] has
-  /// nothing to map yet and is never read.
+  /// Its outcome is a [BatchRows], undecoded: the rows come back once the whole
+  /// batch has run, so [QueryFrom.map] is never read.
   void query(QueryFrom<Object> Function(Select<Object> query) build) {
     final spec = build(Select<Object>._());
     _batch.query(
@@ -106,34 +126,41 @@ final class StatementBatch {
     _statements.add(_BatchStatement.query);
   }
 
-  /// Runs every statement queued so far as one atomic unit: either they all
-  /// land, or, unless [continueOnError] is `true`, none of them do.
+  /// Runs every statement queued so far as one unit: they all take effect, or,
+  /// when one fails, none does.
   ///
-  /// Answers one [BatchResult] per queued statement, in the order
-  /// they were queued. With [continueOnError], a statement that failed is a
-  /// [BatchFailed] at its own position rather than a throw.
+  /// The answer holds one [BatchResult] per statement, in the order they were
+  /// queued. With [continueOnError], a statement that fails does not stop the
+  /// others and is a [BatchFailed] at its own position instead of a throw, and
+  /// the statements that succeeded stay.
   ///
-  /// [noResult] skips collecting each statement's own result, worth setting
-  /// for a large batch that only cares whether it succeeded. The list
-  /// answered is then empty.
+  /// With [noResult] the answer is empty, which spares a large batch that only
+  /// cares whether it succeeded from collecting every outcome.
   ///
-  /// Whether it succeeds or not, the batch is empty afterwards: what is queued
-  /// next is a new batch, so a statement never runs twice. To retry a batch that
-  /// failed, queue its statements again.
+  /// Whether it succeeds or not, this batch is empty afterwards, so a statement
+  /// never runs twice. To retry a batch that failed, queue its statements
+  /// again.
+  ///
+  /// Inside a [LocalDatabase.transaction] the statements take effect with that
+  /// transaction, not with this call, and setting [exclusive] throws an
+  /// [ArgumentError].
   Future<List<BatchResult>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) =>
       _run((batch) => batch.commit(exclusive: exclusive, noResult: noResult, continueOnError: continueOnError));
 
-  /// Runs every statement queued so far without wrapping them in a
-  /// transaction sqflite manages: faster, but with no all-or-nothing
-  /// guarantee if one fails partway through. Prefer [commit] unless this
-  /// batch is already running inside a [LocalDatabase.transaction] of its
-  /// own, or another transaction not managed through this class.
+  /// Runs every statement queued so far without making them one unit, so
+  /// statements that ran before a failure stay.
   ///
-  /// Answers the same list [commit] does, and leaves the batch empty the same
-  /// way.
+  /// Prefer [commit], which does the same inside a [LocalDatabase.transaction]
+  /// and otherwise keeps the statements all-or-nothing. The answer is the list
+  /// [commit] gives, and this batch is empty afterwards the same way.
   Future<List<BatchResult>> apply({bool? noResult, bool? continueOnError}) =>
       _run((batch) => batch.apply(noResult: noResult, continueOnError: continueOnError));
 
+  /// Runs [execute] on the statements queued so far and answers their typed
+  /// outcomes.
+  ///
+  /// A batch may hold raw SQL, so it cannot say which tables it changed and
+  /// every watcher is told, even when it only queried.
   Future<List<BatchResult>> _run(Future<List<Object?>> Function(Batch batch) execute) {
     final batch = _batch;
     final statements = _statements;
@@ -141,7 +168,6 @@ final class StatementBatch {
     _statements = [];
     return _guarded(() async {
       final results = _typed(statements, await execute(batch));
-      // A batch may hold raw SQL, so it cannot say which tables it changed.
       _owner._notifyWrite(null);
       return results;
     });
@@ -166,17 +192,22 @@ BatchResult _typedResult(_BatchStatement statement, Object? result) {
 
 /// What one statement of a [StatementBatch] came to, at the position it was
 /// queued in.
+///
+/// A `switch` over a [BatchResult] is exhaustive with [BatchInserted],
+/// [BatchChanged], [BatchExecuted], [BatchRows] and [BatchFailed].
 sealed class BatchResult extends Equatable {
   const BatchResult();
 }
 
 /// The outcome of a queued [StatementBatch.insert].
 final class BatchInserted extends BatchResult {
-  /// Wraps the [rowId] sqflite answered.
+  /// The outcome of an insert that assigned [rowId].
   const BatchInserted(this.rowId);
 
-  /// The row id sqflite assigned. `null` when the row was skipped, which is
-  /// what [ConflictAlgorithm.ignore] does with one that collides.
+  /// The row id the database assigned to the inserted row.
+  ///
+  /// `null` when the row was skipped, which is what [ConflictAlgorithm.ignore]
+  /// does with one that collides.
   final int? rowId;
 
   @override
@@ -185,7 +216,7 @@ final class BatchInserted extends BatchResult {
 
 /// The outcome of a queued [StatementBatch.update] or [StatementBatch.delete].
 final class BatchChanged extends BatchResult {
-  /// Wraps the [count] sqflite answered.
+  /// The outcome of a statement that changed [count] rows.
   const BatchChanged(this.count);
 
   /// How many rows the statement changed or removed.
@@ -197,7 +228,7 @@ final class BatchChanged extends BatchResult {
 
 /// The outcome of a queued [StatementBatch.execute], which answers nothing.
 final class BatchExecuted extends BatchResult {
-  /// The outcome of a statement that ran.
+  /// The outcome of an executed statement.
   const BatchExecuted();
 
   @override
@@ -206,7 +237,7 @@ final class BatchExecuted extends BatchResult {
 
 /// The outcome of a queued [StatementBatch.query].
 final class BatchRows extends BatchResult {
-  /// Wraps the [rows] the query selected.
+  /// The outcome of a query that selected [rows].
   const BatchRows(this.rows);
 
   /// The rows the query selected, undecoded.
@@ -218,11 +249,10 @@ final class BatchRows extends BatchResult {
 
 /// The outcome of a queued statement that failed under `continueOnError`.
 final class BatchFailed extends BatchResult {
-  /// Wraps the [error] the statement raised.
+  /// The outcome of a statement that failed with [error].
   const BatchFailed(this.error);
 
-  /// Why the statement failed, read the way every other method here reads a
-  /// sqflite failure.
+  /// Why the statement failed.
   final StoreError error;
 
   @override
