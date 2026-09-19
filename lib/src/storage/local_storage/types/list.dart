@@ -43,9 +43,10 @@ extension ListDecoding on DatabaseType {
   /// [T] must already be a native JSON value — the same requirement [list]
   /// itself has; a list of a project's own type is [ListJson]'s to
   /// decode, not this one's. Throws a [StateError] if this is not a
-  /// [Varchar].
+  /// [Varchar]. Throws a [TypeError] here, at the decoding, and not later at
+  /// the first element read, if an element is not a [T].
   List<T> asList<T>() {
-    if (this case Varchar(value: final stored)) return (jsonDecode(stored) as List<dynamic>).cast<T>();
+    if (this case Varchar(value: final stored)) return List<T>.from(jsonDecode(stored) as List<dynamic>);
     throw StateError('$this is not a list.');
   }
 }

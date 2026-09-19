@@ -59,7 +59,7 @@ part of '../database.dart';
 /// const cartItem = Json<CartItem>(fromJson: CartItem.fromJson, toJson: (value) => value.toJson());
 ///
 /// final row = {'item': cartItem.encode(const CartItem(sku: 'mug-01', quantity: 2))};
-/// final item = cartItem.decode(row['item']!);
+/// final item = cartItem.decode(row.required('item'));
 /// ```
 ///
 /// Nothing here validates what [fromJson] does with a shape that no longer

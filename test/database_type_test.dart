@@ -111,6 +111,60 @@ void main() {
       expect(decoded.utcOffset, const Duration(hours: 1));
     });
 
+    test('time is stored as fixed-width text, with its offset when it has one', () {
+      expect(DatabaseType.time(const Time(hour: 9, minute: 5)).value, '09:05:00.000');
+      expect(DatabaseType.time(const Time(hour: 23, minute: 59, second: 58, millisecond: 7)).value, '23:59:58.007');
+      expect(
+        DatabaseType.time(const Time(hour: 12, minute: 0, utcOffset: Duration(hours: 1))).value,
+        '12:00:00.000+01:00',
+      );
+      expect(
+        DatabaseType.time(const Time(hour: 12, minute: 0, utcOffset: Duration(hours: -3, minutes: -30))).value,
+        '12:00:00.000-03:30',
+      );
+    });
+
+    test('time round-trips a negative offset with minutes', () {
+      const time = Time(hour: 12, minute: 0, utcOffset: Duration(hours: -3, minutes: -30));
+
+      expect(DatabaseType.time(time).asTime, time);
+    });
+
+    test('the text of two times without an offset sorts the way the times do', () {
+      final texts = [
+        for (final time in const [
+          Time(hour: 10, minute: 0),
+          Time(hour: 9, minute: 30),
+          Time(hour: 9, minute: 0, millisecond: 1),
+          Time(hour: 0, minute: 0),
+        ])
+          DatabaseType.time(time).value,
+      ]..sort();
+
+      expect(texts, ['00:00:00.000', '09:00:00.001', '09:30:00.000', '10:00:00.000']);
+    });
+
+    test('asTime throws a FormatException on text that is not a time of day', () {
+      expect(() => const DatabaseType.varchar('9:30').asTime, throwsFormatException);
+      expect(() => const DatabaseType.varchar('{"hour":9}').asTime, throwsFormatException);
+    });
+
+    test('a whole number is written the same text whether it was an int or a double', () {
+      expect(
+        DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4)),
+        DatabaseType.interval(const IntervalBounds.num(start: 3.0, end: 4.0)),
+      );
+      expect(
+        DatabaseType.range(const RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1, upper: 10)),
+        DatabaseType.range(const RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1.0, upper: 10.0)),
+      );
+      expect(
+        DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4.5)) ==
+            DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4.25)),
+        isFalse,
+      );
+    });
+
     test('asTime throws on a value that never was a time', () {
       expect(() => const DatabaseType.integer(1).asTime, throwsStateError);
     });
@@ -373,7 +427,7 @@ void main() {
 
     test('each one throws a StateError naming the value when the storage class differs', () {
       expect(() => const DatabaseType.varchar('nope').asInt, throwsStateError);
-      expect(() => const DatabaseType.integer(1).asDouble, throwsStateError);
+      expect(() => const DatabaseType.varchar('1.5').asDouble, throwsStateError);
       expect(() => const DatabaseType.integer(1).asString, throwsStateError);
       expect(() => const DatabaseType.integer(1).asBytes, throwsStateError);
       expect(() => const DatabaseType.nil().asInt, throwsStateError);

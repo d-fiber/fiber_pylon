@@ -77,6 +77,15 @@ sealed class DatabaseType extends Equatable {
   /// The absence of a value.
   const factory DatabaseType.nil() = Nil;
 
+  /// [value] encoded by [encode], or [nil] when [value] is `null`.
+  ///
+  /// The write side of a nullable column, so that a nullable field does not
+  /// need a conditional at every call site:
+  /// `DatabaseType.nullable(note, DatabaseType.varchar)`. Read the column
+  /// back with [DatabaseRowReading.nullable].
+  static DatabaseType nullable<T extends Object>(T? value, DatabaseType Function(T value) encode) =>
+      value == null ? const Nil() : encode(value);
+
   /// [value] as an [Integer] of `1` or `0` — the convention every SQLite
   /// driver uses for a [bool], this one included, since SQLite has no
   /// boolean storage class of its own.
@@ -102,14 +111,19 @@ sealed class DatabaseType extends Equatable {
   /// with `asDate`.
   static Integer date(Date value) => Integer(value.toDateTime().millisecondsSinceEpoch);
 
-  /// [value] as a [Varchar] holding its JSON form.
+  /// [value] as a [Varchar] holding its text form, `09:30:15.500`, or
+  /// `09:30:15.500+01:00` when [Time.utcOffset] is set.
   ///
-  /// Stored as JSON rather than as a sortable integer, the way [date] and
-  /// [timestamp] are: a bare time of day only sorts correctly against
-  /// another in the same time zone, and [Time.utcOffset] makes that not
-  /// always true, so nothing here pretends otherwise by picking a single
-  /// sortable encoding.
-  static Varchar time(Time value) => Varchar(jsonEncode(value.toJson()));
+  /// Fixed-width and zero-padded, so comparing two of them as text compares
+  /// the times of day: an ordering filter works on a column of them. That
+  /// holds between times with no offset, or with the same one. It does not
+  /// hold across two different offsets, which compare by their clock reading
+  /// and not by the instant they name. Read one back with `asTime`.
+  ///
+  /// Throws an [ArgumentError] when [Time.utcOffset] is not a whole number of
+  /// minutes, or is a day or more in either direction, since the text form has
+  /// room for neither and would read back as a different offset or not at all.
+  static Varchar time(Time value) => Varchar(_timeToText(value));
 
   /// [value] as a [Varchar] holding its own name.
   ///
@@ -118,6 +132,9 @@ sealed class DatabaseType extends Equatable {
   /// project's own enum never silently changes what an existing row reads
   /// back as. Read one back with `asEnum`, given the same enum's own
   /// `values`.
+  ///
+  /// Comparing two of them with an ordering filter compares the names
+  /// alphabetically, not the declaration order.
   static Varchar enum_(Enum value) => Varchar(value.name);
 
   /// [value] as a [Varchar] holding its JSON form — meant for a list whose
@@ -177,7 +194,9 @@ sealed class DatabaseType extends Equatable {
   /// Read one back with `asNumberBounds` or `asDateTimeBounds`, whichever
   /// kind it was written as.
   static Varchar interval(IntervalBounds value) => switch (value) {
-    NumberBounds(:final start, :final end) => Varchar(jsonEncode({'start': start, 'end': end})),
+    NumberBounds(:final start, :final end) => Varchar(
+      jsonEncode({'start': _canonicalNumber(start), 'end': _canonicalNumber(end)}),
+    ),
     DateTimeBounds(:final start, :final end) => Varchar(
       jsonEncode({'start': start.toUtc().millisecondsSinceEpoch, 'end': end.toUtc().millisecondsSinceEpoch}),
     ),
@@ -197,8 +216,8 @@ sealed class DatabaseType extends Equatable {
     NumberRangeBounds(:final subtype, :final lower, :final upper) => Varchar(
       jsonEncode({
         'subtype': subtype.name,
-        'lower': lower,
-        'upper': upper,
+        'lower': _canonicalNumber(lower),
+        'upper': _canonicalNumber(upper),
         'lowerInclusive': value.lowerInclusive,
         'upperInclusive': value.upperInclusive,
       }),
@@ -235,6 +254,21 @@ sealed class DatabaseType extends Equatable {
 }
 
 final Uuid _uuidGenerator = const Uuid();
+
+/// The largest integer a [double] holds without rounding, `2^53`.
+const int _largestExactInteger = 9007199254740992;
+
+/// [number] as an [int] when it is a whole number a [double] holds exactly,
+/// so that `3` and `3.0` are written as the same text and an equality filter
+/// treats them as the one value they are. Left as it is otherwise.
+num? _canonicalNumber(num? number) =>
+    number != null &&
+        number is! int &&
+        number.isFinite &&
+        number == number.truncate() &&
+        number.abs() < _largestExactInteger
+    ? number.toInt()
+    : number;
 
 /// The absence of a value — SQL `NULL`.
 final class Nil extends DatabaseType {
@@ -282,7 +316,9 @@ final class Real extends DatabaseType {
   final double value;
 
   @override
-  Object? _toNative() => value;
+  Object? _toNative() => value.isNaN
+      ? throw ArgumentError.value(value, 'value', 'SQLite stores a NaN as NULL, so it could not be read back.')
+      : value;
 
   @override
   List<Object?> get props => [value];
@@ -334,6 +370,10 @@ final class Blob extends DatabaseType {
 /// One row, exactly as [LocalDatabase] reads one back or writes one out:
 /// column name to [DatabaseType]. What a column holds, and what its name
 /// means, is entirely the caller's own schema.
+///
+/// Read a column with [DatabaseRowReading.required] or
+/// [DatabaseRowReading.nullable] rather than by indexing the map, which
+/// answers `null` for a missing column without naming it.
 typedef DatabaseRow = Map<String, DatabaseType>;
 
 /// Wraps whatever sqflite itself already handed back for one column.
@@ -350,7 +390,8 @@ DatabaseType _fromNative(Object? native) => switch (native) {
   _ => throw ArgumentError.value(native, 'native', 'not a SQLite storage class'),
 };
 
-Map<String, Object?> _toNativeRow(DatabaseRow row) => row.map((column, value) => MapEntry(column, value._toNative()));
+Map<String, Object?> _toNativeRow(DatabaseRow row) =>
+    row.map((column, value) => MapEntry(_quotedIdentifier(column), value._toNative()));
 
 DatabaseRow _fromNativeRow(Map<String, Object?> row) =>
     row.map((column, value) => MapEntry(column, _fromNative(value)));

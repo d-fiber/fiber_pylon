@@ -53,9 +53,15 @@ extension NativeDecoding on DatabaseType {
 
   /// This value as a [double].
   ///
-  /// Throws a [StateError] if this is not a [Real].
+  /// An [Integer] is read as the double of the same value, because a column with
+  /// NUMERIC affinity, which is what a declared type such as `DECIMAL` or
+  /// `NUMERIC` gets, stores `3.0` as the integer `3`. Beyond 2^53 that
+  /// conversion can round.
+  ///
+  /// Throws a [StateError] if this is neither a [Real] nor an [Integer].
   double get asDouble {
     if (this case Real(value: final stored)) return stored;
+    if (this case Integer(value: final stored)) return stored.toDouble();
     throw StateError('$this is not a real.');
   }
 

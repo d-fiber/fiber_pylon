@@ -60,15 +60,52 @@ extension TemporalDecoding on DatabaseType {
     throw StateError('$this is not a date.');
   }
 
-  /// This value as a [Time], the same convention [time] wrote it
-  /// under: its JSON form.
+  /// This value as a [Time], the same convention [time] wrote it under:
+  /// text such as `09:30:15.500`, or `09:30:15.500+01:00` with an offset.
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
-  Time get asTime => _asJson(Time.fromJson, 'time');
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a
+  /// [FormatException] if its text is not of that shape.
+  Time get asTime {
+    if (this case Varchar(value: final stored)) return _timeFromText(stored);
+    throw StateError('$this is not a time.');
+  }
+}
+
+final RegExp _timeText = RegExp(r'^(\d{2}):(\d{2}):(\d{2})\.(\d{3})(?:([+-])(\d{2}):(\d{2}))?$');
+
+String _twoDigits(int value) => value.toString().padLeft(2, '0');
+
+const int _largestOffsetMinutes = 23 * 60 + 59;
+
+String _timeToText(Time time) {
+  final offset = time.utcOffset;
+  if (offset != null &&
+      (offset.inMicroseconds % Duration.microsecondsPerMinute != 0 || offset.inMinutes.abs() > _largestOffsetMinutes)) {
+    throw ArgumentError.value(offset, 'utcOffset', 'Must be a whole number of minutes, less than a day away from UTC.');
+  }
+  final suffix = offset == null
+      ? ''
+      : '${offset.isNegative ? '-' : '+'}${_twoDigits(offset.inHours.abs())}:${_twoDigits(offset.inMinutes.abs() % 60)}';
+  final millisecond = time.millisecond.toString().padLeft(3, '0');
+  return '${_twoDigits(time.hour)}:${_twoDigits(time.minute)}:${_twoDigits(time.second)}.$millisecond$suffix';
+}
+
+Time _timeFromText(String text) {
+  final match = _timeText.firstMatch(text);
+  if (match == null) throw FormatException('Not a time of day, expected HH:MM:SS.mmm with an optional offset.', text);
+  final sign = match.group(5);
+  final offsetMinutes = sign == null ? null : int.parse(match.group(6)!) * 60 + int.parse(match.group(7)!);
+  return Time(
+    hour: int.parse(match.group(1)!),
+    minute: int.parse(match.group(2)!),
+    second: int.parse(match.group(3)!),
+    millisecond: int.parse(match.group(4)!),
+    utcOffset: offsetMinutes == null ? null : Duration(minutes: sign == '-' ? -offsetMinutes : offsetMinutes),
+  );
 }
 
 /// A calendar date, with no time of day — [year]-[month]-[day].
-final class Date extends Equatable {
+final class Date extends Equatable implements Comparable<Date> {
   /// The date [year]-[month]-[day].
   ///
   /// Asserts that [month] is `1` through `12` and that [day] exists in that
@@ -102,6 +139,11 @@ final class Date extends Equatable {
   /// This date, at midnight UTC.
   DateTime toDateTime() => DateTime.utc(year, month, day);
 
+  /// Orders dates by the calendar, the same order SQLite sorts their stored
+  /// milliseconds in.
+  @override
+  int compareTo(Date other) => toDateTime().compareTo(other.toDateTime());
+
   /// Rebuilds the [Date] [toJson] wrote.
   factory Date.fromJson(Map<String, dynamic> json) =>
       Date(year: json['year'] as int, month: json['month'] as int, day: json['day'] as int);
@@ -116,7 +158,7 @@ final class Date extends Equatable {
 
 /// A time of day, with no calendar date — [hour]:[minute]:[second], to
 /// [millisecond] precision.
-final class Time extends Equatable {
+final class Time extends Equatable implements Comparable<Time> {
   /// The time [hour]:[minute]:[second].[millisecond].
   ///
   /// Asserts that every field sits inside the range its own documentation
@@ -143,6 +185,11 @@ final class Time extends Equatable {
   /// Postgres's own `TIME WITH TIME ZONE`. `null` for a bare time of day,
   /// which is what most columns actually want.
   final Duration? utcOffset;
+
+  /// Orders times by their stored text, the same order SQLite sorts them in,
+  /// which is the order of the clock between two times with the same offset.
+  @override
+  int compareTo(Time other) => _timeToText(this).compareTo(_timeToText(other));
 
   /// Rebuilds the [Time] [toJson] wrote.
   factory Time.fromJson(Map<String, dynamic> json) => Time(
