@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-// A schema-validation check like test/typed_database_test.dart: an increment is
+// A schema-validation check like test/src/sdk/clients/local/database/engine/table/typed_database_test.dart: an increment is
 // only proven by real concurrent writes to a real SQLite file.
 
 import 'dart:io';
@@ -127,7 +127,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  Future<Counter> only() async => (await counters.on(db).list()).single;
+  Future<Counter> only() async => (await counters.on(db).select()).single;
 
   group('incrementBy', () {
     test('adds to what the column holds, and subtracts a negative amount', () async {
@@ -181,7 +181,7 @@ void main() {
       final changed = await counters.on(db).where(counters.name.isEqualTo('b')).update([counters.hits.incrementBy(7)]);
 
       expect(changed, 1);
-      final rows = await counters.on(db).orderBy([counters.name.asc()]).list();
+      final rows = await counters.on(db).orderBy([counters.name.asc()]).select();
       expect(rows.map((c) => c.hits), [0, 7]);
     });
 
