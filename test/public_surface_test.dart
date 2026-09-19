@@ -150,6 +150,12 @@ call?.status.stream.listen((status) => switch (status) {
 call?.stream.listen((value) => value + 1);
 await call?.refresh();
 ''', compiles: true),
+  _Program('the connection through the singleton', '''
+print(Network.isReachable.value);
+Network.isReachable.stream.listen((reachable) => print(reachable));
+''', compiles: true),
+  _Program('building the connection state by hand', 'Network.forTesting(reachable: true);', compiles: false),
+  _Program('reading a connectivity report by hand', 'Network.reads(const []);', compiles: false),
   _Program('the app credential through the singleton', '''
 await Credentials.set(const Credential(token: 'abc', refreshToken: 'again'));
 print(Credentials.isHeld);

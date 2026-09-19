@@ -537,6 +537,22 @@ The rest of the engine — the schema DSL, the migrations, the drift report — 
 own plumbing and is not exported. `LocalDatabase` cannot be built by hand either: only its
 static calls are for a project.
 
+## The network
+
+`Network` answers whether the network can be reached, from anywhere, the way `Credentials`
+answers whether it holds a credential.
+
+```dart
+Network.isReachable.value;                     // can it be?
+Network.isReachable.stream.listen(showBanner); // the answer now, then every change
+```
+
+It is what the operating system reports (through `connectivity_plus`): a network interface
+that is up, not a server that answers. A device on a wifi that reaches nothing is reachable
+here, and the request over it fails on its own. Pylon does not probe a host of its own
+choosing, since no host is right for every project, and when the platform cannot say the
+answer is reachable: nothing is refused on a guess.
+
 ## Repositories that read the cache
 
 A screen never reads the network. It reads the local database, and a refresh only brings the
