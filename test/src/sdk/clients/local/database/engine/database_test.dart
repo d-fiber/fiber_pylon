@@ -33,7 +33,7 @@
 //
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
-// A schema-validation check like test/local_database_test.dart: it opens real,
+// A schema-validation check like test/src/sdk/clients/local/database/engine/local_database_test.dart: it opens real,
 // temporary SQLite files through `sqflite_common_ffi`, since a corrupted file
 // is something no fake can stand in for.
 
