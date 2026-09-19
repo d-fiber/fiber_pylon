@@ -62,7 +62,7 @@
 /// **The toolkit**, which only an [Sdk] implementation sees, wiring a
 /// [RestNode] or [RealtimeNode] to a real server: [RestClient] and what it
 /// needs, [Credentials] and the [Credential] it holds, [Network], [CallGuard], [SocketChannel], [ChannelKeeper],
-/// [HealthMonitor], [PreferencesStorage], [Observable], [Reporter], [Backoff]. Each
+/// [PreferencesStorage], [Observable], [Reporter], [Backoff]. Each
 /// is a mechanism every backend would otherwise rewrite, and rewrite worse
 /// the second time.
 ///
@@ -156,7 +156,6 @@ export 'src/cache/local_storage.dart';
 export 'src/cache/sync_store.dart';
 export 'src/common/backoff.dart';
 export 'src/common/fault.dart';
-export 'src/common/health_monitor.dart';
 export 'src/common/network.dart';
 export 'src/common/observable.dart';
 export 'src/common/reporter.dart';

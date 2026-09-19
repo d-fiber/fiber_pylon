@@ -23,7 +23,7 @@ what a service layer sees, and it does not change when the backend does.
 
 **The toolkit**, which only an `Sdk` implementation sees, wiring a `RestNode` or
 `RealtimeNode` to a real server: `RestClient`, `Credentials`, `CallGuard`,
-`SocketChannel`, `ChannelKeeper`, `HealthMonitor`, `PreferencesStorage`, `SecureStorage`, `LocalDatabase`,
+`SocketChannel`, `ChannelKeeper`, `PreferencesStorage`, `SecureStorage`, `LocalDatabase`,
 `Database`, `Observable`, `Reporter`, `Backoff`. Each is a mechanism every backend would otherwise rewrite, and rewrite worse the
 second time.
 
@@ -599,8 +599,8 @@ the database already holds, and then every outcome is announced once, to whoever
 for a refresh that went through, `Running`, `Failed(error)`, `Idle` for one that did not. Two
 states do not let go at once. `StatusRunning` lasts until what it is doing is done, and only
 then does the outcome replace it. `StatusOffline` lasts until the connection is back, for a
-repository that observes it: it watches `Network` and its `HealthMonitor`, answers a `refresh`
-without a request while they say the network is out, and goes idle when they say it is back.
+repository that observes it: it watches `Network`, answers a `refresh` without a request
+while it says the network is out, and goes idle when it says it is back.
 A repository that does not observe the connection cannot know when it returns, so it announces
 `StatusOffline` once, like the others.
 
@@ -616,7 +616,7 @@ users.status.stream.listen((status) => switch (status) {
 
 The variants are only what pylon can decide by itself: the life of the refresh, whether a
 credential was held to make it (`isAuthenticated` and `Credentials`), and whether the network
-was reachable (`Network`, a `HealthMonitor`, or the `offlineSignals` the project listed).
+was reachable (`Network`, or the `offlineSignals` the project listed).
 
 Whether to look at the connection before asking is the repository's to say, with
 `observesConnection`, and has no default because it depends on what `fetch` talks to. A REST

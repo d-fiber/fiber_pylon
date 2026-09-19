@@ -51,7 +51,6 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
     this.observes = false,
     this.readFails = false,
     this.holdsNothing = false,
-    super.health,
     List<int> stored = const [],
   }) : stored = [...stored],
        super(offlineSignals: const {HouseSignal.noRoute});
@@ -308,20 +307,6 @@ void main() {
       await shelf.dispose();
     });
 
-    test('makes no request while the health monitor says the network is out', () async {
-      await connect(reachable: true);
-      final health = HealthMonitor(name: 'network', initial: false);
-      final shelf = Shelf(observes: true, health: health);
-
-      expect(await shelf.refresh(), const StatusOffline<HouseError>());
-      expect(shelf.fetches, 0);
-
-      health.report(healthy: true);
-      expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
-      await shelf.dispose();
-      await health.dispose();
-    });
-
     test('makes no request while the device has no connection, once it observes the connection', () async {
       await connect(reachable: false);
       final shelf = Shelf(observes: true);
@@ -373,15 +358,6 @@ void main() {
 
       expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
       await shelf.dispose();
-    });
-
-    test('ignores the health monitor of a repository that does not observe the connection', () async {
-      final health = HealthMonitor(name: 'network', initial: false);
-      final shelf = Shelf(health: health);
-
-      expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
-      await shelf.dispose();
-      await health.dispose();
     });
 
     test('makes no request for an authenticated call while no credential is held', () async {
@@ -597,22 +573,6 @@ void main() {
       expect(status, const StatusSucceeded<HouseError>());
       expect(shelf.fetches, 2);
       await shelf.dispose();
-    });
-
-    test('stays offline while the health monitor says the backend is out', () async {
-      await reachability(reachable: true);
-      final health = HealthMonitor(name: 'backend', initial: false);
-      final shelf = Shelf(observes: true, health: health);
-      await shelf.refresh();
-      await pumpEventQueue();
-      expect(shelf.status.value, const StatusOffline<HouseError>());
-
-      health.report(healthy: true);
-      await pumpEventQueue();
-
-      expect(shelf.status.value, const StatusIdle<HouseError>());
-      await shelf.dispose();
-      await health.dispose();
     });
 
     test('announces offline once and goes idle when it does not observe the connection', () async {

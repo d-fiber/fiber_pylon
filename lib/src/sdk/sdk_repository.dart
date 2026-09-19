@@ -37,7 +37,6 @@
 import 'dart:async';
 
 import '../common/fault.dart';
-import '../common/health_monitor.dart';
 import '../common/network.dart';
 import '../common/observable.dart';
 import '../credential/credentials.dart';
@@ -134,17 +133,10 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   /// [StatusFailed]. It is required and has no default: pylon cannot know which of
   /// an adapter's signals means the network rather than the server, and a project
   /// that has none says so with an empty set.
-  ///
-  /// [health], when given, is consulted along with `Network` before a refresh
-  /// that [observesConnection], so a device known to be offline does not spend a
-  /// request discovering what it already knows.
-  SdkRepository({required Set<S> offlineSignals, HealthMonitor? health})
-    : _offlineSignals = offlineSignals,
-      _health = health;
+  SdkRepository({required Set<S> offlineSignals}) : _offlineSignals = offlineSignals;
 
   final MutableObservable<T?> _data = MutableObservable<T?>(null);
   final Set<S> _offlineSignals;
-  final HealthMonitor? _health;
   final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusRunning<E>());
 
   final List<StreamSubscription<bool>> _waiting = [];
@@ -161,10 +153,9 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
 
   /// Whether a refresh looks at the connection before it asks.
   ///
-  /// When it does and `Network` says the device is offline, or the [health]
-  /// monitor says the backend is, no request is made and the refresh ends
-  /// [StatusOffline]. When it does not, the request is always tried, and only its
-  /// own failure says the network was out.
+  /// When it does and `Network` says the device is offline, no request is made
+  /// and the refresh ends [StatusOffline]. When it does not, the request is
+  /// always tried, and only its own failure says the network was out.
   ///
   /// It is the project's to say, and has no default, since it depends on what
   /// [fetch] talks to. A REST write says `false`: attempting it without a
@@ -297,7 +288,7 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
 
   bool get _holdsOffline => _status.value is StatusOffline<E> && observesConnection;
 
-  bool get _isOffline => !Network.isReachable.value || (_health != null && !_health.isHealthy);
+  bool get _isOffline => !Network.isReachable.value;
 
   Future<Status<E>> _run() async {
     _release();
@@ -325,8 +316,6 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   void _holdOffline(StatusOffline<E> outcome) {
     _status.value = outcome;
     _waiting.add(Network.isReachable.stream.skip(1).listen((_) => _reconsider()));
-    final health = _health;
-    if (health != null) _waiting.add(health.healthy.stream.skip(1).listen((_) => _reconsider()));
   }
 
   void _reconsider() {
