@@ -87,12 +87,6 @@ import 'status.dart';
 ///       _database.from(_database.users).where(_database.users.age.isGreaterThanOrEqualTo(minAge));
 ///
 ///   @override
-///   bool get isAuthenticated => true;
-///
-///   @override
-///   bool get observesConnection => true;
-///
-///   @override
 ///   Future<List<User>> fetch() => _rest.list(minAge: minAge);
 ///
 ///   @override
@@ -152,7 +146,10 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// credential is held, and when it is cleared it stops, empties [data] and
   /// ends any wait for the connection, without being disposed. A repository whose
   /// request signs someone in says `false`, and listens whatever is held.
-  bool get isAuthenticated;
+  ///
+  /// `true` unless a repository says otherwise, since what most of them read is an
+  /// account's.
+  bool get isAuthenticated => true;
 
   /// Whether a refresh looks at the connection before it asks.
   ///
@@ -160,13 +157,12 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// and the refresh ends [StatusOffline]. When it does not, the request is
   /// always tried, and its own failure ends the refresh [StatusFailed].
   ///
-  /// It is the project's to say, and has no default, since it depends on what
-  /// [fetch] talks to. A REST write says `false`: attempting it without a
-  /// connection is worth a request, and a failure is the honest answer. A call to
-  /// a vendor's own package, over bluetooth or a local network, needs no internet
-  /// and says `false` too. A REST read that has nothing to bring back offline
-  /// says `true`.
-  bool get observesConnection;
+  /// `true` unless a repository says otherwise, which is right for a REST read:
+  /// with no connection there is nothing to ask. A REST write says `false`, since
+  /// attempting it without a connection is worth a request and a failure is the
+  /// honest answer. A call to a vendor's own package, over bluetooth or a local
+  /// network, needs no internet and says `false` too.
+  bool get observesConnection => true;
 
   /// The database's own stream for this repository: what it holds now, first,
   /// then every change to it.

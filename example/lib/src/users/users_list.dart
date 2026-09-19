@@ -51,12 +51,6 @@ enum UsersError { signedOut, network, unknown }
 /// refresh went, and the users stay readable whatever it says.
 final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
   @override
-  bool get isAuthenticated => true;
-
-  @override
-  bool get observesConnection => true;
-
-  @override
   Future<List<User>> fetch() => RestGroundSdk.I.users.list();
 
   @override
