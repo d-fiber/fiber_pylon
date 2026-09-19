@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-// A schema-validation check like test/typed_database_test.dart: watching a
+// A schema-validation check like test/src/sdk/clients/local/database/engine/table/typed_database_test.dart: watching a
 // table is only proven by real writes to a real SQLite file, through
 // `sqflite_common_ffi`.
 

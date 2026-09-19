@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-// A schema-validation check like test/typed_database_test.dart: declaring tables
+// A schema-validation check like test/src/sdk/clients/local/database/engine/table/typed_database_test.dart: declaring tables
 // after the file was opened is proven against a real SQLite file.
 
 import 'dart:io';
@@ -191,7 +191,7 @@ void main() {
 
       expect(await db.hasTable('notes'), isTrue);
       await notes.on(db).insert(const Note(title: 'one'));
-      expect((await notes.on(db).list()).single.title, 'one');
+      expect((await notes.on(db).select()).single.title, 'one');
       await db.dispose();
     });
 
@@ -204,7 +204,7 @@ void main() {
       await db.declareTables([notes]);
       await db.declareTables([Notes()]);
 
-      expect((await notes.on(db).list()).single.title, 'kept');
+      expect((await notes.on(db).select()).single.title, 'kept');
       await db.dispose();
     });
 
@@ -246,7 +246,7 @@ void main() {
       final v2 = NotesV2();
       await second.declareTables([v2]);
 
-      final rows = await v2.on(second).list();
+      final rows = await v2.on(second).select();
       expect(rows.single.title, 'old');
       expect(rows.single.pinned, isNull);
       await second.dispose();
@@ -262,7 +262,7 @@ void main() {
       final notes = Notes();
       await second.declareTables([notes]);
 
-      expect((await notes.on(second).list()).single.title, 'left');
+      expect((await notes.on(second).select()).single.title, 'left');
       await second.dispose();
     });
 

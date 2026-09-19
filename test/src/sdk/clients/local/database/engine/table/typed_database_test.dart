@@ -539,7 +539,7 @@ void main() {
       await v2.open();
 
       expect(seen, ['ran']);
-      expect((await items.on(v2).list()).single.title, 'migrated');
+      expect((await items.on(v2).select()).single.title, 'migrated');
       final version = await v2.runRawQuery('PRAGMA user_version');
       expect(version.single['user_version']!.asInt, 2);
       await v2.dispose();
@@ -710,7 +710,7 @@ void main() {
       await db.open();
 
       await reserved.on(db).insert('x');
-      final found = await reserved.on(db).where(reserved.group.isEqualTo('x')).orderBy([reserved.group.desc()]).list();
+      final found = await reserved.on(db).where(reserved.group.isEqualTo('x')).orderBy([reserved.group.desc()]).select();
 
       expect(found, ['x']);
       await db.dispose();
@@ -889,7 +889,7 @@ void main() {
 
       final stored = await db.runRawQuery('SELECT amount FROM prices');
       expect(stored.single['amount']!.asInt, 1250);
-      expect((await prices.on(db).list()).single.amount, const Money(1250));
+      expect((await prices.on(db).select()).single.amount, const Money(1250));
       await db.dispose();
     });
 
@@ -949,7 +949,7 @@ void main() {
       await db.runSql('INSERT INTO items DEFAULT VALUES');
 
       await expectLater(
-        items.on(db).list(),
+        items.on(db).select(),
         throwsA(isA<StateError>().having((error) => error.message, 'message', contains('items.title'))),
       );
       await db.dispose();
@@ -968,7 +968,7 @@ void main() {
       return db;
     }
 
-    Future<List<String>> titles(Rows<Item> rows) async => [for (final item in await rows.list()) item.title];
+    Future<List<String>> titles(Rows<Item> rows) async => [for (final item in await rows.select()) item.title];
 
     test('where keeps the rows a typed filter matches', () async {
       final db = await seeded('where.db');

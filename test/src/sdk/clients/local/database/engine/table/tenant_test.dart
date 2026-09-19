@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-// A schema-validation check like test/typed_database_test.dart: tenants are
+// A schema-validation check like test/src/sdk/clients/local/database/engine/table/typed_database_test.dart: tenants are
 // only proven by real rows in a real SQLite file, through `sqflite_common_ffi`.
 
 import 'dart:io';
@@ -243,7 +243,7 @@ void main() {
   });
 
   Future<List<String>> titles([Rows<Note>? rows]) async => [
-    for (final note in await (rows ?? notes.on(db).orderBy([notes.id.asc()])).list()) note.title,
+    for (final note in await (rows ?? notes.on(db).orderBy([notes.id.asc()])).select()) note.title,
   ];
 
   group('the schema of a tunnel', () {
@@ -475,7 +475,7 @@ void main() {
     });
 
     test('reads every tenant, and the anonymous rows', () async {
-      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).list();
+      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).select();
 
       expect(rows.map((n) => n.title), ['a1', 'a2', 'b1', 'guest']);
       expect(await notes.onWholeDatabase(db, fingerprint).count(), 4);
@@ -490,7 +490,7 @@ void main() {
     test('filters and narrows to some tenants', () async {
       final only = notes.onWholeDatabase(db, fingerprint).ofTenants(['a', 'b']).orderBy([notes.id.asc()]);
 
-      expect((await only.list()).map((n) => n.title), ['a1', 'a2', 'b1']);
+      expect((await only.select()).map((n) => n.title), ['a1', 'a2', 'b1']);
       expect(await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('b1')).count(), 1);
       expect(() => notes.onWholeDatabase(db, fingerprint).ofTenants([]), throwsArgumentError);
     });
@@ -510,7 +510,7 @@ void main() {
       await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('a1')).update([notes.title.to('A1')]);
       await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('b1')).delete();
 
-      expect((await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).list()).map((n) => n.title), [
+      expect((await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).select()).map((n) => n.title), [
         'A1',
         'a2',
         'guest',
@@ -567,13 +567,13 @@ void main() {
 
     test('moves a note and the comments that point at it together', () async {
       Tenant.use('a');
-      final note = (await notes.on(db).list()).first;
+      final note = (await notes.on(db).select()).first;
       await comments.on(db).insert(Comment(noteId: note.id!, text: 'hi'));
 
       await db.wholeDatabase(fingerprint).transfer(from: 'a', to: 'c');
 
       Tenant.use('c');
-      expect((await comments.on(db).list()).single.noteId, note.id);
+      expect((await comments.on(db).select()).single.noteId, note.id);
     });
 
     test('refuses to move a tenant onto itself, or an empty id', () async {
