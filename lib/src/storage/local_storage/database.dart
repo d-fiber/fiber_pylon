@@ -43,6 +43,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import 'schema/schema.dart';
 import 'sort_order.dart';
 
 part 'types/database_type.dart';
@@ -56,6 +57,7 @@ part 'types/location.dart';
 part 'types/interval.dart';
 part 'types/range.dart';
 part 'types/json.dart';
+part 'types/row.dart';
 part 'record.dart';
 part 'column.dart';
 part 'errors.dart';
@@ -66,6 +68,10 @@ part 'update.dart';
 part 'delete.dart';
 part 'transaction.dart';
 part 'batch.dart';
+part 'field.dart';
+part 'table.dart';
+part 'session.dart';
+part 'declared.dart';
 
 /// A local SQLite database, opened once and reused — the same open, create,
 /// migrate and close lifecycle every sqflite-backed store in pylon would
@@ -88,8 +94,8 @@ part 'batch.dart';
 ///   final bool done;
 ///
 ///   static Todo fromRow(DatabaseRow row) => Todo(
-///     title: row['title']!.asString,
-///     done: row['done']!.asBoolean,
+///     title: row.required('title').asString,
+///     done: row.required('done').asBoolean,
 ///   );
 ///
 ///   @override
@@ -122,10 +128,27 @@ part 'batch.dart';
 /// await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
 /// ```
 ///
+/// Tables declared as [DatabaseTable] classes replace the strings, the
+/// callbacks and the row maps above. [LocalDatabase.declared] creates and
+/// migrates them, and each column is a typed [DatabaseField], so a filter
+/// takes the Dart type of its own column:
+///
+/// ```dart
+/// final db = LocalDatabase.declared(name: 'app.db', tables: [todos]);
+///
+/// final saved = await todos.on(db).insert(Todo(title: 'Ship it'));
+/// final open = await todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.title.asc()]).list();
+/// await todos.on(db).where(todos.id.isEqualTo(saved.id!)).update([todos.done.to(true)]);
+/// final total = await todos.on(db).count();
+/// ```
+///
 /// A [DatabaseException] sqflite itself throws never escapes: every method
 /// below throws the [DatabaseError] [DatabaseError.from] reads out
 /// of it instead, so a caller matches a closed set of reasons rather than
-/// sqflite's own message text.
+/// sqflite's own message text. A call made before [open] or after [dispose]
+/// throws a [StateError] instead, and a value SQLite cannot store, such as a
+/// NaN, throws an [ArgumentError]: those are mistakes in the code, not
+/// failures of the database.
 ///
 /// [SqfliteSyncStore] and [SqfliteMutationStore] each open their own
 /// database and hand-roll this exact lifecycle today; moving them onto this
@@ -140,7 +163,7 @@ part 'batch.dart';
 /// reactive/streamed query results (a project builds that on top of
 /// [insert]/[update]/[delete] already telling it a write happened, rather
 /// than pylon guessing which table a raw [execute] touched).
-class LocalDatabase {
+class LocalDatabase extends DatabaseSession {
   final String _name;
   final int _version;
   final OnDatabaseConfigureFn? _onConfigure;
@@ -151,23 +174,35 @@ class LocalDatabase {
   final bool _readOnly;
   final bool _singleInstance;
   final DatabaseFactory _factory;
+  final List<DatabaseTable<Object>>? _tables;
+  final List<DeclaredTable> _declarations;
+  final List<DatabaseMigration> _migrations;
   Database? _db;
+  Future<void>? _opening;
+  (DatabaseFactory, String)? _sharedKey;
 
   /// Opens the database file called [name], inside [factory]'s own
   /// databases directory, once [open] runs.
   ///
   /// Called in this order, each only when it has work to do:
   /// [onConfigure] first — before [version] is even looked at, the right
-  /// place for a `PRAGMA` such as `foreign_keys` or `journal_mode`, since
-  /// pylon sets none on a project's behalf; then exactly one of [onCreate]
-  /// (the file did not exist yet), [onUpgrade] ([version] is higher than
-  /// what the file already recorded) or [onDowngrade] ([version] is lower);
-  /// finally [onOpen], once the file is fully ready.
+  /// place for a `PRAGMA` such as `journal_mode`; then exactly one of
+  /// [onCreate] (the file did not exist yet), [onUpgrade] ([version] is
+  /// higher than what the file already recorded) or [onDowngrade] ([version]
+  /// is lower); finally [onOpen], once the file is fully ready.
   ///
-  /// [readOnly] opens the file as it already is and skips every callback
-  /// above. [singleInstance] (on by default, matching sqflite's own default)
-  /// hands back the same [Database] for a path already open rather than a
-  /// second connection to it. [factory] defaults to sqflite's own
+  /// Every connection is opened with `PRAGMA foreign_keys = ON` before
+  /// [onConfigure] runs, because SQLite ignores a declared `FOREIGN KEY` unless
+  /// each connection asks for it. A migration that rebuilds a table needs the
+  /// opposite, and [onConfigure] is the only place that can switch it off,
+  /// since SQLite refuses the pragma inside a transaction.
+  ///
+  /// [readOnly] opens the file as it already is: it never looks at [version],
+  /// so [onCreate], [onUpgrade] and [onDowngrade] never run, while
+  /// [onConfigure] and [onOpen] still do. [singleInstance] (on by default,
+  /// matching sqflite's own default) hands back the same [Database] for a path
+  /// already open rather than a second connection to it, and the file stays open
+  /// until every [LocalDatabase] sharing it has been disposed. [factory] defaults to sqflite's own
   /// [databaseFactory]; give it `databaseFactoryFfi` in a test, or another
   /// implementation's own factory — `sqflite_sqlcipher`'s, say — to encrypt
   /// the file without this class knowing that happened.
@@ -191,39 +226,125 @@ class LocalDatabase {
        _onOpen = onOpen,
        _readOnly = readOnly,
        _singleInstance = singleInstance,
-       _factory = factory ?? databaseFactory;
+       _factory = factory ?? databaseFactory,
+       _tables = null,
+       _declarations = const [],
+       _migrations = const [];
+
+  /// Opens the database file called [name] with the schema declared by
+  /// [tables], and creates and migrates that schema by itself, so that no
+  /// `CREATE TABLE`, no version number and no `PRAGMA` is written by hand.
+  ///
+  /// When [open] runs, inside one transaction: every table that does not
+  /// exist yet is created, and so is every column a declared table gained
+  /// since the file was written, provided SQLite can add it, which means it is
+  /// nullable or has a [DatabaseField.defaultsTo] and is neither a key nor
+  /// unique. A change SQLite cannot make on its own, such as removing or
+  /// renaming a column or filling a new column from another, is a [migrations]
+  /// entry. Entry number `n`, counting from zero, upgrades a file from version
+  /// `n + 1` to version `n + 2`, so the schema version is the length of
+  /// [migrations] plus one and is stored in the file. Migrations run before
+  /// the declared tables are brought up to date, and see the file as the older
+  /// version left it. A fresh file runs none of them.
+  ///
+  /// A file written by a newer version of the code is refused with a
+  /// [DatabaseSchemaTooNewError] instead of being read wrongly.
+  ///
+  /// Foreign keys are enforced, as on every [LocalDatabase], and on a writable
+  /// file the journal is in write-ahead mode, which SQLite leaves off unless
+  /// asked.
+  ///
+  /// [declarations] adds tables written with [TableBuilder] that no
+  /// [DatabaseTable] describes, such as one reached only through [execute] and
+  /// [rawQuery]. [readOnly] opens the file as it is, with no schema work.
+  /// [singleInstance] and [factory] are the ones the default constructor takes.
+  LocalDatabase.declared({
+    required String name,
+    required List<DatabaseTable<Object>> tables,
+    List<DeclaredTable> declarations = const [],
+    List<DatabaseMigration> migrations = const [],
+    bool readOnly = false,
+    bool singleInstance = true,
+    DatabaseFactory? factory,
+  }) : _name = name,
+       _version = 1,
+       _onConfigure = _configureDeclared(readOnly),
+       _onCreate = null,
+       _onUpgrade = null,
+       _onDowngrade = null,
+       _onOpen = null,
+       _readOnly = readOnly,
+       _singleInstance = singleInstance,
+       _factory = factory ?? databaseFactory,
+       _tables = tables,
+       _declarations = declarations,
+       _migrations = migrations;
 
   /// Whether [open] has run and [dispose] has not undone it.
-  bool get isOpen => _db != null;
+  bool get isOpen => _db?.isOpen ?? false;
 
   /// Opens the database file, running whichever of [onConfigure], [onCreate],
   /// [onUpgrade], [onDowngrade] and [onOpen] has work to do, and makes this
   /// instance usable.
   ///
-  /// Calling it twice is harmless: the second call does nothing.
-  Future<void> open() => _guarded(() async {
-    if (_db != null) return;
-    final directory = await _factory.getDatabasesPath();
-    _db = await _factory.openDatabase(
-      p.join(directory, _name),
-      options: OpenDatabaseOptions(
-        version: _version,
-        onConfigure: _onConfigure,
-        onCreate: _onCreate,
-        onUpgrade: _onUpgrade,
-        onDowngrade: _onDowngrade,
-        onOpen: _onOpen,
-        readOnly: _readOnly,
-        singleInstance: _singleInstance,
-      ),
-    );
-  });
+  /// Calling it twice is harmless: the second call does nothing, and a second
+  /// call made while the first is still running waits for it instead of opening
+  /// another connection.
+  ///
+  /// Throws a [DatabaseOpenFailedError] when SQLite cannot open the file and
+  /// gives no more precise reason, such as a read only open of a file that does
+  /// not exist.
+  Future<void> open() {
+    if (_db != null) return Future<void>.value();
+    return _opening ??= _openFile().whenComplete(() => _opening = null);
+  }
+
+  Future<void> _openFile() async {
+    try {
+      final directory = await _factory.getDatabasesPath();
+      final path = p.join(directory, _name);
+      final db = await _factory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: _readOnly || _tables != null ? null : _version,
+          onConfigure: _configure,
+          onCreate: _onCreate,
+          onUpgrade: _onUpgrade,
+          onDowngrade: _onDowngrade,
+          onOpen: _onOpen,
+          readOnly: _readOnly,
+          singleInstance: _singleInstance,
+        ),
+      );
+      if (_singleInstance) {
+        _sharedKey = (_factory, path);
+        _sharedInstances.update((_factory, path), (count) => count + 1, ifAbsent: () => 1);
+      }
+      if (_tables != null && !_readOnly) {
+        try {
+          await _synchronizeSchema(this, db);
+        } catch (_) {
+          await _close(db);
+          rethrow;
+        }
+      }
+      _db = db;
+    } on DatabaseException catch (error) {
+      final reason = DatabaseError.from(error);
+      throw reason is DatabaseUnknownError ? DatabaseOpenFailedError(reason.message) : reason;
+    }
+  }
+
+  Future<void> _configure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+    await _onConfigure?.call(db);
+  }
 
   /// Runs [sql] directly, for anything [insert], [query], [update] and
   /// [delete] do not cover — a `CREATE TABLE`, a `CREATE INDEX`, a schema
   /// change inside [onUpgrade].
   Future<void> execute(String sql, [List<DatabaseType>? arguments]) =>
-      _guarded(() => _requireOpen().execute(sql, _toNativeArgs(arguments)));
+      _guarded(() => _executor().execute(sql, _toNativeArgs(arguments)));
 
   /// Inserts one row, composed by [build] from an empty [DatabaseInsert] —
   /// [build] must return a fully composed [DatabaseInsertValues], the same way
@@ -232,7 +353,7 @@ class LocalDatabase {
   Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
       _guarded(() {
         final spec = build(DatabaseInsert<T>._());
-        return _requireOpen().insert(spec._table, _toNativeRow(spec._data.toRow()), conflictAlgorithm: spec._conflict);
+        return _executor().rawInsert(spec._sql, spec._arguments);
       });
 
   /// Reads rows, filtered, ordered, paged and decoded exactly as [build]
@@ -242,7 +363,7 @@ class LocalDatabase {
   Future<List<T>> query<T extends Object>(DatabaseQueryFrom<T> Function(DatabaseQuery<T> query) build) =>
       _guarded(() async {
         final spec = build(DatabaseQuery<T>._());
-        final rows = await _requireOpen().query(
+        final rows = await _executor().query(
           spec._table,
           distinct: spec._distinct,
           columns: spec._columns,
@@ -262,7 +383,7 @@ class LocalDatabase {
   /// [query] cannot express — a join, an aggregate, anything past one
   /// table's own `WHERE`.
   Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
-    final rows = await _requireOpen().rawQuery(sql, _toNativeArgs(arguments));
+    final rows = await _executor().rawQuery(sql, _toNativeArgs(arguments));
     return rows.map(_fromNativeRow).toList();
   });
 
@@ -273,7 +394,7 @@ class LocalDatabase {
   Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
       _guarded(() {
         final spec = build(DatabaseUpdate<T>._());
-        return _requireOpen().update(
+        return _executor().update(
           spec._table,
           _toNativeRow(spec._data.toRow()),
           where: spec._where,
@@ -288,18 +409,25 @@ class LocalDatabase {
   /// many rows were removed.
   Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() {
     final spec = build(const DatabaseDelete._());
-    return _requireOpen().delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
+    return _executor().delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
   });
 
   /// Runs [action] as one transaction: every write inside it commits
   /// together, or none of them do if [action] throws.
   ///
-  /// [action] never reaches for this [LocalDatabase] itself — only the
-  /// [DatabaseTransaction] it is given — since sqflite deadlocks a transaction
-  /// that touches the database it is running against directly instead of
-  /// through the transaction object.
-  Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) =>
-      _guarded(() => _requireOpen().transaction((txn) => action(DatabaseTransaction._(txn))));
+  /// Everything [action] asks of this [LocalDatabase], and of a [batch] made
+  /// from it, joins the transaction, the same as if it had gone through the
+  /// [DatabaseTransaction] it is given, because sqflite would otherwise wait
+  /// forever for a transaction that is itself waiting for the database. That
+  /// holds for the code [action] awaits, at any depth. A [transaction] called
+  /// inside [action] joins the outer one rather than starting another, so its
+  /// writes are kept or undone with the outer transaction, not on their own.
+  Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) => _guarded(() {
+    final db = _requireOpen();
+    final joined = _joinedTransaction(db);
+    if (joined != null) return action(DatabaseTransaction._(joined, this));
+    return db.transaction((txn) => _inTransaction(db, txn, () => action(DatabaseTransaction._(txn, this))));
+  });
 
   /// Starts a batch: a sequence of writes queued here, none of which touch
   /// the database until [DatabaseBatch.commit] or [DatabaseBatch.apply] runs them.
@@ -309,7 +437,7 @@ class LocalDatabase {
   /// implicit transaction, which for anything beyond a handful of rows is
   /// the difference between finishing instantly and taking seconds, since
   /// every commit costs its own fsync.
-  DatabaseBatch batch() => DatabaseBatch._(_requireOpen().batch());
+  DatabaseBatch batch() => DatabaseBatch._(_executor());
 
   /// Whether [table] exists in this database.
   Future<bool> tableExists(String table) => _guarded(() async {
@@ -330,9 +458,19 @@ class LocalDatabase {
   );
 
   /// Every column [table] declares, in declaration order, straight out of
-  /// `PRAGMA table_info`.
+  /// `PRAGMA table_xinfo`, which unlike `table_info` also lists the generated
+  /// columns.
+  ///
+  /// Falls back to `table_info` on a SQLite older than 3.26, which does not
+  /// know `table_xinfo` and answers no row for it, and which has no
+  /// generated column to leave out.
+  ///
+  /// Answers an empty list for a table that does not exist; [tableExists]
+  /// tells that answer apart from a table that has columns.
   Future<List<DatabaseColumn>> columns(String table) => _guarded(() async {
-    final rows = await rawQuery('PRAGMA table_info(${_quotedIdentifier(table)})');
+    final quoted = _quotedIdentifier(table);
+    final extended = await rawQuery('PRAGMA table_xinfo($quoted)');
+    final rows = extended.isNotEmpty ? extended : await rawQuery('PRAGMA table_info($quoted)');
     return rows.map(DatabaseColumn._fromRow).toList();
   });
 
@@ -347,10 +485,35 @@ class LocalDatabase {
   /// Closes the database.
   ///
   /// Safe to call on an instance that was never opened, and safe to call
-  /// twice.
+  /// twice. Waits for an [open] still running, so that it never leaves the
+  /// file open behind it. When another [LocalDatabase] with `singleInstance`
+  /// holds the same file open, the file stays open until the last of them is
+  /// disposed.
   Future<void> dispose() async {
-    await _db?.close();
+    final opening = _opening;
+    if (opening != null) await opening.then<void>((_) {}, onError: (Object _) {});
+    final db = _db;
+    if (db == null) return;
     _db = null;
+    await _close(db);
+  }
+
+  Future<void> _close(Database db) async {
+    if (_leavesOthersOpen()) return;
+    await _guarded(db.close);
+  }
+
+  bool _leavesOthersOpen() {
+    final key = _sharedKey;
+    if (key == null) return false;
+    _sharedKey = null;
+    final remaining = _sharedInstances[key]! - 1;
+    if (remaining > 0) {
+      _sharedInstances[key] = remaining;
+      return true;
+    }
+    _sharedInstances.remove(key);
+    return false;
   }
 
   Database _requireOpen() {
@@ -360,6 +523,44 @@ class LocalDatabase {
     }
     return db;
   }
+
+  @override
+  DatabaseExecutor _executor() {
+    final db = _requireOpen();
+    return _joinedTransaction(db) ?? db;
+  }
+
+  @override
+  LocalDatabase get _database => this;
+
+  @override
+  Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action) => transaction(action);
+
+  void _requireDeclared(DatabaseTable<Object> table) {
+    final tables = _tables;
+    if (tables != null && !tables.any((declared) => declared.tableName == table.tableName)) {
+      throw StateError('${table.tableName} is not among the tables this LocalDatabase was declared with.');
+    }
+  }
 }
+
+final Map<(DatabaseFactory, String), int> _sharedInstances = {};
+
+final Object _transactionZoneKey = Object();
+
+final class _ActiveTransaction {
+  const _ActiveTransaction(this.database, this.transaction);
+
+  final Database database;
+  final Transaction transaction;
+}
+
+Transaction? _joinedTransaction(Database database) {
+  final active = Zone.current[_transactionZoneKey];
+  return active is _ActiveTransaction && identical(active.database, database) ? active.transaction : null;
+}
+
+Future<T> _inTransaction<T>(Database database, Transaction transaction, Future<T> Function() action) =>
+    Zone.current.fork(zoneValues: {_transactionZoneKey: _ActiveTransaction(database, transaction)}).run(action);
 
 String _quotedIdentifier(String identifier) => '"${identifier.replaceAll('"', '""')}"';

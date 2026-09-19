@@ -48,7 +48,7 @@ final class DatabaseDelete {
   const DatabaseDelete._();
 
   /// Removes rows from [name], the same `FROM` a raw `DELETE FROM ...` names.
-  DatabaseDeleteFrom from(String name) => DatabaseDeleteFrom._(name);
+  DatabaseDeleteFrom from(String name) => DatabaseDeleteFrom._(_quotedIdentifier(name));
 }
 
 /// A [DatabaseDelete] that has named its table, opened by [DatabaseDelete.from] —
@@ -62,10 +62,10 @@ final class DatabaseDeleteFrom {
   final List<DatabaseType>? _whereArgs;
 
   /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Every row in the table is removed when this is
-  /// never called.
+  /// [DatabaseFilterBuilder]. Called again, both conditions must hold. Every row
+  /// in the table is removed when this is never called.
   DatabaseDeleteFrom where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return DatabaseDeleteFrom._(_table, clause, arguments);
+    return DatabaseDeleteFrom._(_table, _bothMatch(_where, clause), [...?_whereArgs, ...arguments]);
   }
 }

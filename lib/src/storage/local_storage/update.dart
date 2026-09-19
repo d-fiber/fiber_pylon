@@ -50,7 +50,7 @@ final class DatabaseUpdate<T extends DatabaseRecord> {
   DatabaseUpdate._();
 
   /// Updates rows in [name], the same table name a raw `UPDATE table` names.
-  DatabaseUpdateTable<T> table(String name) => DatabaseUpdateTable._(name);
+  DatabaseUpdateTable<T> table(String name) => DatabaseUpdateTable._(_quotedIdentifier(name));
 }
 
 /// A [DatabaseUpdate] that has named its table, opened by [DatabaseUpdate.table].
@@ -80,11 +80,11 @@ final class DatabaseUpdateSet<T extends DatabaseRecord> {
   final ConflictAlgorithm? _conflict;
 
   /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Every row in the table is matched when this is
-  /// never called.
+  /// [DatabaseFilterBuilder]. Called again, both conditions must hold. Every row
+  /// in the table is matched when this is never called.
   DatabaseUpdateSet<T> where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return DatabaseUpdateSet._(_table, _data, clause, arguments, _conflict);
+    return DatabaseUpdateSet._(_table, _data, _bothMatch(_where, clause), [...?_whereArgs, ...arguments], _conflict);
   }
 
   /// Resolves the conflict, should [set] collide with a row already there.

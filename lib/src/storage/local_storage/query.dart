@@ -50,7 +50,7 @@ final class DatabaseQuery<T extends Object> {
   DatabaseQuery._();
 
   /// Reads from [name], the same `FROM` a raw `SELECT ... FROM ...` names.
-  DatabaseQueryFrom<T> from(String name) => DatabaseQueryFrom._(table: name);
+  DatabaseQueryFrom<T> from(String name) => DatabaseQueryFrom._(table: _quotedIdentifier(name));
 }
 
 /// A [DatabaseQuery] that has named its table, opened by [DatabaseQuery.from].
@@ -107,35 +107,44 @@ final class DatabaseQueryFrom<T extends Object> {
   DatabaseQueryFrom<T> distinct([bool value = true]) => _copyWith(distinct: value);
 
   /// Reads only the columns named [columns], instead of every column the
-  /// table declares. Each name is quoted, so it is read as a column and never
+  /// table declares. Called again, it adds columns to the ones already named.
+  /// Each name is quoted, so it is read as a column and never
   /// as SQL: an aggregate or an expression belongs in [LocalDatabase.rawQuery].
-  DatabaseQueryFrom<T> select(List<String> columns) => _copyWith(columns: columns.map(_quotedIdentifier).toList());
+  DatabaseQueryFrom<T> select(List<String> columns) =>
+      _copyWith(columns: [...?_columns, ...columns.map(_quotedIdentifier)]);
 
   /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder].
+  /// [DatabaseFilterBuilder]. Called again, it narrows the rows the earlier
+  /// call kept: both conditions must hold.
   DatabaseQueryFrom<T> where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return _copyWith(where: clause, whereArgs: arguments);
+    return _copyWith(where: _bothMatch(_where, clause), whereArgs: [...?_whereArgs, ...arguments]);
   }
 
   /// Groups matching rows by the columns named [columns] before [having] and
-  /// [map] see them. Each name is quoted, so it is read as a column and never
+  /// [map] see them. Called again, it adds columns to the grouping. An empty
+  /// list changes nothing. Each name is quoted, so it is read as a column and never
   /// as SQL.
-  DatabaseQueryFrom<T> groupBy(List<String> columns) => _copyWith(groupBy: columns.map(_quotedIdentifier).join(', '));
+  DatabaseQueryFrom<T> groupBy(List<String> columns) =>
+      columns.isEmpty ? this : _copyWith(groupBy: _appended(_groupBy, columns.map(_quotedIdentifier)));
 
   /// Keeps only the groups [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Meaningless without [groupBy].
+  /// [DatabaseFilterBuilder]. Called again, both conditions must hold.
+  /// Meaningless without [groupBy].
   ///
   /// A condition over an aggregate goes through [DatabaseFilterBuilder.raw],
   /// such as `w.raw('COUNT(*) > ?', [DatabaseType.integer(1)])`.
   DatabaseQueryFrom<T> having(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
     final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return _copyWith(having: clause, havingArgs: arguments);
+    return _copyWith(having: _bothMatch(_having, clause), havingArgs: [...?_havingArgs, ...arguments]);
   }
 
   /// Orders the result by [orders], the first one deciding and each later one
-  /// only breaking the ties the one before it left.
-  DatabaseQueryFrom<T> orderBy(List<DatabaseOrder> orders) => _copyWith(orderBy: orders.map(_renderOrder).join(', '));
+  /// only breaking the ties the one before it left. Called again, its terms
+  /// come after the ones already given, so they only break the remaining ties.
+  /// An empty list changes nothing.
+  DatabaseQueryFrom<T> orderBy(List<DatabaseOrder> orders) =>
+      orders.isEmpty ? this : _copyWith(orderBy: _appended(_orderBy, orders.map(_renderOrder)));
 
   /// Reads at most [count] rows.
   ///
@@ -227,6 +236,8 @@ final class ExpressionDatabaseOrder extends DatabaseOrder {
   @override
   List<Object?> get props => [sql, order];
 }
+
+String _appended(String? earlier, Iterable<String> terms) => [?earlier, ...terms].join(', ');
 
 String _renderOrder(DatabaseOrder term) {
   final target = switch (term) {

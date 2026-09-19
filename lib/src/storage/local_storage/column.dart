@@ -36,36 +36,76 @@
 
 part of 'database.dart';
 
-/// One column [LocalDatabase.columns] read out of `PRAGMA table_info`.
+/// One column [LocalDatabase.columns] read out of `PRAGMA table_xinfo`.
 final class DatabaseColumn extends Equatable {
   /// Wraps every field [LocalDatabase.columns] read for one column.
   const DatabaseColumn({
     required this.name,
     required this.declaredType,
     required this.isNotNull,
-    required this.isPrimaryKey,
+    required this.primaryKeyPosition,
+    this.defaultSql,
+    this.generated,
   });
 
   /// The column's own name.
   final String name;
 
-  /// The type exactly as the `CREATE TABLE` that declared it wrote it —
-  /// empty when the column carries none, since SQLite never requires one.
+  /// The type exactly as the `CREATE TABLE` that declared it wrote it, or an
+  /// empty string when the column carries none, since SQLite never requires
+  /// one.
   final String declaredType;
 
   /// Whether the column carries a `NOT NULL` constraint.
+  ///
+  /// SQLite reports false for an `INTEGER PRIMARY KEY` in a table that keeps
+  /// its rowid, because a null there asks for the next id instead of being
+  /// stored.
   final bool isNotNull;
 
+  /// The place of this column in the table's primary key, counting from 1,
+  /// or 0 when the column is not part of it.
+  final int primaryKeyPosition;
+
+  /// The default exactly as SQLite stored it: `0`, `'open'`, `X'00ff'` or an
+  /// expression's own text, without the parentheses a `CREATE TABLE` wrapped
+  /// it in. Null when the column has no default.
+  final String? defaultSql;
+
+  /// Whether SQLite computes this column from the rest of the row, and how.
+  /// Null for an ordinary column.
+  final GeneratedStorage? generated;
+
   /// Whether the column is part of the table's primary key.
-  final bool isPrimaryKey;
+  bool get isPrimaryKey => primaryKeyPosition > 0;
+
+  /// [declaredType] as one of the five [ColumnType]s a `STRICT` table takes,
+  /// whatever its case. Null when it is anything else, such as `VARCHAR(20)`
+  /// or no type at all.
+  ColumnType? get type {
+    final declared = declaredType.toUpperCase();
+    for (final candidate in ColumnType.values) {
+      if (candidate.name.toUpperCase() == declared) return candidate;
+    }
+    return null;
+  }
 
   factory DatabaseColumn._fromRow(DatabaseRow row) => DatabaseColumn(
     name: row['name']!.asString,
     declaredType: row['type']!.asString,
     isNotNull: row['notnull']!.asBoolean,
-    isPrimaryKey: row['pk']!.asBoolean,
+    primaryKeyPosition: row['pk']!.asInt,
+    defaultSql: switch (row['dflt_value']) {
+      Varchar(:final value) => value,
+      _ => null,
+    },
+    generated: switch (row['hidden']?.asInt) {
+      2 => GeneratedStorage.virtual,
+      3 => GeneratedStorage.stored,
+      _ => null,
+    },
   );
 
   @override
-  List<Object?> get props => [name, declaredType, isNotNull, isPrimaryKey];
+  List<Object?> get props => [name, declaredType, isNotNull, primaryKeyPosition, defaultSql, generated];
 }

@@ -50,7 +50,7 @@ final class DatabaseInsert<T extends DatabaseRecord> {
   DatabaseInsert._();
 
   /// Inserts into [name], the same `INTO` a raw `INSERT INTO ...` names.
-  DatabaseInsertInto<T> into(String name) => DatabaseInsertInto._(name);
+  DatabaseInsertInto<T> into(String name) => DatabaseInsertInto._(_quotedIdentifier(name));
 }
 
 /// A [DatabaseInsert] that has named its table, opened by [DatabaseInsert.into].
@@ -80,4 +80,22 @@ final class DatabaseInsertValues<T extends DatabaseRecord> {
   /// Resolves the conflict, should [values] collide with a row already
   /// there. Left unset, sqflite aborts the whole statement.
   DatabaseInsertValues<T> onConflict(ConflictAlgorithm algorithm) => DatabaseInsertValues._(_table, _data, algorithm);
+
+  String get _sql {
+    final columns = _data.toRow().keys.map(_quotedIdentifier);
+    final verb = 'INSERT ${_conflictClause(_conflict)}INTO $_table';
+    if (columns.isEmpty) return '$verb DEFAULT VALUES';
+    return '$verb (${columns.join(', ')}) VALUES (${List.filled(columns.length, '?').join(', ')})';
+  }
+
+  List<Object?> get _arguments => _data.toRow().values.map((value) => value._toNative()).toList();
 }
+
+String _conflictClause(ConflictAlgorithm? algorithm) => switch (algorithm) {
+  null => '',
+  ConflictAlgorithm.rollback => 'OR ROLLBACK ',
+  ConflictAlgorithm.abort => 'OR ABORT ',
+  ConflictAlgorithm.fail => 'OR FAIL ',
+  ConflictAlgorithm.ignore => 'OR IGNORE ',
+  ConflictAlgorithm.replace => 'OR REPLACE ',
+};

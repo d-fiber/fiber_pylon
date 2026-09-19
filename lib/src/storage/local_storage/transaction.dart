@@ -40,10 +40,20 @@ part of 'database.dart';
 /// [LocalDatabase.update] and [LocalDatabase.delete] a [LocalDatabase]
 /// offers, scoped to one [LocalDatabase.transaction]. Never constructed
 /// directly; [LocalDatabase.transaction] hands one to its own callback.
-final class DatabaseTransaction {
-  DatabaseTransaction._(this._txn);
+final class DatabaseTransaction extends DatabaseSession {
+  DatabaseTransaction._(this._txn, this._owner);
 
   final Transaction _txn;
+  final LocalDatabase _owner;
+
+  @override
+  LocalDatabase get _database => _owner;
+
+  @override
+  DatabaseExecutor _executor() => _txn;
+
+  @override
+  Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action) => action(this);
 
   /// See [LocalDatabase.execute].
   Future<void> execute(String sql, [List<DatabaseType>? arguments]) =>
@@ -53,7 +63,7 @@ final class DatabaseTransaction {
   Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
       _guarded(() {
         final spec = build(DatabaseInsert<T>._());
-        return _txn.insert(spec._table, _toNativeRow(spec._data.toRow()), conflictAlgorithm: spec._conflict);
+        return _txn.rawInsert(spec._sql, spec._arguments);
       });
 
   /// See [LocalDatabase.query].

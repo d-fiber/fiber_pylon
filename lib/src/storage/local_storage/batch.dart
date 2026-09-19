@@ -42,15 +42,16 @@ enum _BatchStatement { insert, update, delete, execute, query }
 /// touch it until [commit] or [apply] runs them. Never constructed directly;
 /// [LocalDatabase.batch] hands one back.
 final class DatabaseBatch {
-  DatabaseBatch._(this._batch);
+  DatabaseBatch._(this._executor) : _batch = _executor.batch();
 
-  final Batch _batch;
-  final List<_BatchStatement> _statements = [];
+  final DatabaseExecutor _executor;
+  Batch _batch;
+  List<_BatchStatement> _statements = [];
 
   /// Queues a [LocalDatabase.insert].
   void insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) {
     final spec = build(DatabaseInsert<T>._());
-    _batch.insert(spec._table, _toNativeRow(spec._data.toRow()), conflictAlgorithm: spec._conflict);
+    _batch.rawInsert(spec._sql, spec._arguments);
     _statements.add(_BatchStatement.insert);
   }
 
@@ -114,9 +115,12 @@ final class DatabaseBatch {
   /// [noResult] skips collecting each statement's own result, worth setting
   /// for a large batch that only cares whether it succeeded. The list
   /// answered is then empty.
-  Future<List<DatabaseBatchResult>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) => _guarded(
-    () async => _typed(await _batch.commit(exclusive: exclusive, noResult: noResult, continueOnError: continueOnError)),
-  );
+  ///
+  /// Whether it succeeds or not, the batch is empty afterwards: what is queued
+  /// next is a new batch, so a statement never runs twice. To retry a batch that
+  /// failed, queue its statements again.
+  Future<List<DatabaseBatchResult>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) =>
+      _run((batch) => batch.commit(exclusive: exclusive, noResult: noResult, continueOnError: continueOnError));
 
   /// Runs every statement queued so far without wrapping them in a
   /// transaction sqflite manages: faster, but with no all-or-nothing
@@ -124,13 +128,21 @@ final class DatabaseBatch {
   /// batch is already running inside a [LocalDatabase.transaction] of its
   /// own, or another transaction not managed through this class.
   ///
-  /// Answers the same list [commit] does.
+  /// Answers the same list [commit] does, and leaves the batch empty the same
+  /// way.
   Future<List<DatabaseBatchResult>> apply({bool? noResult, bool? continueOnError}) =>
-      _guarded(() async => _typed(await _batch.apply(noResult: noResult, continueOnError: continueOnError)));
+      _run((batch) => batch.apply(noResult: noResult, continueOnError: continueOnError));
 
-  List<DatabaseBatchResult> _typed(List<Object?> results) => [
-    for (var position = 0; position < results.length; position++)
-      _typedResult(_statements[position], results[position]),
+  Future<List<DatabaseBatchResult>> _run(Future<List<Object?>> Function(Batch batch) execute) {
+    final batch = _batch;
+    final statements = _statements;
+    _batch = _executor.batch();
+    _statements = [];
+    return _guarded(() async => _typed(statements, await execute(batch)));
+  }
+
+  List<DatabaseBatchResult> _typed(List<_BatchStatement> statements, List<Object?> results) => [
+    for (var position = 0; position < results.length; position++) _typedResult(statements[position], results[position]),
   ];
 }
 

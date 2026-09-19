@@ -88,6 +88,12 @@ Future<void> _createUniqueTodos(Database db, int version) => db.execute(
 Future<void> _createKeywordColumns(Database db, int version) =>
     db.execute('CREATE TABLE things ("group" TEXT NOT NULL, "order" INTEGER NOT NULL)');
 
+Future<void> _createNotes(Database db, int version) =>
+    db.execute('CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)');
+
+Future<void> _createSlots(Database db, int version) =>
+    db.execute('CREATE TABLE slots (id INTEGER PRIMARY KEY AUTOINCREMENT, at)');
+
 void main() {
   late Directory directory;
 
@@ -510,9 +516,15 @@ void main() {
       final columns = await db.columns('todos');
 
       expect(columns, [
-        const DatabaseColumn(name: 'id', declaredType: 'INTEGER', isNotNull: false, isPrimaryKey: true),
-        const DatabaseColumn(name: 'title', declaredType: 'TEXT', isNotNull: true, isPrimaryKey: false),
-        const DatabaseColumn(name: 'done', declaredType: 'INTEGER', isNotNull: true, isPrimaryKey: false),
+        const DatabaseColumn(name: 'id', declaredType: 'INTEGER', isNotNull: false, primaryKeyPosition: 1),
+        const DatabaseColumn(name: 'title', declaredType: 'TEXT', isNotNull: true, primaryKeyPosition: 0),
+        const DatabaseColumn(
+          name: 'done',
+          declaredType: 'INTEGER',
+          isNotNull: true,
+          primaryKeyPosition: 0,
+          defaultSql: '0',
+        ),
       ]);
       await db.dispose();
     });
@@ -628,6 +640,134 @@ void main() {
         'Bee',
         'Cat',
       ]);
+    });
+  });
+  group('DatabaseFilterBuilder over nulls, text and stored conventions', () {
+    late LocalDatabase notes;
+
+    setUp(() async {
+      notes = LocalDatabase(name: 'notes_filters.db', onCreate: _createNotes);
+      await notes.open();
+      for (final body in [
+        const DatabaseType.varchar('alpha'),
+        const DatabaseType.varchar('beta'),
+        const DatabaseType.nil(),
+      ]) {
+        await notes.execute('INSERT INTO notes (body) VALUES (?)', [body]);
+      }
+    });
+
+    tearDown(() => notes.dispose());
+
+    Future<List<int>> idsWhere(DatabaseFilter Function(DatabaseFilterBuilder w) build) => notes.query<int>(
+      (q) => q
+          .from('notes')
+          .select(const ['id'])
+          .where(build)
+          .orderBy(const [DatabaseOrder.named('id')])
+          .map((row) => row['id']!.asInt),
+    );
+
+    test('isEqualTo a Nil matches the rows where the column is null', () async {
+      expect(await idsWhere((w) => w.isEqualTo(key: 'body', value: const DatabaseType.nil())), [3]);
+    });
+
+    test('isNotEqualTo a Nil matches the rows where the column has a value', () async {
+      expect(await idsWhere((w) => w.isNotEqualTo(key: 'body', value: const DatabaseType.nil())), [1, 2]);
+    });
+
+    test('isNotEqualTo a value keeps the rows where the column is null', () async {
+      expect(await idsWhere((w) => w.isNotEqualTo(key: 'body', value: const DatabaseType.varchar('alpha'))), [2, 3]);
+    });
+
+    test('not keeps the rows its filter cannot decide on', () async {
+      expect(await idsWhere((w) => w.not(w.isEqualTo(key: 'body', value: const DatabaseType.varchar('alpha')))), [
+        2,
+        3,
+      ]);
+      expect(await idsWhere((w) => w.not(w.isLike(key: 'body', pattern: 'a%'))), [2, 3]);
+    });
+
+    test('isIn with a Nil among its values matches the null rows too', () async {
+      expect(
+        await idsWhere((w) => w.isIn(key: 'body', values: const [DatabaseType.varchar('beta'), DatabaseType.nil()])),
+        [2, 3],
+      );
+      expect(await idsWhere((w) => w.isIn(key: 'body', values: const [DatabaseType.nil()])), [3]);
+    });
+
+    test('an ordering filter refuses a Nil, which has no order', () async {
+      await expectLater(
+        idsWhere((w) => w.isGreaterThan(key: 'body', value: const DatabaseType.nil())),
+        throwsArgumentError,
+      );
+      await expectLater(
+        idsWhere((w) => w.isLessThanOrEqualTo(key: 'body', value: const DatabaseType.nil())),
+        throwsArgumentError,
+      );
+    });
+
+    test('contains, startsWith and endsWith match the text as written', () async {
+      await notes.execute('INSERT INTO notes (body) VALUES (?)', const [DatabaseType.varchar('50% off_sale\\now')]);
+
+      expect(await idsWhere((w) => w.contains(key: 'body', text: 'lph')), [1]);
+      expect(await idsWhere((w) => w.startsWith(key: 'body', text: 'be')), [2]);
+      expect(await idsWhere((w) => w.endsWith(key: 'body', text: 'ta')), [2]);
+      expect(await idsWhere((w) => w.contains(key: 'body', text: '50%')), [4]);
+      expect(await idsWhere((w) => w.contains(key: 'body', text: '_sale')), [4]);
+      expect(await idsWhere((w) => w.contains(key: 'body', text: 'e\\n')), [4]);
+      expect(await idsWhere((w) => w.contains(key: 'body', text: '%')), [4]);
+      expect(await idsWhere((w) => w.contains(key: 'body', text: '_')), [4]);
+    });
+
+    test('isLike still reads its pattern as a pattern', () async {
+      expect(await idsWhere((w) => w.isLike(key: 'body', pattern: '%')), [1, 2]);
+    });
+
+    test('an ordering filter on stored times gives the order of the clock', () async {
+      final slots = LocalDatabase(name: 'slots_filters.db', onCreate: _createSlots);
+      await slots.open();
+      const nine = Time(hour: 9, minute: 0);
+      const nineThirty = Time(hour: 9, minute: 30, second: 5, millisecond: 250);
+      const ten = Time(hour: 10, minute: 0);
+      for (final time in [nine, ten, nineThirty]) {
+        await slots.execute('INSERT INTO slots (at) VALUES (?)', [DatabaseType.time(time)]);
+      }
+
+      Future<List<int>> idsWhereAt(DatabaseFilter Function(DatabaseFilterBuilder w) build) => slots.query<int>(
+        (q) => q
+            .from('slots')
+            .select(const ['id'])
+            .where(build)
+            .orderBy(const [DatabaseOrder.named('id')])
+            .map((row) => row['id']!.asInt),
+      );
+
+      expect(await idsWhereAt((w) => w.isGreaterThan(key: 'at', value: DatabaseType.time(nine))), [2, 3]);
+      expect(await idsWhereAt((w) => w.isLessThan(key: 'at', value: DatabaseType.time(ten))), [1, 3]);
+      expect(await idsWhereAt((w) => w.isEqualTo(key: 'at', value: DatabaseType.time(nineThirty))), [3]);
+      await slots.dispose();
+    });
+
+    test('an equality filter on a numeric interval treats 3 and 3.0 as the same bound', () async {
+      final slots = LocalDatabase(name: 'intervals_filters.db', onCreate: _createSlots);
+      await slots.open();
+      await slots.execute('INSERT INTO slots (at) VALUES (?)', [
+        DatabaseType.interval(const IntervalBounds.num(start: 3.0, end: 4.5)),
+      ]);
+
+      final ids = await slots.query<int>(
+        (q) => q
+            .from('slots')
+            .select(const ['id'])
+            .where(
+              (w) => w.isEqualTo(key: 'at', value: DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4.5))),
+            )
+            .map((row) => row['id']!.asInt),
+      );
+
+      expect(ids, [1]);
+      await slots.dispose();
     });
   });
 }
