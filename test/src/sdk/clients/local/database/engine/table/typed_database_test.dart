@@ -72,8 +72,7 @@ final class Items extends KeyedTable<Item, int> {
   List<Field<Object?>> get columns => [id, title, done, due, rank];
 
   @override
-  Item read(Reader row) =>
-      Item(id: row(id), title: row(title), done: row(done), due: row(due), rank: row(rank));
+  Item read(Reader row) => Item(id: row(id), title: row(title), done: row(done), due: row(due), rank: row(rank));
 
   @override
   List<Assignment> write(Item item) => [
@@ -400,8 +399,10 @@ final links = Links();
 final samples = Samples();
 final reserved = Reserved();
 
-LocalDatabase _openable(String name) =>
-    LocalDatabase.declaredForTesting(name: name, tables: [items, labels, links, samples, people, prices, settings, bare]);
+LocalDatabase _openable(String name) => LocalDatabase.declaredForTesting(
+  name: name,
+  tables: [items, labels, links, samples, people, prices, settings, bare],
+);
 
 Future<LocalDatabase> _open(String name) async {
   final db = _openable(name);
@@ -512,9 +513,7 @@ void main() {
 
       await expectLater(
         newer.open(),
-        throwsA(
-          isA<MigrationRequiredError>().having((error) => error.message, 'message', contains('items.rank')),
-        ),
+        throwsA(isA<MigrationRequiredError>().having((error) => error.message, 'message', contains('items.rank'))),
       );
       expect(newer.isOpen, isFalse);
     });
@@ -564,7 +563,11 @@ void main() {
     test('runs the migrations in order, skipping the ones a file already went through', () async {
       final seen = <int>[];
       final tables = [items];
-      final v2 = LocalDatabase.declaredForTesting(name: 'ordered.db', tables: tables, migrations: [(txn) async => seen.add(2)]);
+      final v2 = LocalDatabase.declaredForTesting(
+        name: 'ordered.db',
+        tables: tables,
+        migrations: [(txn) async => seen.add(2)],
+      );
       await v2.open();
       await v2.dispose();
       final v4 = LocalDatabase.declaredForTesting(
@@ -710,7 +713,11 @@ void main() {
       await db.open();
 
       await reserved.on(db).insert('x');
-      final found = await reserved.on(db).where(reserved.group.isEqualTo('x')).orderBy([reserved.group.desc()]).select();
+      final found = await reserved
+          .on(db)
+          .where(reserved.group.isEqualTo('x'))
+          .orderBy((o) => o.desc(reserved.group))
+          .select();
 
       expect(found, ['x']);
       await db.dispose();
@@ -1008,10 +1015,9 @@ void main() {
     test('all and any combine a list of filters assembled at run time', () async {
       final db = await seeded('all_any.db');
 
-      expect(
-        await titles(items.on(db).where(Filter.all([items.done.isEqualTo(true), items.rank.isLessThan(3)]))),
-        ['beta'],
-      );
+      expect(await titles(items.on(db).where(Filter.all([items.done.isEqualTo(true), items.rank.isLessThan(3)]))), [
+        'beta',
+      ]);
       expect(await titles(items.on(db).where(Filter.any([items.rank.isEqualTo(1), items.rank.isEqualTo(4)]))), [
         'alpha',
         'delta',
@@ -1104,7 +1110,7 @@ void main() {
     test('orders by several columns, each in its own direction', () async {
       final db = await seeded('order.db');
 
-      expect(await titles(items.on(db).orderBy([items.done.asc(), items.rank.desc()])), [
+      expect(await titles(items.on(db).orderBy((o) => o.asc(items.done).desc(items.rank))), [
         'gamma_100%',
         'alpha',
         'delta',
@@ -1115,7 +1121,7 @@ void main() {
 
     test('limit and offset page the rows, and an offset alone is a valid page', () async {
       final db = await seeded('page.db');
-      final ordered = items.on(db).orderBy([items.rank.asc()]);
+      final ordered = items.on(db).orderBy((o) => o.asc(items.rank));
 
       expect(await titles(ordered.limit(2).offset(1)), ['beta', 'gamma_100%']);
       expect(await titles(ordered.offset(3)), ['delta']);
@@ -1128,7 +1134,7 @@ void main() {
       final db = await seeded('terminals.db');
       final done = items.on(db).where(items.done.isEqualTo(true));
 
-      expect((await done.orderBy([items.rank.desc()]).first())?.title, 'delta');
+      expect((await done.orderBy((o) => o.desc(items.rank)).first())?.title, 'delta');
       expect(await done.count(), 2);
       expect(await done.exists(), isTrue);
       expect(await items.on(db).where(items.rank.isEqualTo(99)).exists(), isFalse);

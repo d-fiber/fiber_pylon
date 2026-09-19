@@ -311,12 +311,12 @@ void main() {
     test('filters on equality, ranges, membership and null', () async {
       final t = db.users;
 
-      expect(await ids(db.from(t).where(t.city.isEqualTo('Paris')).orderBy([t.id.asc()])), ['bob', 'cyd']);
-      expect(await ids(db.from(t).where(t.age.isNotEqualTo(17)).orderBy([t.id.asc()])), ['ada', 'cyd', 'dee']);
+      expect(await ids(db.from(t).where(t.city.isEqualTo('Paris')).orderBy((o) => o.asc(t.id))), ['bob', 'cyd']);
+      expect(await ids(db.from(t).where(t.age.isNotEqualTo(17)).orderBy((o) => o.asc(t.id))), ['ada', 'cyd', 'dee']);
       expect(await ids(db.from(t).where(t.age.isLessThan(28))), ['bob']);
-      expect(await ids(db.from(t).where(t.age.isGreaterThanOrEqualTo(36)).orderBy([t.id.asc()])), ['ada', 'cyd']);
-      expect(await ids(db.from(t).where(t.age.isBetween(17, 28)).orderBy([t.id.asc()])), ['bob', 'dee']);
-      expect(await ids(db.from(t).where(t.id.isIn(['ada', 'dee'])).orderBy([t.id.asc()])), ['ada', 'dee']);
+      expect(await ids(db.from(t).where(t.age.isGreaterThanOrEqualTo(36)).orderBy((o) => o.asc(t.id))), ['ada', 'cyd']);
+      expect(await ids(db.from(t).where(t.age.isBetween(17, 28)).orderBy((o) => o.asc(t.id))), ['bob', 'dee']);
+      expect(await ids(db.from(t).where(t.id.isIn(['ada', 'dee'])).orderBy((o) => o.asc(t.id))), ['ada', 'dee']);
       expect(await ids(db.from(t).where(t.city.isNull())), ['dee']);
     });
 
@@ -324,11 +324,11 @@ void main() {
       final t = db.users;
 
       expect(await ids(db.from(t).where(t.age.isGreaterThan(20)).where(t.city.isEqualTo('Paris'))), ['cyd']);
-      expect(await ids(db.from(t).where(t.age.isLessThan(18) | t.age.isGreaterThan(50)).orderBy([t.id.asc()])), [
+      expect(await ids(db.from(t).where(t.age.isLessThan(18) | t.age.isGreaterThan(50)).orderBy((o) => o.asc(t.id))), [
         'bob',
         'cyd',
       ]);
-      expect(await ids(db.from(t).where(~t.city.isEqualTo('Paris')).orderBy([t.id.asc()])), ['ada', 'dee']);
+      expect(await ids(db.from(t).where(~t.city.isEqualTo('Paris')).orderBy((o) => o.asc(t.id))), ['ada', 'dee']);
     });
 
     test('matches text without reading % or _ as a pattern', () async {
@@ -341,9 +341,9 @@ void main() {
     test('orders ascending and descending, breaking ties with the next order', () async {
       final t = db.users;
 
-      expect(await ids(db.from(t).orderBy([t.age.asc()])), ['bob', 'dee', 'ada', 'cyd']);
-      expect(await ids(db.from(t).orderBy([t.age.desc()])), ['cyd', 'ada', 'dee', 'bob']);
-      expect(await ids(db.from(t).orderBy([t.city.asc(), t.age.desc()])).then((l) => l.sublist(1)), [
+      expect(await ids(db.from(t).orderBy((o) => o.asc(t.age))), ['bob', 'dee', 'ada', 'cyd']);
+      expect(await ids(db.from(t).orderBy((o) => o.desc(t.age))), ['cyd', 'ada', 'dee', 'bob']);
+      expect(await ids(db.from(t).orderBy((o) => o.asc(t.city).desc(t.age))).then((l) => l.sublist(1)), [
         'ada',
         'cyd',
         'bob',
@@ -351,7 +351,7 @@ void main() {
     });
 
     test('limits and skips', () async {
-      final ordered = db.from(db.users).orderBy([db.users.age.asc()]);
+      final ordered = db.from(db.users).orderBy((o) => o.asc(db.users.age));
 
       expect(await ids(ordered.limit(2)), ['bob', 'dee']);
       expect(await ids(ordered.limit(2).offset(1)), ['dee', 'ada']);
@@ -361,7 +361,7 @@ void main() {
     test('answers the first row and a count', () async {
       final t = db.users;
 
-      expect((await db.from(t).orderBy([t.age.desc()]).first())!.id, 'cyd');
+      expect((await db.from(t).orderBy((o) => o.desc(t.age)).first())!.id, 'cyd');
       expect(await db.from(t).where(t.age.isGreaterThan(100)).first(), isNull);
       expect(await db.from(t).where(t.age.isGreaterThan(20)).count(), 3);
       expect(() => db.from(t).limit(1).count(), throwsStateError);
@@ -373,7 +373,7 @@ void main() {
 
     test('a statement does not change the one it was built from', () async {
       final base = db.from(db.users).where(db.users.age.isGreaterThan(20));
-      base.orderBy([db.users.age.asc()]).limit(1);
+      base.orderBy((o) => o.asc(db.users.age)).limit(1);
 
       expect((await ids(base)).toSet(), {'ada', 'cyd', 'dee'});
     });
@@ -384,7 +384,12 @@ void main() {
       await db.from(db.users).upsert(_ada);
       final t = db.users;
       final emitted = <List<User>>[];
-      final subscription = db.from(t).where(t.age.isGreaterThan(20)).orderBy([t.age.asc()]).stream().listen(emitted.add);
+      final subscription = db
+          .from(t)
+          .where(t.age.isGreaterThan(20))
+          .orderBy((o) => o.asc(t.age))
+          .stream()
+          .listen(emitted.add);
       await _waitFor(emitted, 1);
 
       await db.from(t).upsert(_bob);
@@ -577,9 +582,10 @@ void main() {
     });
 
     test('reads every tenant, and says whose each row is', () async {
-      final rows = await db.fromWholeDatabase(db.users, SecureStorage.fingerprint).orderBy([
-        db.users.id.asc(),
-      ]).listWithTenants();
+      final rows = await db
+          .fromWholeDatabase(db.users, SecureStorage.fingerprint)
+          .orderBy((o) => o.asc(db.users.id))
+          .listWithTenants();
 
       expect(rows.map((r) => (r.tenant, r.record.id)), [('a', 'ada'), ('b', 'bob'), (null, 'guest')]);
     });

@@ -51,7 +51,7 @@ import 'user.dart';
 /// final adults = await db
 ///     .from(db.users)
 ///     .where(db.users.age.isGreaterThanOrEqualTo(18))
-///     .orderBy([db.users.name.asc()])
+///     .orderBy((o) => o.asc(db.users.name))
 ///     .select();
 /// ```
 final class OwnDatabase extends Database {

@@ -98,7 +98,7 @@ final class _Program {
 
 const _programs = [
   _Program('a table and a typed query', '''
-await db.from(db.notes).where(db.notes.title.isEqualTo('a')).orderBy([db.notes.title.asc()]).select();
+await db.from(db.notes).where(db.notes.title.isEqualTo('a')).orderBy((o) => o.asc(db.notes.title)).select();
 ''', compiles: true),
   _Program('a write, an update and a delete', '''
 await db.from(db.notes).upsert(const Note(id: 'a', title: 't'));
@@ -174,6 +174,18 @@ await Credentials.clear();
   _Program('a credential store', 'MemoryCredentialStore<Credential>? store;', compiles: false),
   _Program('a stored credential', 'StoredCredential<Credential>? store;', compiles: false),
   _Program('a credential refresher', 'CredentialRefresher<Credential>? refresher;', compiles: false),
+  _Program('an ordering written as a list of sorts', '''
+await db.from(db.notes).orderBy([db.notes.title.asc()]).select();
+''', compiles: false),
+  _Program('an ordering with several terms in cascade', '''
+await db.from(db.notes).orderBy((o) => o.asc(db.notes.title).desc(db.notes.id)).select();
+''', compiles: true),
+  _Program('a table read as a stream', '''
+db.from(db.notes).orderBy((o) => o.asc(db.notes.title)).stream().listen((notes) => notes.length);
+db.from(db.notes).streamFirst();
+db.from(db.notes).streamCount();
+db.from(db.notes).streamOne('a');
+''', compiles: true),
   _Program('building a secret entry by hand', "Secure.string_(SecureStorage.fingerprint, 'k', '');", compiles: false),
   _Program('a vault of one\'s own', 'const SecretStore? vault = null;', compiles: false),
   _Program('the fingerprint as bytes', 'SecureStorage.fingerprint.deriveHex(\'x\');', compiles: false),

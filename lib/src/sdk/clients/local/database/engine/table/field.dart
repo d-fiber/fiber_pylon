@@ -315,6 +315,33 @@ final class KeyField<K extends Object> extends Field<K> {
   Value? _generate() => _definition.generator?.call();
 }
 
+/// The terms of an ordering, added one after the other by the callback given to
+/// [Rows.orderBy].
+///
+/// ```dart
+/// db.from(users).orderBy((o) => o.asc(users.city).desc(users.age)).stream();
+/// ```
+///
+/// Each term is a column of a table, so an ordering by a name that does not
+/// exist does not compile.
+final class OrderBuilder {
+  OrderBuilder._();
+
+  final List<Sort> _terms = [];
+
+  /// Orders by [field], smallest first, after the terms already added.
+  OrderBuilder asc(Field<Object?> field) {
+    _terms.add(field.asc());
+    return this;
+  }
+
+  /// Orders by [field], largest first, after the terms already added.
+  OrderBuilder desc(Field<Object?> field) {
+    _terms.add(field.desc());
+    return this;
+  }
+}
+
 /// A value paired with the column it is written to, built by [Field.to].
 ///
 /// The Dart type of the value was checked against the column when it was built,

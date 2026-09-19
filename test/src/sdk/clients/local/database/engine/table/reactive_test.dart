@@ -128,7 +128,7 @@ void main() {
       final events = <List<String>>[];
       final subscription = notes
           .on(db)
-          .orderBy([notes.id.asc()])
+          .orderBy((o) => o.asc(notes.id))
           .stream()
           .listen((rows) => events.add([for (final row in rows) row.title]));
       await _waitFor(events, 1);
@@ -262,7 +262,7 @@ void main() {
       final events = <String?>[];
       final subscription = notes
           .on(db)
-          .orderBy([notes.title.asc()])
+          .orderBy((o) => o.asc(notes.title))
           .streamFirst()
           .listen((note) => events.add(note?.title));
       await _waitFor(events, 1);

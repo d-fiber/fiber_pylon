@@ -181,7 +181,7 @@ void main() {
       final changed = await counters.on(db).where(counters.name.isEqualTo('b')).update([counters.hits.incrementBy(7)]);
 
       expect(changed, 1);
-      final rows = await counters.on(db).orderBy([counters.name.asc()]).select();
+      final rows = await counters.on(db).orderBy((o) => o.asc(counters.name)).select();
       expect(rows.map((c) => c.hits), [0, 7]);
     });
 

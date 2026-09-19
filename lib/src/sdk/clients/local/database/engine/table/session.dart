@@ -82,7 +82,7 @@ String _whereSql(Filter? filter, List<Value> arguments) {
 /// final open = await todos
 ///     .on(db)
 ///     .where(todos.done.isEqualTo(false) & todos.due.isNotNull())
-///     .orderBy([todos.due.asc()])
+///     .orderBy((o) => o.asc(todos.due))
 ///     .limit(20)
 ///     .select();
 /// ```
@@ -172,9 +172,13 @@ base class Rows<R extends Object> {
     return _copy(filter: _filter == null ? filter : _filter & filter);
   }
 
-  /// Sorts the rows by [orders], the first deciding and each later one
-  /// breaking the ties of the one before it.
-  Rows<R> orderBy(List<Sort> orders) => _copy(orders: orders);
+  /// Sorts the rows by the terms [build] adds to its [OrderBuilder], the first
+  /// deciding and each later one breaking the ties of the one before it.
+  ///
+  /// ```dart
+  /// db.from(users).orderBy((o) => o.asc(users.city).desc(users.age)).select();
+  /// ```
+  Rows<R> orderBy(OrderBuilder Function(OrderBuilder order) build) => _copy(orders: build(OrderBuilder._())._terms);
 
   /// Reads at most [count] rows.
   ///
@@ -220,7 +224,7 @@ base class Rows<R extends Object> {
   /// that changes what is kept.
   ///
   /// ```dart
-  /// todos.on(db).where(todos.done.isEqualTo(false)).orderBy([todos.due.asc()]).stream().listen(show);
+  /// todos.on(db).where(todos.done.isEqualTo(false)).orderBy((o) => o.asc(todos.due)).stream().listen(show);
   /// ```
   ///
   /// The first event is the current rows. One more follows each write to the
@@ -549,7 +553,7 @@ final class WholeRows<R extends Object> extends Rows<R> {
   WholeRows<R> where(Filter filter) => super.where(filter) as WholeRows<R>;
 
   @override
-  WholeRows<R> orderBy(List<Sort> orders) => super.orderBy(orders) as WholeRows<R>;
+  WholeRows<R> orderBy(OrderBuilder Function(OrderBuilder order) build) => super.orderBy(build) as WholeRows<R>;
 
   @override
   WholeRows<R> limit(int count) => super.limit(count) as WholeRows<R>;

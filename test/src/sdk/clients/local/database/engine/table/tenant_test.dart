@@ -243,7 +243,7 @@ void main() {
   });
 
   Future<List<String>> titles([Rows<Note>? rows]) async => [
-    for (final note in await (rows ?? notes.on(db).orderBy([notes.id.asc()])).select()) note.title,
+    for (final note in await (rows ?? notes.on(db).orderBy((o) => o.asc(notes.id))).select()) note.title,
   ];
 
   group('the schema of a tunnel', () {
@@ -475,20 +475,20 @@ void main() {
     });
 
     test('reads every tenant, and the anonymous rows', () async {
-      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).select();
+      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy((o) => o.asc(notes.id)).select();
 
       expect(rows.map((n) => n.title), ['a1', 'a2', 'b1', 'guest']);
       expect(await notes.onWholeDatabase(db, fingerprint).count(), 4);
     });
 
     test('says whose each row is', () async {
-      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).listWithTenants();
+      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy((o) => o.asc(notes.id)).listWithTenants();
 
       expect(rows.map((r) => (r.tenant, r.record.title)), [('a', 'a1'), ('a', 'a2'), ('b', 'b1'), (null, 'guest')]);
     });
 
     test('filters and narrows to some tenants', () async {
-      final only = notes.onWholeDatabase(db, fingerprint).ofTenants(['a', 'b']).orderBy([notes.id.asc()]);
+      final only = notes.onWholeDatabase(db, fingerprint).ofTenants(['a', 'b']).orderBy((o) => o.asc(notes.id));
 
       expect((await only.select()).map((n) => n.title), ['a1', 'a2', 'b1']);
       expect(await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('b1')).count(), 1);
@@ -501,7 +501,10 @@ void main() {
       Tenant.use('b');
       await profiles.on(db).insert(const Profile('ada', 'b@x.dev'));
 
-      final rows = await profiles.onWholeDatabase(db, fingerprint).orderBy([profiles.handle.asc()]).listWithTenants();
+      final rows = await profiles
+          .onWholeDatabase(db, fingerprint)
+          .orderBy((o) => o.asc(profiles.handle))
+          .listWithTenants();
 
       expect(rows.map((r) => (r.tenant, r.record.email)), [('a', 'a@x.dev'), ('b', 'b@x.dev')]);
     });
@@ -510,11 +513,10 @@ void main() {
       await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('a1')).update([notes.title.to('A1')]);
       await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('b1')).delete();
 
-      expect((await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).select()).map((n) => n.title), [
-        'A1',
-        'a2',
-        'guest',
-      ]);
+      expect(
+        (await notes.onWholeDatabase(db, fingerprint).orderBy((o) => o.asc(notes.id)).select()).map((n) => n.title),
+        ['A1', 'a2', 'guest'],
+      );
     });
 
     test('is simply all of a shared table', () async {

@@ -119,7 +119,7 @@ final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, 
   });
 
   @override
-  Stream<List<Note>> stream() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).stream();
+  Stream<List<Note>> stream() => _database.from(_database.notes).orderBy((o) => o.asc(_database.notes.id)).stream();
 
   @override
   HouseError resolve(Fault<HouseSignal> fault) => HouseError.unknown;

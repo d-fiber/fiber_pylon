@@ -65,7 +65,7 @@ part 'batch.dart';
 /// final adults = await db
 ///     .from(db.users)
 ///     .where(db.users.age.isGreaterThanOrEqualTo(18))
-///     .orderBy([db.users.name.asc()])
+///     .orderBy((o) => o.asc(db.users.name))
 ///     .limit(20)
 ///     .select();
 /// db.from(db.users).stream().listen(print);

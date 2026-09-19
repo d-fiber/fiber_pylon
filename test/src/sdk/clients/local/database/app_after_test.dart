@@ -210,7 +210,7 @@ final class TodoStore {
   Future<List<Todo>> page({required Status status, required int page, required int size}) => todos
       .on(db)
       .where(todos.status.isEqualTo(status) & todos.done.isEqualTo(false))
-      .orderBy([todos.title.asc()])
+      .orderBy((o) => o.asc(todos.title))
       .limit(size)
       .offset(page * size)
       .select();
