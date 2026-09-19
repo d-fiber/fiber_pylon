@@ -70,6 +70,8 @@ class _FieldDefinition {
     this.defaultValue,
     this.reference,
     this.collation,
+    this.isolated = false,
+    this.referencesIsolated = false,
   });
 
   final DatabaseCodec<Object> codec;
@@ -82,6 +84,12 @@ class _FieldDefinition {
   final ColumnReference? reference;
   final Collation? collation;
 
+  /// Whether the table this column belongs to is [Tunnel.isolated].
+  final bool isolated;
+
+  /// Whether the column [reference] points at belongs to an isolated table.
+  final bool referencesIsolated;
+
   _FieldDefinition copyWith({
     bool? isNullable,
     bool? isUnique,
@@ -89,6 +97,7 @@ class _FieldDefinition {
     DatabaseType? defaultValue,
     ColumnReference? reference,
     Collation? collation,
+    bool? referencesIsolated,
   }) => _FieldDefinition(
     codec: codec,
     isNullable: isNullable ?? this.isNullable,
@@ -99,9 +108,19 @@ class _FieldDefinition {
     defaultValue: defaultValue ?? this.defaultValue,
     reference: reference ?? this.reference,
     collation: collation ?? this.collation,
+    isolated: isolated,
+    referencesIsolated: referencesIsolated ?? this.referencesIsolated,
   );
 
-  ColumnBuilder<dynamic, DatabaseType> builder(ColumnFactory factory) {
+  /// The column this definition declares. An isolated table takes the key, the
+  /// uniqueness and the foreign key out of the column itself and states them
+  /// on the table instead, where the tenant column can be part of them.
+  ColumnBuilder<dynamic, DatabaseType> builder(
+    ColumnFactory factory, {
+    bool keepPrimary = true,
+    bool keepUnique = true,
+    bool keepReference = true,
+  }) {
     final stored = defaultValue;
     final ColumnBuilder<dynamic, DatabaseType> column = switch ((codec.storage, stored)) {
       (ColumnType.integer, null) => isAutoincrement ? factory.integer().autoincrement() : factory.integer(),
@@ -116,9 +135,9 @@ class _FieldDefinition {
       _ => throw StateError('The default $stored does not fit the ${codec.storage.name} storage of its column.'),
     };
     column.isNullable(isNullable);
-    if (isUnique) column.unique();
-    if (isPrimary) column.isPrimary();
-    final target = reference;
+    if (isUnique && keepUnique) column.unique();
+    if (isPrimary && keepPrimary) column.isPrimary();
+    final target = keepReference ? reference : null;
     if (target != null) column.references(target);
     final ordering = collation;
     if (ordering != null) {
@@ -180,6 +199,7 @@ base class DatabaseField<V> extends Equatable {
         name,
         _definition.copyWith(
           reference: ColumnReference(table: target.table, column: target.name, onDelete: onDelete),
+          referencesIsolated: target._definition.isolated,
         ),
       );
 

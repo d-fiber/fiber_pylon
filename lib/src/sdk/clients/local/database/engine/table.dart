@@ -96,16 +96,17 @@ final DatabaseCodec<UuidValue> _uuidCodec = DatabaseCodec<UuidValue>(
 ///
 /// A column refuses NULL until [DatabaseField.nullable] says otherwise.
 final class DatabaseColumns {
-  const DatabaseColumns._(this._table);
+  const DatabaseColumns._(this._table, this._isolated);
 
   final String _table;
+  final bool _isolated;
 
   /// An integer primary key the database numbers itself, and never numbers
   /// twice: a deleted row's key is not handed out again.
   DatabaseKey<int> key([String name = 'id']) => DatabaseKey<int>._(
     _table,
     name,
-    _FieldDefinition(codec: _integerCodec._erased, isPrimary: true, isAutoincrement: true),
+    _FieldDefinition(codec: _integerCodec._erased, isPrimary: true, isAutoincrement: true, isolated: _isolated),
   );
 
   /// A UUID primary key. The engine generates a random one on insert when a
@@ -113,7 +114,12 @@ final class DatabaseColumns {
   DatabaseKey<UuidValue> uuidKey([String name = 'id']) => DatabaseKey<UuidValue>._(
     _table,
     name,
-    _FieldDefinition(codec: _uuidCodec._erased, isPrimary: true, generator: DatabaseType.randomUuid),
+    _FieldDefinition(
+      codec: _uuidCodec._erased,
+      isPrimary: true,
+      generator: DatabaseType.randomUuid,
+      isolated: _isolated,
+    ),
   );
 
   /// A whole number of up to 64 bits.
@@ -163,7 +169,7 @@ final class DatabaseColumns {
 
   /// A value of your own type, stored the way [codec] says.
   DatabaseField<V> custom<V extends Object>(String name, DatabaseCodec<V> codec) =>
-      DatabaseField<V>._(_table, name, _FieldDefinition(codec: codec._erased));
+      DatabaseField<V>._(_table, name, _FieldDefinition(codec: codec._erased, isolated: _isolated));
 }
 
 /// One row of a table as a query read it, handed to [DatabaseTable.read].
@@ -230,7 +236,18 @@ abstract class DatabaseTable<R extends Object> {
 
   /// Opens the columns of this table. Each `late final` field of the subclass
   /// is one call.
-  late final DatabaseColumns column = DatabaseColumns._(tableName);
+  late final DatabaseColumns column = DatabaseColumns._(tableName, tunnel == Tunnel.isolated);
+
+  /// Whose rows this table holds: [Tunnel.shared], one copy for everyone (the
+  /// default), or [Tunnel.isolated], where every [Tenant] has rows of its own.
+  ///
+  /// An isolated table gains a hidden column that holds the tenant of each row,
+  /// and the engine adds it to every read and write, so no query can reach
+  /// another tenant's rows by leaving a condition out. The key of such a table
+  /// is unique per tenant, not across them, and so are its unique columns; an
+  /// index and a foreign key to another isolated table are per tenant too.
+  /// Changing the tunnel of a table that already holds rows needs a migration.
+  Tunnel get tunnel => Tunnel.shared;
 
   /// Every column of this table, in the order they are created.
   ///
@@ -263,6 +280,14 @@ abstract class DatabaseTable<R extends Object> {
     return DatabaseTableAccess<R>._(session, this);
   }
 
+  /// This table across every tenant, read and written through [session]: the
+  /// whole-database mechanism, which is a separate entry point from [on], not a
+  /// wider view of it. See [DatabaseWholeRows].
+  DatabaseWholeRows<R> onWholeDatabase(DatabaseSession session) {
+    session._database._requireDeclared(this);
+    return DatabaseWholeRows<R>._(session, this);
+  }
+
   /// The `CREATE TABLE` this class declares, as the schema library renders it.
   late final DeclaredTable declaration = _declare();
 
@@ -281,6 +306,18 @@ abstract class DatabaseTable<R extends Object> {
     ]) {
       _requireOwned(field);
     }
+    return tunnel == Tunnel.isolated ? _declareIsolated(names) : _declareShared();
+  }
+
+  DeclaredTable _declareShared() {
+    for (final field in columns) {
+      if (field._definition.referencesIsolated) {
+        throw StateError(
+          '$field points at a column of an isolated table, but $tableName is shared: '
+          'a row everyone sees would point at a row only one tenant sees.',
+        );
+      }
+    }
     final builder = TableBuilder(tableName);
     if (primaryKey.isNotEmpty) builder.primaryKey((pk) => pk.columns([for (final field in primaryKey) field.name]));
     builder.uniques(
@@ -297,6 +334,94 @@ abstract class DatabaseTable<R extends Object> {
       ],
     );
     return builder.columns((c) => {for (final field in columns) field.name: field._definition.builder(c)});
+  }
+
+  /// The table as an isolated one is created: a hidden tenant column joins
+  /// the key, every unique constraint, every index and every foreign key to
+  /// another isolated table, so that two tenants never collide, and a row can
+  /// never point at another tenant's.
+  DeclaredTable _declareIsolated(Set<String> names) {
+    if (names.contains(_tenantColumn)) {
+      throw StateError('$tableName declares a column called $_tenantColumn, which an isolated table reserves.');
+    }
+    final keyColumns = [
+      for (final field in columns)
+        if (field.isPrimary) field,
+    ];
+    final autoKey = keyColumns.any((field) => field._definition.isAutoincrement);
+    // An auto-numbered key stays alone the primary key, since SQLite only
+    // numbers a single-column one: the numbers are then unique across tenants,
+    // and the tenant joins a unique constraint that foreign keys can point at.
+    final composedKey = <String>[
+      if (!autoKey && keyColumns.isNotEmpty) ...keyColumns.map((field) => field.name),
+      if (!autoKey && keyColumns.isEmpty) ...primaryKey.map((field) => field.name),
+    ];
+    final uniqueColumns = [
+      for (final field in columns)
+        if (field._definition.isUnique) field.name,
+    ];
+    final references = [
+      for (final field in columns)
+        if (field._definition.reference != null && field._definition.referencesIsolated) field,
+    ];
+
+    final builder = TableBuilder(tableName);
+    if (composedKey.isNotEmpty) builder.primaryKey((pk) => pk.columns([_tenantColumn, ...composedKey]));
+    builder.uniques(
+      (u) => [
+        if (autoKey) u.columns([_tenantColumn, keyColumns.first.name]),
+        for (final name in uniqueColumns) u.columns([_tenantColumn, name]),
+        for (final unique in uniques) u.columns([_tenantColumn, for (final field in unique) field.name]),
+      ],
+    );
+    builder.indexes(
+      (i) => [
+        if (autoKey) i.name('${tableName}___tenant_idx').columns(const [IndexColumn.named(_tenantColumn)]),
+        for (final index in indexes)
+          i.name('${tableName}_${index.map((field) => field.name).join('_')}_idx').columns([
+            const IndexColumn.named(_tenantColumn),
+            for (final field in index) IndexColumn.named(field.name),
+          ]),
+      ],
+    );
+    if (references.isNotEmpty) {
+      builder.foreignKeys((f) => [for (final field in references) _tenantForeignKey(f, field)]);
+    }
+    return builder.columns((c) {
+      final map = <String, ColumnBuilder<dynamic, DatabaseType>>{};
+      for (final field in columns) {
+        final definition = field._definition;
+        map[field.name] = definition.builder(
+          c,
+          keepPrimary: definition.isAutoincrement || !definition.isPrimary,
+          keepUnique: false,
+          keepReference: !definition.referencesIsolated,
+        );
+      }
+      final tenant = c.text().default_(const Varchar(''));
+      tenant.isNullable(false);
+      map[_tenantColumn] = tenant;
+      return map;
+    });
+  }
+
+  TableForeignKeyBuilder _tenantForeignKey(TableForeignKeyFactory factory, DatabaseField<Object?> field) {
+    final reference = field._definition.reference!;
+    final referenced = reference.column;
+    if (referenced == null) {
+      throw StateError('$field references ${reference.table} without naming the column.');
+    }
+    final foreignKey = factory.columns([_tenantColumn, field.name]).references(reference.table, [
+      _tenantColumn,
+      referenced,
+    ]);
+    final onDelete = reference.onDelete;
+    if (onDelete != null) foreignKey.onDelete(onDelete);
+    final onUpdate = reference.onUpdate;
+    if (onUpdate != null) foreignKey.onUpdate(onUpdate);
+    final deferral = reference.deferral;
+    if (deferral != null) foreignKey.deferrable(deferral);
+    return foreignKey;
   }
 
   void _requireOwned(DatabaseField<Object?> field) {

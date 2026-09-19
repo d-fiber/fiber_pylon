@@ -71,6 +71,7 @@ part 'transaction.dart';
 part 'batch.dart';
 part 'field.dart';
 part 'table.dart';
+part 'tenant.dart';
 part 'reactive.dart';
 part 'session.dart';
 part 'declared.dart';

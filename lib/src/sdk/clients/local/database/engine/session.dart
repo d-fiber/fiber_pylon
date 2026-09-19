@@ -85,7 +85,15 @@ String _whereSql(DatabaseFilter? filter, List<DatabaseType> arguments) {
 /// a column shared by name between two tables cannot be read from the wrong
 /// one. Reading with no [orderBy] gives no promised order.
 base class DatabaseRows<R extends Object> {
-  const DatabaseRows._(this._session, this._table, [this._filter, this._orders = const [], this._limit, this._offset]);
+  const DatabaseRows._(
+    this._session,
+    this._table, [
+    this._filter,
+    this._orders = const [],
+    this._limit,
+    this._offset,
+    this._scope = const _CurrentScope(),
+  ]);
 
   final DatabaseSession _session;
   final DatabaseTable<R> _table;
@@ -93,9 +101,44 @@ base class DatabaseRows<R extends Object> {
   final List<DatabaseOrder> _orders;
   final int? _limit;
   final int? _offset;
+  final _Scope _scope;
 
   DatabaseRows<R> _copy({DatabaseFilter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
-      DatabaseRows<R>._(_session, _table, filter ?? _filter, orders ?? _orders, limit ?? _limit, offset ?? _offset);
+      DatabaseRows<R>._(
+        _session,
+        _table,
+        filter ?? _filter,
+        orders ?? _orders,
+        limit ?? _limit,
+        offset ?? _offset,
+        _scope,
+      );
+
+  /// Whose rows this reaches, resolved now. Every operation reads it once,
+  /// before it awaits anything, so it finishes on the tenant that was current
+  /// when it started.
+  _Reach _reach() => _scope.reach(_table);
+
+  /// The filter every read and write of this table starts from: on an
+  /// isolated table, the tenant condition comes first and no method of this
+  /// class can leave it out.
+  DatabaseFilter? _scopedFilter(_Reach reach) {
+    if (_table.tunnel == Tunnel.shared) return _filter;
+    final quoted = _quotedIdentifier(_tenantColumn);
+    final DatabaseFilter? partition;
+    if (!reach.isMany) {
+      partition = _DatabaseFilterRaw('$quoted = ?', [DatabaseType.varchar(reach.tenant!)]);
+    } else if (reach.only case final only?) {
+      if (only.isEmpty) throw ArgumentError.value(only, 'only', 'cannot be empty');
+      partition = _DatabaseFilterRaw('$quoted IN (${List.filled(only.length, '?').join(', ')})', [
+        for (final tenant in only) DatabaseType.varchar(tenant),
+      ]);
+    } else {
+      partition = null;
+    }
+    if (partition == null) return _filter;
+    return _filter == null ? partition : partition & _filter;
+  }
 
   /// Keeps only the rows [filter] matches. Calling it again keeps the rows
   /// both filters match, rather than replacing the first.
@@ -131,18 +174,23 @@ base class DatabaseRows<R extends Object> {
   /// Every row kept, as records.
   Future<List<R>> list() async => [for (final row in await _selectRows()) _table._fromRow(row)];
 
-  Future<List<DatabaseRow>> _selectRows() => _session._run((executor) async {
-    final arguments = <DatabaseType>[];
-    final where = _whereSql(_filter, arguments);
-    final order = _orders.isEmpty ? '' : ' ORDER BY ${_orders.map(_renderOrder).join(', ')}';
-    final limit = _limit ?? (_offset == null ? null : -1);
-    final page = limit == null ? '' : ' LIMIT $limit${_offset == null ? '' : ' OFFSET $_offset'}';
-    final rows = await executor.rawQuery(
-      'SELECT ${_table._columnList} FROM ${_quotedIdentifier(_table.tableName)}$where$order$page',
-      _toNativeArgs(arguments),
-    );
-    return rows.map(_fromNativeRow).toList();
-  });
+  Future<List<DatabaseRow>> _selectRows({bool withTenant = false}) {
+    final reach = _reach();
+    return _session._run((executor) async {
+      final arguments = <DatabaseType>[];
+      final where = _whereSql(_scopedFilter(reach), arguments);
+      final tieBreak = reach.isMany && _orders.isNotEmpty ? ', ${_quotedIdentifier(_tenantColumn)}' : '';
+      final order = _orders.isEmpty ? '' : ' ORDER BY ${_orders.map(_renderOrder).join(', ')}$tieBreak';
+      final limit = _limit ?? (_offset == null ? null : -1);
+      final page = limit == null ? '' : ' LIMIT $limit${_offset == null ? '' : ' OFFSET $_offset'}';
+      final tenant = withTenant && _table.tunnel == Tunnel.isolated ? ', ${_quotedIdentifier(_tenantColumn)}' : '';
+      final rows = await executor.rawQuery(
+        'SELECT ${_table._columnList}$tenant FROM ${_quotedIdentifier(_table.tableName)}$where$order$page',
+        _toNativeArgs(arguments),
+      );
+      return rows.map(_fromNativeRow).toList();
+    });
+  }
 
   /// The first row kept, or null when none is.
   Future<R?> first() async => (await _copy(limit: 1).list()).firstOrNull;
@@ -176,15 +224,31 @@ base class DatabaseRows<R extends Object> {
   /// does.
   Stream<int> watchCount() {
     _requireNoPage('watchCount');
-    return _watchTable<int>(_watchedDatabase(), _table.tableName, count, (previous, current) => previous == current);
+    return _watchTable<int>(
+      _watchedDatabase(),
+      _table.tableName,
+      count,
+      (previous, current) => previous == current,
+      followsTenant: _followsTenant,
+    );
   }
 
-  Stream<List<DatabaseRow>> _watchRows() =>
-      _watchTable<List<DatabaseRow>>(_watchedDatabase(), _table.tableName, _selectRows, _sameRows);
+  Stream<List<DatabaseRow>> _watchRows() => _watchTable<List<DatabaseRow>>(
+    _watchedDatabase(),
+    _table.tableName,
+    _selectRows,
+    _sameRows,
+    followsTenant: _followsTenant,
+  );
+
+  /// Whether what this watches changes with [Tenant.current].
+  bool get _followsTenant => _scope is _CurrentScope && _table.tunnel == Tunnel.isolated;
 
   LocalDatabase _watchedDatabase() {
     if (_session is DatabaseTransaction) {
-      throw StateError('watch on ${_table.tableName} needs a LocalDatabase: a transaction ends before it could change.');
+      throw StateError(
+        'watch on ${_table.tableName} needs a LocalDatabase: a transaction ends before it could change.',
+      );
     }
     return _session._database;
   }
@@ -193,30 +257,36 @@ base class DatabaseRows<R extends Object> {
   ///
   /// Throws a [StateError] when a [limit] or an [offset] was set, which a
   /// count would silently ignore.
-  Future<int> count() => _session._run((executor) async {
-    _requireNoPage('count');
-    final arguments = <DatabaseType>[];
-    final where = _whereSql(_filter, arguments);
-    final rows = await executor.rawQuery(
-      'SELECT COUNT(*) AS n FROM ${_quotedIdentifier(_table.tableName)}$where',
-      _toNativeArgs(arguments),
-    );
-    return _fromNative(rows.single['n']).asInt;
-  });
+  Future<int> count() {
+    final reach = _reach();
+    return _session._run((executor) async {
+      _requireNoPage('count');
+      final arguments = <DatabaseType>[];
+      final where = _whereSql(_scopedFilter(reach), arguments);
+      final rows = await executor.rawQuery(
+        'SELECT COUNT(*) AS n FROM ${_quotedIdentifier(_table.tableName)}$where',
+        _toNativeArgs(arguments),
+      );
+      return _fromNative(rows.single['n']).asInt;
+    });
+  }
 
   /// Whether at least one row is kept.
   ///
   /// Throws a [StateError] when a [limit] or an [offset] was set.
-  Future<bool> exists() => _session._run((executor) async {
-    _requireNoPage('exists');
-    final arguments = <DatabaseType>[];
-    final where = _whereSql(_filter, arguments);
-    final rows = await executor.rawQuery(
-      'SELECT EXISTS(SELECT 1 FROM ${_quotedIdentifier(_table.tableName)}$where) AS present',
-      _toNativeArgs(arguments),
-    );
-    return _fromNative(rows.single['present']).asBoolean;
-  });
+  Future<bool> exists() {
+    final reach = _reach();
+    return _session._run((executor) async {
+      _requireNoPage('exists');
+      final arguments = <DatabaseType>[];
+      final where = _whereSql(_scopedFilter(reach), arguments);
+      final rows = await executor.rawQuery(
+        'SELECT EXISTS(SELECT 1 FROM ${_quotedIdentifier(_table.tableName)}$where) AS present',
+        _toNativeArgs(arguments),
+      );
+      return _fromNative(rows.single['present']).asBoolean;
+    });
+  }
 
   /// Writes [assignments] over every row kept, and answers how many changed.
   ///
@@ -268,38 +338,45 @@ base class DatabaseRows<R extends Object> {
 
   Future<int> _write(List<DatabaseAssignment> assignments) => _writeValues(_table._valuesOf(assignments));
 
-  Future<int> _writeValues(Map<String, DatabaseType> values) => _session._run((executor) async {
-    _requireNoPage('a write');
-    if (values.isEmpty) throw StateError('A write on ${_table.tableName} needs at least one column to set.');
-    final arguments = values.values.toList();
-    final set = values.keys.map((name) => '${_quotedIdentifier(name)} = ?').join(', ');
-    final where = _whereSql(_filter, arguments);
-    final changed = await executor.rawUpdate(
-      'UPDATE ${_quotedIdentifier(_table.tableName)} SET $set$where',
-      _toNativeArgs(arguments),
-    );
-    if (changed > 0) _session._database._notifyWrite({_table.tableName});
-    return changed;
-  });
+  Future<int> _writeValues(Map<String, DatabaseType> values) {
+    final reach = _reach();
+    return _session._run((executor) async {
+      _requireNoPage('a write');
+      if (values.isEmpty) throw StateError('A write on ${_table.tableName} needs at least one column to set.');
+      final arguments = values.values.toList();
+      final set = values.keys.map((name) => '${_quotedIdentifier(name)} = ?').join(', ');
+      final where = _whereSql(_scopedFilter(reach), arguments);
+      final changed = await executor.rawUpdate(
+        'UPDATE ${_quotedIdentifier(_table.tableName)} SET $set$where',
+        _toNativeArgs(arguments),
+      );
+      if (changed > 0) _session._database._notifyWrite({_table.tableName});
+      return changed;
+    });
+  }
 
-  Future<int> _remove() => _session._run((executor) async {
-    _requireNoPage('a delete');
-    final arguments = <DatabaseType>[];
-    final where = _whereSql(_filter, arguments);
-    final removed = await executor.rawDelete(
-      'DELETE FROM ${_quotedIdentifier(_table.tableName)}$where',
-      _toNativeArgs(arguments),
-    );
-    if (removed > 0) _session._database._notifyWrite({_table.tableName});
-    return removed;
-  });
+  Future<int> _remove() {
+    final reach = _reach();
+    return _session._run((executor) async {
+      _requireNoPage('a delete');
+      final arguments = <DatabaseType>[];
+      final where = _whereSql(_scopedFilter(reach), arguments);
+      final removed = await executor.rawDelete(
+        'DELETE FROM ${_quotedIdentifier(_table.tableName)}$where',
+        _toNativeArgs(arguments),
+      );
+      if (removed > 0) _session._database._notifyWrite({_table.tableName});
+      return removed;
+    });
+  }
 }
 
 /// A table read and written through one [DatabaseSession], opened by
 /// [DatabaseTable.on]. Everything [DatabaseRows] reads and edits is here too,
 /// over the whole table, and inserting is added.
 base class DatabaseTableAccess<R extends Object> extends DatabaseRows<R> {
-  const DatabaseTableAccess._(super.session, super.table) : super._();
+  const DatabaseTableAccess._(DatabaseSession session, DatabaseTable<R> table, [_Scope scope = const _CurrentScope()])
+    : super._(session, table, null, const [], null, null, scope);
 
   /// Inserts [record] and answers the record the database now holds, so the
   /// key it was given and any default it took are already in it.
@@ -312,10 +389,13 @@ base class DatabaseTableAccess<R extends Object> extends DatabaseRows<R> {
   /// row lands or none does. Answers the records the database now holds.
   Future<List<R>> insertAll(List<R> records) {
     if (records.isEmpty) return Future.value(const []);
+    final tenant = _table.tunnel == Tunnel.isolated ? _reach().tenant! : null;
     return _session._run((executor) async {
       final batch = executor.batch();
       for (final record in records) {
-        final (sql, arguments) = _insertSql(_table.tableName, _table._rowOf(record, generateKey: true));
+        final row = _table._rowOf(record, generateKey: true);
+        if (tenant != null) row[_tenantColumn] = DatabaseType.varchar(tenant);
+        final (sql, arguments) = _insertSql(_table.tableName, row);
         batch.rawInsert(sql, arguments);
       }
       final rowIds = (await batch.commit()).cast<int>();
@@ -345,7 +425,7 @@ base class DatabaseTableAccess<R extends Object> extends DatabaseRows<R> {
 /// [DatabaseKeyedTable.on]. It adds what a key makes possible: reading, writing
 /// and removing one row by its key.
 final class DatabaseKeyedAccess<R extends Object, K extends Object> extends DatabaseTableAccess<R> {
-  const DatabaseKeyedAccess._(super.session, DatabaseKeyedTable<R, K> super.table) : super._();
+  const DatabaseKeyedAccess._(super.session, DatabaseKeyedTable<R, K> super.table, [super.scope]) : super._();
 
   DatabaseKeyedTable<R, K> get _keyed => _table as DatabaseKeyedTable<R, K>;
 
@@ -365,8 +445,13 @@ final class DatabaseKeyedAccess<R extends Object, K extends Object> extends Data
   /// The row is updated in place. It is never deleted and reinserted, so the
   /// rows of other tables that point at it are untouched. A record with no key
   /// yet is inserted, and the engine assigns one.
-  Future<R> upsert(R record) => _session._atomically((session) async {
-    final access = _keyed.on(session);
+  Future<R> upsert(R record) {
+    // Held from here: the whole upsert runs on the tenant it started on.
+    final scope = _table.tunnel == Tunnel.isolated ? _PinnedScope(_reach().tenant!) : const _CurrentScope();
+    return _session._atomically((session) => _upsertOn(DatabaseKeyedAccess<R, K>._(session, _keyed, scope), record));
+  }
+
+  Future<R> _upsertOn(DatabaseKeyedAccess<R, K> access, R record) async {
     final row = _table._rowOf(record, generateKey: false);
     final key = _keyed._key;
     final keyValue = row.remove(key.name);
@@ -380,5 +465,77 @@ final class DatabaseKeyedAccess<R extends Object, K extends Object> extends Data
         : await access.where(sameKey)._writeValues(row);
     if (changed == 0) return access.insert(record);
     return (await access.where(sameKey).first())!;
-  });
+  }
+}
+
+/// The rows of one table across every tenant: the whole-database mechanism,
+/// opened by [DatabaseTable.onWholeDatabase].
+///
+/// It is not the tenant mechanism with a wider view. [DatabaseTable.on] never
+/// reaches another tenant's rows, whatever is called on what it returns; this
+/// is a separate entry point, picked on purpose, that reaches all of them —
+/// for a support tool, a backup, a migration, anything that is about the
+/// whole database rather than about one account. It reads, and it edits or
+/// removes the rows a filter keeps, wherever they belong; it inserts nothing,
+/// since a new row belongs to one tenant, which is [DatabaseTable.on]'s to say.
+///
+/// A shared table has no tenants, so here it is simply all of its rows.
+final class DatabaseWholeRows<R extends Object> extends DatabaseRows<R> {
+  const DatabaseWholeRows._(
+    super.session,
+    super.table, [
+    super.filter,
+    super.orders,
+    super.limit,
+    super.offset,
+    super.scope = const _AllScope(null),
+  ]) : super._();
+
+  @override
+  DatabaseWholeRows<R> _copy({DatabaseFilter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+      DatabaseWholeRows<R>._(
+        _session,
+        _table,
+        filter ?? _filter,
+        orders ?? _orders,
+        limit ?? _limit,
+        offset ?? _offset,
+        _scope,
+      );
+
+  @override
+  DatabaseWholeRows<R> where(DatabaseFilter filter) => super.where(filter) as DatabaseWholeRows<R>;
+
+  @override
+  DatabaseWholeRows<R> orderBy(List<DatabaseOrder> orders) => super.orderBy(orders) as DatabaseWholeRows<R>;
+
+  @override
+  DatabaseWholeRows<R> limit(int count) => super.limit(count) as DatabaseWholeRows<R>;
+
+  @override
+  DatabaseWholeRows<R> offset(int count) => super.offset(count) as DatabaseWholeRows<R>;
+
+  /// Only the rows of [tenants]. Throws an [ArgumentError] when it is empty.
+  DatabaseWholeRows<R> ofTenants(Iterable<String> tenants) {
+    final only = tenants.toSet();
+    if (only.isEmpty) throw ArgumentError.value(tenants, 'tenants', 'cannot be empty');
+    only.forEach(_checkTenantId);
+    return DatabaseWholeRows<R>._(_session, _table, _filter, _orders, _limit, _offset, _AllScope(only));
+  }
+
+  /// Every row kept, with the tenant each belongs to — `null` for the
+  /// anonymous rows and for a shared table's — since one key can now come back
+  /// once per tenant.
+  Future<List<({String? tenant, R record})>> listWithTenants() async {
+    final rows = await _selectRows(withTenant: true);
+    return [
+      for (final row in rows)
+        (tenant: _table.tunnel == Tunnel.isolated ? _tenantOf(row) : null, record: _table._fromRow(row)),
+    ];
+  }
+
+  String? _tenantOf(DatabaseRow row) {
+    final tenant = row[_tenantColumn]!.asString;
+    return tenant.isEmpty ? null : tenant;
+  }
 }

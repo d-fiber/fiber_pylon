@@ -172,7 +172,8 @@ export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';
 export 'src/sdk/clients/local/database/database.dart';
 export 'src/sdk/clients/local/database/engine/app.dart' show AppStorage;
-export 'src/sdk/clients/local/database/engine/database.dart';
+// The façade below still has its own Tenant, Tunnel and TransferConflict until it is rebuilt on the engine.
+export 'src/sdk/clients/local/database/engine/database.dart' hide Tenant, Tunnel, TransferConflict;
 export 'src/sdk/clients/local/database/engine/schema/schema.dart';
 export 'src/sdk/clients/local/database/engine/sort_order.dart';
 export 'src/sdk/clients/local/local_sdk.dart';

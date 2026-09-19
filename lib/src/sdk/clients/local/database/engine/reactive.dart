@@ -47,10 +47,13 @@ Stream<T> _watchTable<T>(
   LocalDatabase database,
   String table,
   Future<T> Function() read,
-  bool Function(T previous, T current) same,
-) {
+  bool Function(T previous, T current) same, {
+  bool followsTenant = false,
+}) {
   late final StreamController<T> controller;
   StreamSubscription<Set<String>?>? subscription;
+  StreamSubscription<String?>? tenantSubscription;
+  var startOver = false;
   T? previous;
   var hasPrevious = false;
   var running = false;
@@ -65,8 +68,16 @@ Stream<T> _watchTable<T>(
     try {
       do {
         dirty = false;
+        final tenant = Tenant.current;
         final current = await read();
         if (controller.isClosed) return;
+        if (followsTenant && tenant != Tenant.current) {
+          // the tenant changed while reading: what came back is not theirs
+          startOver = dirty = true;
+          continue;
+        }
+        if (startOver) hasPrevious = false;
+        startOver = false;
         if (!hasPrevious || !same(previous as T, current)) controller.add(current);
         previous = current;
         hasPrevious = true;
@@ -83,9 +94,18 @@ Stream<T> _watchTable<T>(
       subscription = database._writes.stream
           .where((written) => written == null || written.contains(table))
           .listen((_) => unawaited(refresh()));
+      if (followsTenant) {
+        tenantSubscription = Tenant.changes.listen((_) {
+          startOver = true;
+          unawaited(refresh());
+        });
+      }
       unawaited(refresh());
     },
-    onCancel: () => subscription?.cancel(),
+    onCancel: () async {
+      await subscription?.cancel();
+      await tenantSubscription?.cancel();
+    },
   );
   return controller.stream;
 }
