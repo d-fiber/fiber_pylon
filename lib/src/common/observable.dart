@@ -34,9 +34,9 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'dart:async';
+import 'package:rxdart/rxdart.dart';
 
-/// A value that can be read now and watched for later changes.
+/// A value that can be read now and followed.
 ///
 /// Pylon hands these out for anything a caller both queries and follows: a
 /// session, a health flag, a stored preference. Reading is synchronous so a
@@ -49,33 +49,31 @@ abstract class Observable<T> {
   /// What this observable holds right now.
   T get value;
 
-  /// Values published after the moment of subscription.
+  /// The current [value] for each new listener, followed by every change.
   ///
-  /// The current [value] is not replayed. A listener that also needs it reads
-  /// [value], or subscribes to [values] instead.
+  /// A listener never has to read [value] as well to know where things stand.
   Stream<T> get stream;
-
-  /// The current [value], then everything [stream] publishes.
-  Stream<T> get values => Stream<T>.multi((controller) {
-    controller.add(value);
-    final subscription = stream.listen(controller.add, onError: controller.addError, onDone: controller.close);
-    controller.onCancel = subscription.cancel;
-  });
 }
 
-/// An [Observable] whose holder can publish new values.
+/// An [Observable] whose holder can publish new values, on a `BehaviorSubject`.
 ///
 /// The writer keeps this reference and hands out the [Observable] view, so a
 /// consumer that receives one cannot write to it.
 class MutableObservable<T> extends Observable<T> {
-  T _value;
-  final StreamController<T> _controller = StreamController<T>.broadcast();
+  /// Starts out holding [initial]. A listener is notified in a later event.
+  MutableObservable(T initial) : _subject = BehaviorSubject<T>.seeded(initial);
 
-  /// Starts out holding [initial].
-  MutableObservable(T initial) : _value = initial;
+  /// Starts out holding [initial]. A listener has run before a publication
+  /// returns, which is what a change that must be in place before anyone can ask
+  /// needs.
+  ///
+  /// A listener must not publish again while it runs.
+  MutableObservable.synchronous(T initial) : _subject = BehaviorSubject<T>.seeded(initial, sync: true);
+
+  final BehaviorSubject<T> _subject;
 
   @override
-  T get value => _value;
+  T get value => _subject.value;
 
   /// Publishes [next], unless it equals what is already held.
   ///
@@ -83,26 +81,28 @@ class MutableObservable<T> extends Observable<T> {
   /// running every thirty seconds does not wake every listener when nothing has
   /// moved. Use [emit] for the rare case where the repetition is the signal.
   set value(T next) {
-    if (next == _value) return;
+    if (next == _subject.value) return;
     emit(next);
   }
 
   /// Publishes [next] even when it equals what is already held.
+  ///
+  /// Does nothing once this has been disposed.
   void emit(T next) {
-    _value = next;
-    if (!_controller.isClosed) _controller.add(next);
+    if (_subject.isClosed) return;
+    _subject.add(next);
   }
 
   @override
-  Stream<T> get stream => _controller.stream;
+  Stream<T> get stream => _subject.stream;
 
   /// Whether this observable has been disposed.
-  bool get isClosed => _controller.isClosed;
+  bool get isClosed => _subject.isClosed;
 
   /// Closes [stream] for every listener.
   ///
   /// [value] stays readable afterwards: the last value a disposed observable
   /// held is still the truth about what happened, and callers routinely read it
   /// during teardown.
-  Future<void> dispose() => _controller.close();
+  Future<void> dispose() => _subject.close();
 }

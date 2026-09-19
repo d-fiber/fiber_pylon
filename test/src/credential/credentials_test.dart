@@ -137,23 +137,10 @@ void main() {
       expect(seen, [first, second, null]);
     });
 
-    test('follows the same through values as through stream', () async {
-      await hold();
-      final viaStream = <Credential?>[];
-      final viaValues = <Credential?>[];
-      Credentials.stream.listen(viaStream.add);
-      Credentials.values.listen(viaValues.add);
-
-      await Credentials.set(credentialLasting(const Duration(hours: 1)));
-      await pumpEventQueue();
-
-      expect(viaValues, viaStream);
-    });
-
     test('moves held only on a sign-in and a sign-out', () async {
       await hold();
       final seen = <bool>[];
-      Credentials.held.values.listen(seen.add);
+      Credentials.held.stream.listen(seen.add);
 
       await Credentials.set(credentialLasting(const Duration(hours: 1), token: 'one'));
       await Credentials.set(credentialLasting(const Duration(hours: 1), token: 'two'));

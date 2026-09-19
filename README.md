@@ -226,7 +226,7 @@ Credentials.isStale;                       // within minutes of expiry: a renewa
 await Credentials.clear();                 // signing out
 ```
 
-It reads like a `Preference`: `value`, `stream` and `values`, and `set` and `clear` write.
+It reads like a `Preference`: `value` and `stream`, and `set` and `clear` write.
 A `Credential` is one opaque `token`, and pylon never looks inside it. The rest is optional
 and says only what renewing takes: a `refreshToken`, an `expiresAt`, and a `holder`, the
 account it belongs to.
@@ -563,7 +563,7 @@ await users.refresh();                // fetch, then response: the database move
 One way only: `refresh` writes, the database's own `watch` emits, `value` follows. There is no
 second source for a screen to reconcile with the first, and a change of tenant swaps what
 `value` holds along with the rows. It reads like a `Preference`, on the same `BehaviorSubject`:
-`value`, a call, `stream` and `values`.
+`value`, a call and `stream`.
 
 What the last refresh did is a second observable, `status`, and it is independent of the
 first: when a refresh fails or the network is out, `value` is still what is stored.

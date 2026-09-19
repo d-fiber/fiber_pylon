@@ -156,20 +156,6 @@ void main() {
       await shelf.dispose();
     });
 
-    test('follows the same through values as through stream', () async {
-      final shelf = Shelf();
-      final viaStream = <List<int>>[];
-      final viaValues = <List<int>>[];
-      shelf.stream.listen(viaStream.add);
-      shelf.values.listen(viaValues.add);
-
-      await shelf.refresh();
-      await pumpEventQueue();
-
-      expect(viaValues, viaStream);
-      await shelf.dispose();
-    });
-
     test('keeps reading what is stored when a refresh fails', () async {
       final shelf = Shelf(stored: [7])..failure = const Fault<HouseSignal>(HouseSignal.unknown);
       shelf.value;
@@ -296,7 +282,7 @@ void main() {
     test('goes from running to succeeded, and stays there', () async {
       final shelf = Shelf();
       final seen = <Status<HouseError>>[];
-      shelf.status.values.listen(seen.add);
+      shelf.status.stream.listen(seen.add);
 
       await shelf.refresh();
       await pumpEventQueue();

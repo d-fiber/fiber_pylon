@@ -53,7 +53,7 @@ import 'status.dart';
 /// and the database's own [watchLocal] is what makes [stream] move. One way, so
 /// the screen has no second source to reconcile with the first.
 ///
-/// It reads like a `Preference`: [value], a call, [stream] and [values]. What
+/// It reads like a `Preference`: [value], a call and [stream]. What
 /// the last refresh did is a second one, [status], and it is independent: when a
 /// refresh fails or the network is out, [value] is still what is stored, and
 /// [status] says why it may not be up to date.
@@ -116,7 +116,7 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   final T _initial;
   final Set<S> _offlineSignals;
   final HealthMonitor? _health;
-  final _StatusObservable<E> _status = _StatusObservable<E>();
+  final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusIdle<E>());
 
   BehaviorSubject<T>? _mirror;
   StreamSubscription<T>? _local;
@@ -165,9 +165,6 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   @override
   Stream<T> get stream => _follow.stream;
 
-  /// The value followed by every change, same as [stream].
-  @override
-  Stream<T> get values => stream;
 
   /// What the last refresh did, read with `status.value` and followed with
   /// `status.stream`.
@@ -216,13 +213,13 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   }
 
   Future<Status<E>> _run() async {
-    _status.publish(StatusRunning<E>());
+    _status.value = StatusRunning<E>();
     try {
       final outcome = await _attempt();
-      _status.publish(outcome);
+      _status.value = outcome;
       return outcome;
     } catch (_) {
-      _status.publish(StatusIdle<E>());
+      _status.value = StatusIdle<E>();
       rethrow;
     }
   }
@@ -239,29 +236,4 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
       return StatusFailed<E>(resolve(fault));
     }
   }
-}
-
-/// The [Observable] behind [SdkRepository.status].
-final class _StatusObservable<E> extends Observable<Status<E>> {
-  final BehaviorSubject<Status<E>> _subject = BehaviorSubject<Status<E>>.seeded(StatusIdle<E>());
-
-  @override
-  Status<E> get value => _subject.value;
-
-  /// The current status, same as [value].
-  Status<E> call() => _subject.value;
-
-  @override
-  Stream<Status<E>> get stream => _subject.stream;
-
-  @override
-  Stream<Status<E>> get values => stream;
-
-  /// Publishes [next], unless it is the status already held.
-  void publish(Status<E> next) {
-    if (next == _subject.value || _subject.isClosed) return;
-    _subject.add(next);
-  }
-
-  Future<void> dispose() => _subject.close();
 }

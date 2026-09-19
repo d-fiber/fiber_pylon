@@ -88,7 +88,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   /// from re-entering the subject.
   final BehaviorSubject<C?> _subject = BehaviorSubject<C?>.seeded(null, sync: true);
 
-  final _HeldObservable _held = _HeldObservable();
+  final MutableObservable<bool> _held = MutableObservable<bool>.synchronous(false);
 
   C? _current;
   Timer? _renewTimer;
@@ -161,10 +161,6 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   /// this manager, which is still finishing the operation.
   @override
   Stream<C?> get stream => _subject.stream;
-
-  /// The credential in force followed by every change, same as [stream].
-  @override
-  Stream<C?> get values => stream;
 
   /// Whether a credential is in force.
   ///
@@ -303,7 +299,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
 
   void _publish(C? credential) {
     if (!_subject.isClosed) _subject.add(credential);
-    _held.publish(credential != null);
+    _held.value = credential != null;
   }
 
   void _cancelTimers() {
@@ -401,28 +397,3 @@ bool _alwaysRenewable(Object credential) => true;
 /// on the web. [CredentialManager.ensureFresh] renews such a credential when a
 /// request needs it, which is when it matters.
 const Duration _farAway = Duration(days: 24);
-
-/// The [Observable] behind [CredentialManager.held].
-final class _HeldObservable extends Observable<bool> {
-  final BehaviorSubject<bool> _subject = BehaviorSubject<bool>.seeded(false, sync: true);
-
-  @override
-  bool get value => _subject.value;
-
-  /// Whether a credential is in force, same as [value].
-  bool call() => _subject.value;
-
-  @override
-  Stream<bool> get stream => _subject.stream;
-
-  @override
-  Stream<bool> get values => stream;
-
-  /// Publishes [next], unless it is what is already held.
-  void publish(bool next) {
-    if (next == _subject.value || _subject.isClosed) return;
-    _subject.add(next);
-  }
-
-  Future<void> dispose() => _subject.close();
-}

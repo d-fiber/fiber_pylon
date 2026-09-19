@@ -338,10 +338,6 @@ sealed class Secure<T> extends Observable<T> {
   @override
   Stream<T> get stream => _valueSubject.stream;
 
-  /// The current value followed by every change, same as [stream].
-  @override
-  Stream<T> get values => stream;
-
   /// The value the vault holds for this entry, or the default when it holds
   /// nothing or what it holds no longer decodes.
   T _fetch() {

@@ -150,9 +150,6 @@ class Credentials {
   /// change returns.
   static Stream<Credential?> get stream => _instance._manager.stream;
 
-  /// The credential in force followed by every change, same as [stream].
-  static Stream<Credential?> get values => stream;
-
   /// Whether the credential in force is within a few minutes of expiry, or past
   /// it, which is when a renewal is due.
   ///

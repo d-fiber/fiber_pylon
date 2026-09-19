@@ -221,10 +221,6 @@ sealed class Preference<T> extends Observable<T> {
   @override
   Stream<T> get stream => _valueSubject.stream;
 
-  /// The current value followed by every change, same as [stream].
-  @override
-  Stream<T> get values => stream;
-
   /// The saved value, or [defaultValue] when there is none that can be read.
   T _fetch();
 

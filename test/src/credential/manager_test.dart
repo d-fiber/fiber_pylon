@@ -101,7 +101,7 @@ void main() {
     test('publishes nothing held even when storage held nothing', () async {
       final manager = managerFor(ScriptedRefresher([]));
       final seen = <Ticket?>[];
-      manager.values.listen(seen.add);
+      manager.stream.listen(seen.add);
 
       await manager.start();
       await pumpEventQueue();
@@ -328,20 +328,6 @@ void main() {
       expect(seen, [same(stored), same(renewed), isNull]);
       await manager.dispose();
     });
-
-    test('follows the same through values as through stream', () async {
-      final manager = managerFor(ScriptedRefresher([]));
-      final viaStream = <Ticket?>[];
-      final viaValues = <Ticket?>[];
-      manager.stream.listen(viaStream.add);
-      manager.values.listen(viaValues.add);
-
-      await manager.grant(ticketLasting(const Duration(hours: 1)));
-      await pumpEventQueue();
-
-      expect(viaValues, viaStream);
-      await manager.dispose();
-    });
   });
 
   group('CredentialManager held', () {
@@ -368,7 +354,7 @@ void main() {
     test('follows a sign-in and a sign-out', () async {
       final manager = managerFor(ScriptedRefresher([]));
       final seen = <bool>[];
-      manager.held.values.listen(seen.add);
+      manager.held.stream.listen(seen.add);
       await manager.start();
 
       await manager.grant(ticketLasting(const Duration(hours: 1)));
