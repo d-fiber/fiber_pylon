@@ -46,11 +46,12 @@ enum HouseSignal { unauthorized, noRoute, unknown }
 enum HouseError { signedOut, unknown }
 
 final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseSignal> {
-  Shelf({this.authenticated = false, super.health, List<int> stored = const []})
+  Shelf({this.authenticated = false, this.observes = false, super.health, List<int> stored = const []})
     : stored = [...stored],
       super(initial: const [], offlineSignals: const {HouseSignal.noRoute});
 
   final bool authenticated;
+  final bool observes;
   final List<int> stored;
   final StreamController<List<int>> _changes = StreamController<List<int>>.broadcast();
 
@@ -62,6 +63,9 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
 
   @override
   bool get isAuthenticated => authenticated;
+
+  @override
+  bool get observesConnection => observes;
 
   @override
   Stream<List<int>> watchLocal() {
@@ -94,6 +98,14 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
   @override
   HouseError resolve(Fault<HouseSignal> fault) =>
       fault.signal == HouseSignal.unauthorized ? HouseError.signedOut : HouseError.unknown;
+}
+
+Future<void> connect({required bool reachable}) async {
+  await GetIt.instance.reset();
+  GetIt.instance.registerSingleton<Network>(
+    await Network.forTesting(reachable: reachable),
+    dispose: (network) => network.dispose(),
+  );
 }
 
 Future<void> hold([Credential? credential]) async {
@@ -239,13 +251,76 @@ void main() {
     });
 
     test('makes no request while the health monitor says the network is out', () async {
+      await connect(reachable: true);
       final health = HealthMonitor(name: 'network', initial: false);
-      final shelf = Shelf(health: health);
+      final shelf = Shelf(observes: true, health: health);
 
       expect(await shelf.refresh(), const StatusOffline<HouseError>());
       expect(shelf.fetches, 0);
 
       health.report(healthy: true);
+      expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
+      await shelf.dispose();
+      await health.dispose();
+    });
+
+    test('makes no request while the device has no connection, once it observes the connection', () async {
+      await connect(reachable: false);
+      final shelf = Shelf(observes: true);
+
+      expect(await shelf.refresh(), const StatusOffline<HouseError>());
+      expect(shelf.fetches, 0);
+      await shelf.dispose();
+    });
+
+    test('asks again as soon as the connection is back', () async {
+      final changes = StreamController<bool>();
+      await GetIt.instance.reset();
+      GetIt.instance.registerSingleton<Network>(
+        await Network.forTesting(reachable: false, changes: changes.stream),
+        dispose: (network) => network.dispose(),
+      );
+      final shelf = Shelf(observes: true);
+      expect(await shelf.refresh(), const StatusOffline<HouseError>());
+
+      changes.add(true);
+      await pumpEventQueue();
+
+      expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
+      expect(shelf.fetches, 1);
+      await shelf.dispose();
+      await changes.close();
+    });
+
+    test('tries the request without a connection when it does not observe the connection', () async {
+      await connect(reachable: false);
+      final shelf = Shelf();
+
+      expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
+      expect(shelf.fetches, 1);
+      await shelf.dispose();
+    });
+
+    test('ends offline on its own signal even when it does not observe the connection', () async {
+      await connect(reachable: false);
+      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
+
+      expect(await shelf.refresh(), const StatusOffline<HouseError>());
+      expect(shelf.fetches, 1);
+      await shelf.dispose();
+    });
+
+    test('never asks the network state of a repository that does not observe it', () async {
+      final shelf = Shelf();
+
+      expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
+      await shelf.dispose();
+    });
+
+    test('ignores the health monitor of a repository that does not observe the connection', () async {
+      final health = HealthMonitor(name: 'network', initial: false);
+      final shelf = Shelf(health: health);
+
       expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
       await shelf.dispose();
       await health.dispose();

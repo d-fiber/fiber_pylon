@@ -596,7 +596,14 @@ users.status.stream.listen((status) => switch (status) {
 
 The variants are only what pylon can decide by itself: the life of the refresh, whether a
 credential was held to make it (`isAuthenticated` and `Credentials`), and whether the network
-was reachable (a `HealthMonitor`, or the `offlineSignals` the project listed). Everything else
+was reachable (`Network`, a `HealthMonitor`, or the `offlineSignals` the project listed).
+
+Whether to look at the connection before asking is the repository's to say, with
+`observesConnection`, and has no default because it depends on what `fetch` talks to. A REST
+read says `true`: with no connection there is nothing to ask, and it ends `StatusOffline`
+without a request. A REST write says `false`: the request is worth trying, and its own failure
+is the honest answer. A call to a vendor's package over bluetooth or a local network needs no
+internet at all and says `false` too. Everything else
 is the project's own error `E`, which `resolve` produces from the fault, as a `FaultResolver`
 does. `offlineSignals` has no default, for the reason `fatalSignals` has none.
 

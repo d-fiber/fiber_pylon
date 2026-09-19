@@ -40,6 +40,7 @@ import 'package:rxdart/rxdart.dart';
 
 import '../common/fault.dart';
 import '../common/health_monitor.dart';
+import '../common/network.dart';
 import '../common/observable.dart';
 import '../credential/credentials.dart';
 import 'status.dart';
@@ -71,6 +72,9 @@ import 'status.dart';
 ///
 ///   @override
 ///   bool get isAuthenticated => true;
+///
+///   @override
+///   bool get observesConnection => true;
 ///
 ///   @override
 ///   Future<List<User>> fetch() => _rest.list();
@@ -106,8 +110,9 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   /// an adapter's signals means the network rather than the server, and a project
   /// that has none says so with an empty set.
   ///
-  /// [health], when given, is consulted before a refresh, so a device known to be
-  /// offline does not spend a request discovering what it already knows.
+  /// [health], when given, is consulted along with `Network` before a refresh
+  /// that [observesConnection], so a device known to be offline does not spend a
+  /// request discovering what it already knows.
   SdkRepository({required T initial, required Set<S> offlineSignals, HealthMonitor? health})
     : _initial = initial,
       _offlineSignals = offlineSignals,
@@ -128,6 +133,21 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   /// When it does and `Credentials` holds none, a refresh makes no request and
   /// ends [StatusUnauthenticated]. A repository whose request signs someone in says `false`.
   bool get isAuthenticated;
+
+  /// Whether a refresh looks at the connection before it asks.
+  ///
+  /// When it does and `Network` says the device is offline, or the [health]
+  /// monitor says the backend is, no request is made and the refresh ends
+  /// [StatusOffline]. When it does not, the request is always tried, and only its
+  /// own failure says the network was out.
+  ///
+  /// It is the project's to say, and has no default, since it depends on what
+  /// [fetch] talks to. A REST write says `false`: attempting it without a
+  /// connection is worth a request, and a failure is the honest answer. A call to
+  /// a vendor's own package, over bluetooth or a local network, needs no internet
+  /// and says `false` too. A REST read that has nothing to bring back offline
+  /// says `true`.
+  bool get observesConnection;
 
   /// What the database holds for this repository, and every change to it.
   ///
@@ -164,7 +184,6 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
   /// What the database holds for each new listener, followed by every change.
   @override
   Stream<T> get stream => _follow.stream;
-
 
   /// What the last refresh did, read with `status.value` and followed with
   /// `status.stream`.
@@ -212,6 +231,8 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
     return subject;
   }
 
+  bool get _isOffline => !Network.isReachable.value || (_health != null && !_health.isHealthy);
+
   Future<Status<E>> _run() async {
     _status.value = StatusRunning<E>();
     try {
@@ -226,7 +247,7 @@ abstract base class SdkRepository<R, T, E, S extends Object> extends Observable<
 
   Future<Status<E>> _attempt() async {
     if (isAuthenticated && !Credentials.isHeld) return StatusUnauthenticated<E>();
-    if (_health != null && !_health.isHealthy) return StatusOffline<E>();
+    if (observesConnection && _isOffline) return StatusOffline<E>();
 
     try {
       await response(await fetch());

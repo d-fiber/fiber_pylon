@@ -106,6 +106,9 @@ final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, 
   bool get isAuthenticated => false;
 
   @override
+  bool get observesConnection => true;
+
+  @override
   Future<List<Note>> fetch() async => answer;
 
   @override

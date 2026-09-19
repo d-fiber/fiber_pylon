@@ -92,9 +92,10 @@ final class StatusSucceeded<E> extends Status<E> {
 
 /// The last refresh could not reach the network.
 ///
-/// Decided by the health monitor the repository was given, or by a signal the project
-/// listed as meaning the network is out of reach. What is stored is still what
-/// the repository reads.
+/// Decided before the request when the repository observes the connection and
+/// `Network` or its health monitor says it is out, and after it when the request
+/// failed with a signal the project listed as meaning the network is out of
+/// reach. What is stored is still what the repository reads.
 final class StatusOffline<E> extends Status<E> {
   /// The network was out of reach.
   const StatusOffline();

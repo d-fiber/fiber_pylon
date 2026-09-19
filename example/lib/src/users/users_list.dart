@@ -56,6 +56,9 @@ final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, 
   bool get isAuthenticated => true;
 
   @override
+  bool get observesConnection => true;
+
+  @override
   Future<List<User>> fetch() => RestGroundSdk.I.users.list();
 
   @override
