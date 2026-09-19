@@ -65,7 +65,7 @@ import 'status.dart';
 /// and [StatusOffline] lasts until the connection is back, when the repository
 /// [requiresConnection].
 ///
-/// A repository that [isAuthenticated] listens to the database only while a
+/// A repository that [requiresCredential] listens to the database only while a
 /// credential is held. It starts when someone signs in, and when they sign out it
 /// stops listening and empties [data], without being disposed, so that it starts
 /// again at the next sign-in. What a signed-out app would show is not what an
@@ -139,8 +139,8 @@ abstract base class Repository<R, T, E, S extends Object> {
   bool _started = false;
   bool _disposed = false;
 
-  /// Whether the request this makes carries the credential, and what it reads is
-  /// an account's.
+  /// Whether this needs a credential: the request it makes carries it, and what it
+  /// reads is an account's.
   ///
   /// When it does and `Credentials` holds none, a refresh makes no request and
   /// ends [StatusUnauthenticated], and the repository does not listen to the
@@ -151,7 +151,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   ///
   /// `true` unless a repository says otherwise, since what most of them read is an
   /// account's.
-  bool get isAuthenticated => true;
+  bool get requiresCredential => true;
 
   /// Whether a refresh needs the connection to be there before it asks.
   ///
@@ -269,7 +269,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   void _follow() {
     if (_started || _disposed) return;
     _started = true;
-    if (!isAuthenticated) {
+    if (!requiresCredential) {
       unawaited(_listen());
       return;
     }
@@ -349,7 +349,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   }
 
   Future<Status<E>> _attempt() async {
-    if (isAuthenticated && !Credentials.isHeld) return StatusUnauthenticated<E>();
+    if (requiresCredential && !Credentials.isHeld) return StatusUnauthenticated<E>();
     if (requiresConnection && _isOffline) return StatusOffline<E>();
 
     try {

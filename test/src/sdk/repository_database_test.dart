@@ -103,7 +103,7 @@ final class NotesList extends Repository<List<Note>, List<Note>, HouseError, Hou
   List<Note> answer;
 
   @override
-  bool get isAuthenticated => false;
+  bool get requiresCredential => false;
 
   @override
   bool get requiresConnection => true;

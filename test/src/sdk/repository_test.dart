@@ -47,14 +47,14 @@ enum HouseError { signedOut, unknown }
 
 final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSignal> {
   Shelf({
-    this.authenticated = false,
+    this.credentialed = false,
     this.requires = false,
     this.readFails = false,
     this.holdsNothing = false,
     List<int> stored = const [],
   }) : stored = [...stored];
 
-  final bool authenticated;
+  final bool credentialed;
   final bool requires;
   final bool readFails;
   final bool holdsNothing;
@@ -68,7 +68,7 @@ final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSign
   int watches = 0;
 
   @override
-  bool get isAuthenticated => authenticated;
+  bool get requiresCredential => credentialed;
 
   @override
   bool get requiresConnection => requires;
@@ -380,9 +380,9 @@ void main() {
       await shelf.dispose();
     });
 
-    test('makes no request for an authenticated call while no credential is held', () async {
+    test('makes no request for a call that requires a credential while none is held', () async {
       await hold();
-      final shelf = Shelf(authenticated: true);
+      final shelf = Shelf(credentialed: true);
 
       expect(await shelf.refresh(), const StatusUnauthenticated<HouseError>());
       expect(shelf.fetches, 0);
@@ -507,7 +507,7 @@ void main() {
 
     test('announces that no credential was held, then goes back to idle', () async {
       await hold();
-      final shelf = Shelf(authenticated: true);
+      final shelf = Shelf(credentialed: true);
       final seen = await watching(shelf);
 
       await shelf.refresh();
@@ -567,7 +567,7 @@ void main() {
 
     test('does not listen to the database while no credential is held', () async {
       await hold();
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
       final seen = <Status<HouseError>>[];
       shelf.status.stream.listen(seen.add);
 
@@ -581,7 +581,7 @@ void main() {
 
     test('listens at once when a credential is already held', () async {
       await hold(credential);
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
 
       await pumpEventQueue();
 
@@ -592,7 +592,7 @@ void main() {
 
     test('starts listening, and announces the load, when someone signs in', () async {
       await hold();
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
       final seen = await watching(shelf);
 
       await Credentials.set(credential);
@@ -606,7 +606,7 @@ void main() {
 
     test('stops listening and empties data when someone signs out, without being disposed', () async {
       await hold(credential);
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
       await pumpEventQueue();
       expect(shelf.data.value, [7]);
 
@@ -621,7 +621,7 @@ void main() {
 
     test('ignores what the database emits once someone has signed out', () async {
       await hold(credential);
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
       await pumpEventQueue();
       await Credentials.clear();
       await pumpEventQueue();
@@ -635,7 +635,7 @@ void main() {
 
     test('listens again, and reloads, when someone signs back in', () async {
       await hold(credential);
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
       await pumpEventQueue();
       await Credentials.clear();
       await pumpEventQueue();
@@ -653,7 +653,7 @@ void main() {
 
     test('listens once per sign-in when the credential comes and goes quickly', () async {
       await hold();
-      final shelf = Shelf(authenticated: true, stored: [7]);
+      final shelf = Shelf(credentialed: true, stored: [7]);
       await pumpEventQueue();
 
       await Credentials.set(credential);
@@ -667,7 +667,7 @@ void main() {
       await shelf.dispose();
     });
 
-    test('leaves a repository that is not authenticated listening when someone signs out', () async {
+    test('leaves a repository that requires no credential listening when someone signs out', () async {
       await hold(credential);
       final shelf = Shelf(stored: [7]);
       await pumpEventQueue();
@@ -682,7 +682,7 @@ void main() {
 
     test('keeps a refresh under way running through a sign-out, and announces its outcome', () async {
       await hold(credential);
-      final shelf = Shelf(authenticated: true)..gate = Completer<List<int>>();
+      final shelf = Shelf(credentialed: true)..gate = Completer<List<int>>();
       await pumpEventQueue();
       final seen = await watching(shelf);
 
@@ -710,7 +710,7 @@ void main() {
         await Network.forTesting(reachable: false),
         dispose: (network) => network.dispose(),
       );
-      final shelf = Shelf(authenticated: true, requires: true);
+      final shelf = Shelf(credentialed: true, requires: true);
       await shelf.refresh();
       await pumpEventQueue();
       expect(shelf.status.value, const StatusOffline<HouseError>());

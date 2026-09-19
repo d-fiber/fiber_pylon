@@ -587,7 +587,7 @@ second source for a screen to reconcile with the first, and a change of tenant s
 a screen that asks later finds the value already in `data`, and one that asks within the first
 moments gets `null`, then the value. `data` is also `null` when the database holds nothing.
 
-A repository that `isAuthenticated` listens to the database only while a credential is held: it
+A repository that `requiresCredential` listens to the database only while a credential is held: it
 starts when someone signs in, and when they sign out it stops listening and empties `data`,
 without being disposed, and it starts again at the next sign-in. A refresh made without a
 credential ends `StatusUnauthenticated`.
@@ -617,16 +617,16 @@ users.status.stream.listen((status) => switch (status) {
 ```
 
 The variants are only what pylon can decide by itself: the life of the refresh, whether a
-credential was held to make it (`isAuthenticated` and `Credentials`), and whether the network
+credential was held to make it (`requiresCredential` and `Credentials`), and whether the network
 was reachable (`Network`).
 
 Two settings say what a repository is, and both are `true` unless it overrides them.
-`isAuthenticated` says it reads an account's data and carries the credential. `requiresConnection`
+`requiresCredential` says it reads an account's data and carries the credential. `requiresConnection`
 says a refresh looks at the connection before asking: a REST read wants that, since with no
 connection there is nothing to ask, and it ends `StatusOffline` without a request. A REST write
 overrides it to `false`, since the request is worth trying and its own failure is the honest
 answer, and so does a call to a vendor's package over bluetooth or a local network, which needs no
-internet at all. A request that signs someone in overrides `isAuthenticated` to `false`.
+internet at all. A request that signs someone in overrides `requiresCredential` to `false`.
 
 Everything else is the project's own error `E`, which
 `resolve` produces from the fault, as a `FaultResolver` does: that is where a project says that a
