@@ -34,32 +34,28 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-library;
-
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'src/auth/auth.dart';
-import 'src/database/own_database.dart';
+import 'user.dart';
 
-final class GroundSdk extends Sdk {
-  late final Auth auth;
-  late final OwnDatabase database;
+/// The project's own local database: one [Collection] per kind of document,
+/// each tied to the [Model] it stores.
+///
+/// Needs `configureSdk()` to have run, since it lives in the app's own
+/// [AppStorage] file. After `await OwnDatabase().initialize()` it is
+/// reachable from anywhere:
+///
+/// ```dart
+/// final db = OwnDatabase.I;
+/// await db.users.doc('ada').set(const User(name: 'Ada', age: 36));
+/// final adults = await db.users
+///     .where((w) => w(User.age_).isGreaterThanOrEqualTo(18))
+///     .orderBy((o) => [o.asc(User.name_)])
+///     .get();
+/// db.users.snapshots().listen((snapshot) => print(snapshot.items));
+/// ```
+final class OwnDatabase extends Database {
+  static OwnDatabase get I => Database.instance<OwnDatabase>();
 
-  static GroundSdk get I => Sdk.instance<GroundSdk>();
-  static GroundSdk get instance => I;
-
-  @override
-  Future<void> initialize() async {
-    await super.initialize();
-
-    auth = const Auth();
-    database = OwnDatabase();
-    await database.initialize();
-  }
-
-  @override
-  Future<void> dispose() async {
-    if (isInitialized) await database.dispose();
-    await super.dispose();
-  }
+  final users = Collection<User>('users', User.fromJson, indexes: [User.age_]);
 }

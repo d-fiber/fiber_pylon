@@ -34,32 +34,33 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-library;
-
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'src/auth/auth.dart';
-import 'src/database/own_database.dart';
+/// A stored user: the shape [OwnDatabase.users] keeps.
+///
+/// The [Field]s are declared next to the fields they name, once, so a query
+/// reads `w(User.age_).isGreaterThan(18)` rather than repeating `'age'` as a
+/// string at every call site.
+final class User implements Model {
+  const User({this.id = '', required this.name, required this.age, this.tags = const []});
 
-final class GroundSdk extends Sdk {
-  late final Auth auth;
-  late final OwnDatabase database;
-
-  static GroundSdk get I => Sdk.instance<GroundSdk>();
-  static GroundSdk get instance => I;
-
-  @override
-  Future<void> initialize() async {
-    await super.initialize();
-
-    auth = const Auth();
-    database = OwnDatabase();
-    await database.initialize();
-  }
+  static const name_ = Field<String>('name');
+  static const age_ = Field<int>('age');
+  static const tags_ = ListField<String>('tags');
 
   @override
-  Future<void> dispose() async {
-    if (isInitialized) await database.dispose();
-    await super.dispose();
-  }
+  final String id;
+  final String name;
+  final int age;
+  final List<String> tags;
+
+  factory User.fromJson(String id, Map<String, Object?> json) => User(
+    id: id,
+    name: json['name']! as String,
+    age: json['age']! as int,
+    tags: (json['tags'] as List? ?? const []).cast<String>().toList(),
+  );
+
+  @override
+  Map<String, Object?> toJson() => {'name': name, 'age': age, 'tags': tags};
 }
