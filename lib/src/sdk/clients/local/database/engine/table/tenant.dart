@@ -241,7 +241,7 @@ extension LocalDatabaseTenants on LocalDatabase {
     final source = Value.varchar(from ?? '');
     final target = Value.varchar(to ?? '');
     final tables = _isolatedTableNames.toList();
-    return transaction((txn) async {
+    return runTransaction((txn) async {
       // A row and the rows that point at it change tenant one statement apart:
       // the foreign keys are checked once the transaction commits.
       await txn._txn.execute('PRAGMA defer_foreign_keys = ON');
@@ -263,7 +263,7 @@ extension LocalDatabaseTenants on LocalDatabase {
 
   Future<void> _purgeRows(String tenantId) {
     final tables = _isolatedTableNames.toList();
-    return transaction((txn) async {
+    return runTransaction((txn) async {
       await txn._txn.execute('PRAGMA defer_foreign_keys = ON');
       for (final table in tables) {
         await txn._txn.rawDelete(
@@ -289,7 +289,7 @@ final class WholeAccess {
   Future<List<String>> tenants() async {
     final tenants = <String>{};
     for (final table in _database._isolatedTableNames) {
-      final rows = await _database.rawQuery(
+      final rows = await _database.runRawQuery(
         'SELECT DISTINCT ${_quotedIdentifier(_tenantColumn)} AS tenant FROM ${_quotedIdentifier(table)} '
         "WHERE ${_quotedIdentifier(_tenantColumn)} != ''",
       );

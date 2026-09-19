@@ -226,7 +226,7 @@ final class TodoStore {
 
   Future<bool> exists(int id) => todos.on(db).where(todos.id.isEqualTo(id)).exists();
 
-  Future<Tag> tag(int todoId, String name) => db.transaction((txn) async {
+  Future<Tag> tag(int todoId, String name) => db.runTransaction((txn) async {
     final tag = await tags.on(txn).insert(Tag(name: name));
     await todoTags.on(txn).insert(TodoTag(todoId: todoId, tagId: tag.id!));
     return tag;
@@ -296,7 +296,7 @@ void main() {
       ),
     );
     await v1.open();
-    await v1.execute('INSERT INTO todos (title, done, status, priority) VALUES (?, ?, ?, ?)', [
+    await v1.runSql('INSERT INTO todos (title, done, status, priority) VALUES (?, ?, ?, ?)', [
       const Value.varchar('Old'),
       Value.boolean(false),
       Value.enum_(Status.open),

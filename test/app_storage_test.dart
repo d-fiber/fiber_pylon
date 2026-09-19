@@ -111,13 +111,13 @@ void main() {
 
     test('keeps using the file it finds', () async {
       final first = await openAppDatabase(appName: 'Fiber');
-      await first.execute('CREATE TABLE notes (body TEXT)');
-      await first.execute('INSERT INTO notes (body) VALUES (?)', [const Value.varchar('kept')]);
+      await first.runSql('CREATE TABLE notes (body TEXT)');
+      await first.runSql('INSERT INTO notes (body) VALUES (?)', [const Value.varchar('kept')]);
       await first.dispose();
 
       final second = await openAppDatabase(appName: 'Fiber');
 
-      final rows = await second.rawQuery('SELECT body FROM notes');
+      final rows = await second.runRawQuery('SELECT body FROM notes');
       expect(rows.single['body']!.asString, 'kept');
       await second.dispose();
     });
@@ -130,7 +130,7 @@ void main() {
       final second = await openAppDatabase(appName: 'Fiber');
 
       expect(file('Fiber.db').existsSync(), isTrue);
-      expect(await second.tableNames(), isEmpty);
+      expect(await second.listTables(), isEmpty);
       await second.dispose();
     });
 
@@ -139,8 +139,8 @@ void main() {
 
       final db = await openAppDatabase(appName: 'Fiber');
 
-      await db.execute('CREATE TABLE notes (body TEXT)');
-      expect(await db.tableNames(), ['notes']);
+      await db.runSql('CREATE TABLE notes (body TEXT)');
+      expect(await db.listTables(), ['notes']);
       await db.dispose();
     });
   });
@@ -225,7 +225,7 @@ void main() {
 
     test('never deletes a database in clear to encrypt over it', () async {
       final clear = await openAppDatabase(appName: 'Fiber');
-      await clear.execute('CREATE TABLE precious (x TEXT)');
+      await clear.runSql('CREATE TABLE precious (x TEXT)');
       await clear.dispose();
       final before = file('Fiber.db').readAsBytesSync();
 
@@ -245,7 +245,7 @@ void main() {
     test('without a fingerprint nothing is encrypted, whatever the policy', () async {
       final db = await openAppDatabase(appName: 'Fiber', encryption: EncryptionPolicy.required);
 
-      expect(db.isEncrypted, isFalse);
+      expect(db.encrypted, isFalse);
       await db.dispose();
     });
   });

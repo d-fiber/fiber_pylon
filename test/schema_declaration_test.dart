@@ -266,7 +266,7 @@ void main() {
 
       for (final table in ['texts', 'reals', 'blobs']) {
         await expectLater(
-          db.execute('INSERT INTO $table (k) VALUES (NULL)'),
+          db.runSql('INSERT INTO $table (k) VALUES (NULL)'),
           throwsA(isA<StoreError>()),
           reason: '$table accepted a null primary key',
         );
@@ -279,9 +279,9 @@ void main() {
       final db = openDeclared('declaration_rowid.db', [counters]);
       await db.open();
 
-      await db.execute('INSERT INTO counters (id, n) VALUES (NULL, 1)');
+      await db.runSql('INSERT INTO counters (id, n) VALUES (NULL, 1)');
 
-      expect((await db.rawQuery('SELECT id FROM counters')).single['id']!.asInt, 1);
+      expect((await db.runRawQuery('SELECT id FROM counters')).single['id']!.asInt, 1);
       await db.dispose();
     });
 
@@ -293,7 +293,7 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.execute('INSERT INTO memberships (account_id, group_id) VALUES (NULL, 1)'),
+        db.runSql('INSERT INTO memberships (account_id, group_id) VALUES (NULL, 1)'),
         throwsA(isA<StoreError>()),
       );
       await db.dispose();
@@ -306,9 +306,9 @@ void main() {
       final db = openDeclared('declaration_nul.db', [declared]);
       await db.open();
 
-      await db.execute('INSERT INTO t DEFAULT VALUES');
+      await db.runSql('INSERT INTO t DEFAULT VALUES');
 
-      expect((await db.rawQuery('SELECT a FROM t')).single['a']!.asString, 'a\u0000b');
+      expect((await db.runRawQuery('SELECT a FROM t')).single['a']!.asString, 'a\u0000b');
       await db.dispose();
     });
 
@@ -323,7 +323,7 @@ void main() {
       final db = openDeclared('declaration_generated.db', [declared]);
       await db.open();
 
-      expect((await db.columns('t')).map((column) => column.name), ['a', 'b', 'c']);
+      expect((await db.listColumns('t')).map((column) => column.name), ['a', 'b', 'c']);
       await db.dispose();
     });
 
@@ -342,9 +342,9 @@ void main() {
         },
       );
       final db = await openWithTables('declaration_not_unique.db', [parent, child]);
-      await db.execute('INSERT INTO parent (id, x) VALUES (1, 1)');
+      await db.runSql('INSERT INTO parent (id, x) VALUES (1, 1)');
 
-      await expectLater(db.execute('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -354,7 +354,7 @@ void main() {
       );
       final db = await openWithTables('declaration_undeclared.db', [child]);
 
-      await expectLater(db.execute('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -377,10 +377,10 @@ void main() {
         'CREATE TABLE parent (id INTEGER PRIMARY KEY)',
         'CREATE TABLE child (p INTEGER NOT NULL REFERENCES parent ON DELETE SET NULL)',
       ]);
-      await db.execute('INSERT INTO parent (id) VALUES (1)');
-      await db.execute('INSERT INTO child (p) VALUES (1)');
+      await db.runSql('INSERT INTO parent (id) VALUES (1)');
+      await db.runSql('INSERT INTO child (p) VALUES (1)');
 
-      await expectLater(db.execute('DELETE FROM parent'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('DELETE FROM parent'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -389,12 +389,12 @@ void main() {
         'CREATE TABLE parent (id INTEGER PRIMARY KEY)',
         'CREATE TABLE child (p INTEGER REFERENCES parent ON DELETE SET DEFAULT)',
       ]);
-      await db.execute('INSERT INTO parent (id) VALUES (1)');
-      await db.execute('INSERT INTO child (p) VALUES (1)');
+      await db.runSql('INSERT INTO parent (id) VALUES (1)');
+      await db.runSql('INSERT INTO child (p) VALUES (1)');
 
-      await db.execute('DELETE FROM parent');
+      await db.runSql('DELETE FROM parent');
 
-      expect((await db.rawQuery('SELECT p FROM child')).single['p'], const Value.nil());
+      expect((await db.runRawQuery('SELECT p FROM child')).single['p'], const Value.nil());
       await db.dispose();
     });
 
@@ -403,10 +403,10 @@ void main() {
         'CREATE TABLE parent (id INTEGER PRIMARY KEY)',
         'CREATE TABLE child (a INTEGER, b INTEGER GENERATED ALWAYS AS (a) STORED REFERENCES parent ON DELETE SET NULL)',
       ]);
-      await db.execute('INSERT INTO parent (id) VALUES (1)');
-      await db.execute('INSERT INTO child (a) VALUES (1)');
+      await db.runSql('INSERT INTO parent (id) VALUES (1)');
+      await db.runSql('INSERT INTO child (a) VALUES (1)');
 
-      await expectLater(db.execute('DELETE FROM parent'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('DELETE FROM parent'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -415,7 +415,7 @@ void main() {
         'CREATE TABLE t (a ANY NOT NULL DEFAULT (NULL)) STRICT',
       ]);
 
-      await expectLater(db.execute('INSERT INTO t DEFAULT VALUES'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('INSERT INTO t DEFAULT VALUES'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -424,11 +424,11 @@ void main() {
         'CREATE TABLE loose (a ANY)',
         'CREATE TABLE tight (a ANY) STRICT',
       ]);
-      await db.execute("INSERT INTO loose VALUES ('007')");
-      await db.execute("INSERT INTO tight VALUES ('007')");
+      await db.runSql("INSERT INTO loose VALUES ('007')");
+      await db.runSql("INSERT INTO tight VALUES ('007')");
 
-      expect((await db.rawQuery('SELECT a FROM loose')).single['a'], const Value.integer(7));
-      expect((await db.rawQuery('SELECT a FROM tight')).single['a'], const Value.varchar('007'));
+      expect((await db.runRawQuery('SELECT a FROM loose')).single['a'], const Value.integer(7));
+      expect((await db.runRawQuery('SELECT a FROM tight')).single['a'], const Value.varchar('007'));
       await db.dispose();
     });
     test('a declared foreign key is not enforced on a connection that switched PRAGMA foreign_keys off', () async {
@@ -447,9 +447,9 @@ void main() {
       );
       await db.open();
 
-      await db.execute('INSERT INTO child (p) VALUES (99)');
+      await db.runSql('INSERT INTO child (p) VALUES (99)');
 
-      expect(await db.rawQuery('SELECT p FROM child'), hasLength(1));
+      expect(await db.runRawQuery('SELECT p FROM child'), hasLength(1));
       await db.dispose();
     });
   });

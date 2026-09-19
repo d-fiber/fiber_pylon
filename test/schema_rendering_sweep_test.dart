@@ -178,7 +178,7 @@ void main() {
   }
 
   Future<int> autoIndexCount(LocalDatabase db, String table) async {
-    final indexes = await db.rawQuery('PRAGMA index_list("$table")');
+    final indexes = await db.runRawQuery('PRAGMA index_list("$table")');
     return indexes.where((index) => index['origin'] == const Value.varchar('u')).length;
   }
 
@@ -199,15 +199,15 @@ void main() {
               );
               final db = await openMemory(table.statements);
 
-              final column = (await db.columns('t')).singleWhere((column) => column.name == 'v');
+              final column = (await db.listColumns('t')).singleWhere((column) => column.name == 'v');
               expect(column.type, recipe.type, reason: 'declared type');
               expect(column.isNotNull, notNull, reason: 'NOT NULL');
               expect(column.defaultSql, recipe.defaultSql, reason: 'default text');
               expect(await autoIndexCount(db, 't'), unique ? 1 : 0, reason: 'unique constraint');
               final defaultValue = recipe.defaultValue;
               if (defaultValue != null) {
-                await db.execute('INSERT INTO t DEFAULT VALUES');
-                expect((await db.rawQuery('SELECT v FROM t')).single['v'], defaultValue, reason: 'stored default');
+                await db.runSql('INSERT INTO t DEFAULT VALUES');
+                expect((await db.runRawQuery('SELECT v FROM t')).single['v'], defaultValue, reason: 'stored default');
               }
               await db.dispose();
             });
@@ -239,9 +239,9 @@ void main() {
               return {'id': c.integer().isPrimary(), 'v': collation == null ? text : text.collation(collation)};
             });
             final db = await openMemory(table.statements);
-            await db.execute('INSERT INTO t (v) VALUES (?)', [Value.varchar(stored)]);
+            await db.runSql('INSERT INTO t (v) VALUES (?)', [Value.varchar(stored)]);
 
-            final rows = await db.rawQuery('SELECT count(*) AS n FROM t WHERE v = ?', [Value.varchar(probe)]);
+            final rows = await db.runRawQuery('SELECT count(*) AS n FROM t WHERE v = ?', [Value.varchar(probe)]);
 
             expect(rows.single['n']!.asInt, matches);
             await db.dispose();
@@ -270,23 +270,23 @@ void main() {
             final table = builder.columns((c) => {'k': build(c), 'v': c.integer()});
             final db = await openMemory(table.statements);
 
-            final columns = await db.columns('t');
+            final columns = await db.listColumns('t');
             expect(columns.first.primaryKeyPosition, 1);
             expect(columns.last.primaryKeyPosition, 0);
-            final flags = (await db.rawQuery('PRAGMA table_list("t")')).single;
+            final flags = (await db.runRawQuery('PRAGMA table_list("t")')).single;
             expect(flags['strict']!.asInt, strict ? 1 : 0, reason: 'STRICT flag');
             expect(flags['wr']!.asInt, withoutRowid ? 1 : 0, reason: 'WITHOUT ROWID flag');
             if (refusesNull || withoutRowid) {
-              await expectLater(db.execute('INSERT INTO t (k) VALUES (NULL)'), throwsA(isA<StoreError>()));
+              await expectLater(db.runSql('INSERT INTO t (k) VALUES (NULL)'), throwsA(isA<StoreError>()));
             } else {
-              await db.execute('INSERT INTO t (k) VALUES (NULL)');
-              expect((await db.rawQuery('SELECT k FROM t')).single['k'], const Value.integer(1));
+              await db.runSql('INSERT INTO t (k) VALUES (NULL)');
+              expect((await db.runRawQuery('SELECT k FROM t')).single['k'], const Value.integer(1));
             }
             if (autoincrement) {
-              await db.execute('INSERT INTO t (k) VALUES (NULL)');
-              await db.execute('DELETE FROM t');
-              await db.execute('INSERT INTO t (k) VALUES (NULL)');
-              expect((await db.rawQuery('SELECT k FROM t')).single['k'], const Value.integer(3));
+              await db.runSql('INSERT INTO t (k) VALUES (NULL)');
+              await db.runSql('DELETE FROM t');
+              await db.runSql('INSERT INTO t (k) VALUES (NULL)');
+              expect((await db.runRawQuery('SELECT k FROM t')).single['k'], const Value.integer(3));
             }
             await db.dispose();
           });
@@ -303,12 +303,12 @@ void main() {
           final table = builder.columns((c) => {'a': c.integer(), 'b': c.text(), 'c': c.blob(), 'v': c.integer()});
           final db = await openMemory(table.statements);
 
-          final positions = {for (final column in await db.columns('t')) column.name: column.primaryKeyPosition};
+          final positions = {for (final column in await db.listColumns('t')) column.name: column.primaryKeyPosition};
           expect(positions, {'a': 2, 'b': 3, 'c': 1, 'v': 0});
           for (final nullColumn in ['a', 'b', 'c']) {
             final values = {'a': '1', 'b': "'x'", 'c': "X'00'"}..[nullColumn] = 'NULL';
             await expectLater(
-              db.execute('INSERT INTO t (a, b, c) VALUES (${values['a']}, ${values['b']}, ${values['c']})'),
+              db.runSql('INSERT INTO t (a, b, c) VALUES (${values['a']}, ${values['b']}, ${values['c']})'),
               throwsA(isA<StoreError>()),
               reason: 'a null $nullColumn was stored',
             );
@@ -369,13 +369,13 @@ void main() {
                 }
                 final db = await openMemory([...parent.statements, ...child.statements]);
 
-                final list = (await db.rawQuery('PRAGMA foreign_key_list("child")')).single;
+                final list = (await db.runRawQuery('PRAGMA foreign_key_list("child")')).single;
                 expect(list['table'], const Value.varchar('parent'));
                 expect(list['from'], const Value.varchar('p'));
                 expect(list['to'], const Value.varchar('id'));
                 expect(list['on_delete'], Value.varchar(onDelete.value));
                 expect(list['on_update'], Value.varchar(onUpdate.value));
-                final sql = (await db.rawQuery(
+                final sql = (await db.runRawQuery(
                   "SELECT sql FROM sqlite_master WHERE name = 'child'",
                 )).single['sql']!.asString;
                 expect(
@@ -385,13 +385,13 @@ void main() {
                 );
                 expect(sql.contains('DEFERRABLE'), deferral != null, reason: 'deferrable spelling in $sql');
                 if (deferral == Deferral.initiallyDeferred) {
-                  await db.transaction((txn) async {
+                  await db.runTransaction((txn) async {
                     await txn.execute('INSERT INTO child (p) VALUES (7)');
                     await txn.execute('INSERT INTO parent (id) VALUES (7)');
                   });
                 } else {
                   await expectLater(
-                    db.transaction((txn) => txn.execute('INSERT INTO child (p) VALUES (7)')),
+                    db.runTransaction((txn) => txn.execute('INSERT INTO child (p) VALUES (7)')),
                     throwsA(isA<StoreError>()),
                   );
                 }
@@ -422,13 +422,13 @@ void main() {
           )
           .columns((c) => {'x': c.integer(), 'y': c.integer()});
       final db = await openMemory([...parent.statements, ...implicit.statements, ...explicit.statements]);
-      await db.execute('INSERT INTO parent (a, b) VALUES (1, 2)');
+      await db.runSql('INSERT INTO parent (a, b) VALUES (1, 2)');
 
-      await db.execute('INSERT INTO implicit (x, y) VALUES (1, 2)');
-      await db.execute('INSERT INTO explicit (x, y) VALUES (1, 2)');
+      await db.runSql('INSERT INTO implicit (x, y) VALUES (1, 2)');
+      await db.runSql('INSERT INTO explicit (x, y) VALUES (1, 2)');
 
-      await expectLater(db.execute('INSERT INTO implicit (x, y) VALUES (2, 1)'), throwsA(isA<StoreError>()));
-      await expectLater(db.execute('INSERT INTO explicit (x, y) VALUES (2, 1)'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('INSERT INTO implicit (x, y) VALUES (2, 1)'), throwsA(isA<StoreError>()));
+      await expectLater(db.runSql('INSERT INTO explicit (x, y) VALUES (2, 1)'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
   });
@@ -453,10 +453,10 @@ void main() {
                     .columns((c) => {'a': c.text(), 'b': c.integer()});
                 final db = await openMemory(table.statements);
 
-                final listed = (await db.rawQuery('PRAGMA index_list("t")')).single;
+                final listed = (await db.runRawQuery('PRAGMA index_list("t")')).single;
                 expect(listed['unique']!.asInt, unique ? 1 : 0);
                 expect(listed['partial']!.asInt, where == null ? 0 : 1);
-                final parts = await db.rawQuery('PRAGMA index_xinfo("t_idx")');
+                final parts = await db.runRawQuery('PRAGMA index_xinfo("t_idx")');
                 expect(parts.first['desc']!.asInt, order == SortOrder.desc ? 1 : 0);
                 expect(parts.first['coll'], Value.varchar((collation ?? Collation.binary).name.toUpperCase()));
                 await db.dispose();
@@ -479,7 +479,7 @@ void main() {
           .columns((c) => {'a': c.text()});
       final db = await openMemory(table.statements);
 
-      final part = (await db.rawQuery('PRAGMA index_xinfo("t_lower")')).first;
+      final part = (await db.runRawQuery('PRAGMA index_xinfo("t_lower")')).first;
 
       expect(part['cid']!.asInt, -2);
       expect(part['coll'], const Value.varchar('NOCASE'));
@@ -515,13 +515,13 @@ void main() {
             )
             .columns((c) => {name: c.integer(), 'k': c.integer()});
         final db = await openMemory([...parent.statements, ...child.statements]);
-        await db.execute('INSERT INTO "${name.replaceAll('"', '""')}" VALUES (1, 1)');
-        await db.execute('INSERT INTO "${name.replaceAll('"', '""')}_child" VALUES (1, 1)');
+        await db.runSql('INSERT INTO "${name.replaceAll('"', '""')}" VALUES (1, 1)');
+        await db.runSql('INSERT INTO "${name.replaceAll('"', '""')}_child" VALUES (1, 1)');
 
-        expect(await db.tableNames(), unorderedEquals([name, '${name}_child']));
-        expect((await db.columns('${name}_child')).map((column) => column.name), [name, 'k']);
+        expect(await db.listTables(), unorderedEquals([name, '${name}_child']));
+        expect((await db.listColumns('${name}_child')).map((column) => column.name), [name, 'k']);
         await expectLater(
-          db.execute('INSERT INTO "${name.replaceAll('"', '""')}_child" VALUES (2, 1)'),
+          db.runSql('INSERT INTO "${name.replaceAll('"', '""')}_child" VALUES (2, 1)'),
           throwsA(isA<StoreError>()),
         );
         expect(await db.differences(child), isEmpty);
@@ -537,11 +537,11 @@ void main() {
           (c) => {'a': c.integer(), 'g': c.integer().generated(GeneratedColumn(expression: 'a + 1', storage: storage))},
         );
         final db = await openMemory(table.statements);
-        await db.execute('INSERT INTO t (a) VALUES (41)');
+        await db.runSql('INSERT INTO t (a) VALUES (41)');
 
-        expect((await db.rawQuery('SELECT g FROM t')).single['g'], const Value.integer(42));
-        expect((await db.columns('t')).last.generated, storage);
-        await expectLater(db.execute('INSERT INTO t (a, g) VALUES (1, 1)'), throwsA(isA<StoreError>()));
+        expect((await db.runRawQuery('SELECT g FROM t')).single['g'], const Value.integer(42));
+        expect((await db.listColumns('t')).last.generated, storage);
+        await expectLater(db.runSql('INSERT INTO t (a, g) VALUES (1, 1)'), throwsA(isA<StoreError>()));
         await db.dispose();
       });
     }

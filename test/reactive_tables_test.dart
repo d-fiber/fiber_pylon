@@ -250,7 +250,7 @@ void main() {
     });
 
     test('refuses a session that is a transaction', () async {
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         expect(() => notes.on(txn).watch(), throwsStateError);
         expect(() => notes.on(txn).watchFirst(), throwsStateError);
       });
@@ -320,7 +320,7 @@ void main() {
       final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         await notes.on(txn).insert(const Note(title: 'a'));
         await notes.on(txn).insert(const Note(title: 'b'));
         await _settle();
@@ -339,7 +339,7 @@ void main() {
       await _waitFor(events, 1);
 
       await expectLater(
-        db.transaction((txn) async {
+        db.runTransaction((txn) async {
           await notes.on(txn).insert(const Note(title: 'a'));
           throw StateError('nope');
         }),
@@ -369,9 +369,9 @@ void main() {
       final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
-      await db.insert<_Raw>((i) => i.into('notes').values(const _Raw('raw')));
+      await db.runInsert<_Raw>((i) => i.into('notes').values(const _Raw('raw')));
       await _waitFor(events, 2);
-      await db.delete((d) => d.from('notes'));
+      await db.runDelete((d) => d.from('notes'));
       await _waitFor(events, 3);
       await subscription.cancel();
 
@@ -383,10 +383,10 @@ void main() {
       final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
-      final batch = db.batch()..insert<_Raw>((i) => i.into('notes').values(const _Raw('a')));
+      final batch = db.newBatch()..insert<_Raw>((i) => i.into('notes').values(const _Raw('a')));
       await batch.commit();
       await _waitFor(events, 2);
-      await db.execute("INSERT INTO notes (title) VALUES ('b')");
+      await db.runSql("INSERT INTO notes (title) VALUES ('b')");
       await _waitFor(events, 3);
       await subscription.cancel();
 
@@ -398,7 +398,7 @@ void main() {
       final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         await notes.on(db).insert(const Note(title: 'a'));
         await _settle();
         expect(events, [0]);

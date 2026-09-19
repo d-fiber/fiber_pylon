@@ -206,8 +206,8 @@ void main() {
     });
 
     test('creates the tables of its collections in the app database', () async {
-      expect(await AppStorage.database.tableExists('users'), isTrue);
-      expect(await AppStorage.database.tableExists('items'), isTrue);
+      expect(await AppStorage.database.hasTable('users'), isTrue);
+      expect(await AppStorage.database.hasTable('items'), isTrue);
     });
 
     test('a collection it does not list has no table', () async {
@@ -312,7 +312,7 @@ void main() {
       await db.users.clear();
 
       expect(await db.users.count(), 0);
-      expect(await AppStorage.database.tableExists('users'), isTrue);
+      expect(await AppStorage.database.hasTable('users'), isTrue);
     });
   });
 

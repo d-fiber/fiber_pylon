@@ -117,9 +117,9 @@ void main() {
       final db = LocalDatabase(name: 'todos.db', onCreate: _createTodos);
       await db.open();
 
-      final id = await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
+      final id = await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
-      final rows = await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow));
+      final rows = await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow));
       expect(rows, [Todo(id: id, title: 'Ship it', done: false)]);
       await db.dispose();
     });
@@ -127,10 +127,10 @@ void main() {
     test('filters with where', () async {
       final db = LocalDatabase(name: 'todos_filter.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
 
-      final open = await db.query<Todo>(
+      final open = await db.runQuery<Todo>(
         (q) => q
             .from('todos')
             .where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false)))
@@ -144,11 +144,11 @@ void main() {
     test('orders, limits and offsets', () async {
       final db = LocalDatabase(name: 'todos_order.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
 
-      final page = await db.query<Todo>(
+      final page = await db.runQuery<Todo>(
         (q) => q.from('todos').orderBy(const [Sort.named('title')]).limit(1).offset(1).map(Todo.fromRow),
       );
 
@@ -159,11 +159,11 @@ void main() {
     test('orders by several terms, each in its own direction', () async {
       final db = LocalDatabase(name: 'todos_order_terms.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: true)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'B', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: true)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
 
-      final rows = await db.query<Todo>(
+      final rows = await db.runQuery<Todo>(
         (q) => q
             .from('todos')
             .orderBy(const [Sort.named('done'), Sort.named('title', order: SortOrder.desc)])
@@ -177,11 +177,11 @@ void main() {
     test('orders by a raw expression when a bare column cannot say it', () async {
       final db = LocalDatabase(name: 'todos_order_expression.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'b', done: false)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'b', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
 
-      final rows = await db.query<Todo>(
+      final rows = await db.runQuery<Todo>(
         (q) => q.from('todos').orderBy(const [Sort.expression('lower(title)')]).map(Todo.fromRow),
       );
 
@@ -192,20 +192,20 @@ void main() {
     test('quotes the column names of select, groupBy and orderBy, so a keyword is still a column', () async {
       final db = LocalDatabase(name: 'things_keywords.db', onCreate: _createKeywordColumns);
       await db.open();
-      await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
+      await db.runSql('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
         Value.varchar('x'),
         Value.integer(1),
       ]);
-      await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
+      await db.runSql('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
         Value.varchar('y'),
         Value.integer(2),
       ]);
-      await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
+      await db.runSql('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
         Value.varchar('x'),
         Value.integer(3),
       ]);
 
-      final groups = await db.query<String>(
+      final groups = await db.runQuery<String>(
         (q) => q
             .from('things')
             .select(const ['group'])
@@ -222,10 +222,10 @@ void main() {
       final db = LocalDatabase(name: 'todos_having.db', onCreate: _createTodos);
       await db.open();
       for (final title in ['A', 'A', 'A', 'B', 'B', 'C']) {
-        await db.insert<Todo>((i) => i.into('todos').values(Todo(title: title, done: false)));
+        await db.runInsert<Todo>((i) => i.into('todos').values(Todo(title: title, done: false)));
       }
 
-      final repeated = await db.query<String>(
+      final repeated = await db.runQuery<String>(
         (q) => q
             .from('todos')
             .select(const ['title'])
@@ -243,17 +243,17 @@ void main() {
       final db = LocalDatabase(name: 'todos_negative_page.db', onCreate: _createTodos);
       await db.open();
 
-      await expectLater(db.query<Todo>((q) => q.from('todos').limit(-1).map(Todo.fromRow)), throwsRangeError);
-      await expectLater(db.query<Todo>((q) => q.from('todos').offset(-1).map(Todo.fromRow)), throwsRangeError);
+      await expectLater(db.runQuery<Todo>((q) => q.from('todos').limit(-1).map(Todo.fromRow)), throwsRangeError);
+      await expectLater(db.runQuery<Todo>((q) => q.from('todos').offset(-1).map(Todo.fromRow)), throwsRangeError);
       await db.dispose();
     });
 
     test('select narrows the columns a row carries', () async {
       final db = LocalDatabase(name: 'todos_select.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
-      final rows = await db.query<String>(
+      final rows = await db.runQuery<String>(
         (q) => q.from('todos').select(const ['title']).map((row) => row['title']!.asString),
       );
 
@@ -264,9 +264,9 @@ void main() {
     test('updates matching rows and answers how many changed', () async {
       final db = LocalDatabase(name: 'todos_update.db', onCreate: _createTodos);
       await db.open();
-      final id = await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
+      final id = await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
-      final changed = await db.update<Todo>(
+      final changed = await db.runUpdate<Todo>(
         (u) => u
             .table('todos')
             .set(const Todo(title: 'Ship it', done: true))
@@ -274,7 +274,7 @@ void main() {
       );
 
       expect(changed, 1);
-      final rows = await db.query<Todo>(
+      final rows = await db.runQuery<Todo>(
         (q) => q.from('todos').where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))).map(Todo.fromRow),
       );
       expect(rows.single.done, isTrue);
@@ -284,15 +284,15 @@ void main() {
     test('deletes matching rows and answers how many were removed', () async {
       final db = LocalDatabase(name: 'todos_delete.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
-      final keep = await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Done already', done: true)));
+      final keep = await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
 
-      final removed = await db.delete(
+      final removed = await db.runDelete(
         (d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))),
       );
 
       expect(removed, 1);
-      final rows = await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow));
+      final rows = await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow));
       expect(rows.single.id, keep);
       await db.dispose();
     });
@@ -302,14 +302,14 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.transaction((txn) async {
+        db.runTransaction((txn) async {
           await txn.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Never lands', done: false)));
           throw StateError('rollback');
         }),
         throwsStateError,
       );
 
-      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), isEmpty);
+      expect(await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), isEmpty);
       await db.dispose();
     });
 
@@ -317,20 +317,20 @@ void main() {
       final db = LocalDatabase(name: 'todos_txn_commit.db', onCreate: _createTodos);
       await db.open();
 
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         await txn.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
       });
 
-      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(1));
+      expect(await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(1));
       await db.dispose();
     });
 
     test('runs raw SQL through execute and rawQuery', () async {
       final db = LocalDatabase(name: 'todos_raw.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
-      final rows = await db.rawQuery('SELECT title FROM todos WHERE done = ?', [Value.boolean(false)]);
+      final rows = await db.runRawQuery('SELECT title FROM todos WHERE done = ?', [Value.boolean(false)]);
 
       expect(rows, [
         const {'title': Value.varchar('Ship it')},
@@ -341,13 +341,13 @@ void main() {
     test('preserves data across a reopen', () async {
       final db = LocalDatabase(name: 'todos_reopen.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
       await db.dispose();
 
       final reopened = LocalDatabase(name: 'todos_reopen.db', onCreate: _createTodos);
       await reopened.open();
 
-      final rows = await reopened.query<Todo>((q) => q.from('todos').map(Todo.fromRow));
+      final rows = await reopened.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow));
       expect(rows.single.title, 'Ship it');
       await reopened.dispose();
     });
@@ -355,14 +355,14 @@ void main() {
     test('throws when used before open', () {
       final db = LocalDatabase(name: 'todos_unopened.db', onCreate: _createTodos);
 
-      expect(() => db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), throwsStateError);
+      expect(() => db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), throwsStateError);
     });
 
     test('throws when a query builder never calls map', () async {
       final db = LocalDatabase(name: 'todos_no_map.db', onCreate: _createTodos);
       await db.open();
 
-      expect(() => db.query<Todo>((q) => q.from('todos')), throwsStateError);
+      expect(() => db.runQuery<Todo>((q) => q.from('todos')), throwsStateError);
       await db.dispose();
     });
 
@@ -370,12 +370,12 @@ void main() {
       final db = LocalDatabase(name: 'todos_batch.db', onCreate: _createTodos);
       await db.open();
 
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'First', done: false)));
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Second', done: false)));
       await batch.commit();
 
-      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(2));
+      expect(await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(2));
       await db.dispose();
     });
 
@@ -383,7 +383,7 @@ void main() {
       final db = LocalDatabase(name: 'todos_batch_results.db', onCreate: _createUniqueTodos);
       await db.open();
 
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'First', done: false)));
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Second', done: false)));
       batch.update<Todo>(
@@ -417,7 +417,7 @@ void main() {
       final db = LocalDatabase(name: 'todos_batch_failure.db', onCreate: _createUniqueTodos);
       await db.open();
 
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Other', done: false)));
@@ -437,9 +437,9 @@ void main() {
     test('reports an insert skipped by ConflictAlgorithm.ignore as a null row id', () async {
       final db = LocalDatabase(name: 'todos_batch_ignore.db', onCreate: _createUniqueTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
 
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Todo>(
         (i) => i.into('todos').values(const Todo(title: 'Same', done: false)).onConflict(ConflictAlgorithm.ignore),
       );
@@ -452,11 +452,11 @@ void main() {
       final db = LocalDatabase(name: 'todos_batch_no_result.db', onCreate: _createUniqueTodos);
       await db.open();
 
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Quiet', done: false)));
 
       expect(await batch.commit(noResult: true), isEmpty);
-      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(1));
+      expect(await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), hasLength(1));
       await db.dispose();
     });
 
@@ -464,12 +464,12 @@ void main() {
       final db = LocalDatabase(name: 'todos_batch_rollback.db', onCreate: _createUniqueTodos);
       await db.open();
 
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
 
       await expectLater(batch.commit(), throwsA(isA<UniqueConstraintError>()));
-      expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), isEmpty);
+      expect(await db.runQuery<Todo>((q) => q.from('todos').map(Todo.fromRow)), isEmpty);
       await db.dispose();
     });
 
@@ -480,10 +480,10 @@ void main() {
             db.execute('CREATE TABLE todos (id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE)'),
       );
       await db.open();
-      await db.execute('INSERT INTO todos (id, title) VALUES (1, ?)', const [Value.varchar('Ship it')]);
+      await db.runSql('INSERT INTO todos (id, title) VALUES (1, ?)', const [Value.varchar('Ship it')]);
 
       await expectLater(
-        db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [Value.varchar('Ship it')]),
+        db.runSql('INSERT INTO todos (id, title) VALUES (2, ?)', const [Value.varchar('Ship it')]),
         throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
@@ -494,7 +494,7 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.query<Todo>((q) => q.from('ghosts').map(Todo.fromRow)),
+        db.runQuery<Todo>((q) => q.from('ghosts').map(Todo.fromRow)),
         throwsA(isA<NoSuchTableError>()),
       );
       await db.dispose();
@@ -504,9 +504,9 @@ void main() {
       final db = LocalDatabase(name: 'todos_schema.db', onCreate: _createTodos);
       await db.open();
 
-      expect(await db.tableExists('todos'), isTrue);
-      expect(await db.tableExists('ghosts'), isFalse);
-      expect(await db.tableNames(), ['todos']);
+      expect(await db.hasTable('todos'), isTrue);
+      expect(await db.hasTable('ghosts'), isFalse);
+      expect(await db.listTables(), ['todos']);
       await db.dispose();
     });
 
@@ -514,7 +514,7 @@ void main() {
       final db = LocalDatabase(name: 'todos_columns.db', onCreate: _createTodos);
       await db.open();
 
-      final columns = await db.columns('todos');
+      final columns = await db.listColumns('todos');
 
       expect(columns, [
         const ColumnInfo(name: 'id', declaredType: 'INTEGER', isNotNull: false, primaryKeyPosition: 1),
@@ -537,15 +537,15 @@ void main() {
     setUp(() async {
       db = LocalDatabase(name: 'todos_filters.db', onCreate: _createTodos);
       await db.open();
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ant', done: false)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Bee', done: true)));
-      await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Cat', done: true)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ant', done: false)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Bee', done: true)));
+      await db.runInsert<Todo>((i) => i.into('todos').values(const Todo(title: 'Cat', done: true)));
     });
 
     tearDown(() => db.dispose());
 
     Future<List<String>> titlesWhere(Filter Function(FilterBuilder w) build) async {
-      final rows = await db.query<Todo>(
+      final rows = await db.runQuery<Todo>(
         (q) => q.from('todos').where(build).orderBy(const [Sort.named('title')]).map(Todo.fromRow),
       );
       return rows.map((todo) => todo.title).toList();
@@ -559,7 +559,7 @@ void main() {
     });
 
     test('isGreaterThan and isLessThan compare ids', () async {
-      final all = await db.query<Todo>(
+      final all = await db.runQuery<Todo>(
         (q) => q.from('todos').orderBy(const [Sort.named('id')]).map(Todo.fromRow),
       );
       final firstId = all.first.id!;
@@ -572,7 +572,7 @@ void main() {
     });
 
     test('isGreaterThanOrEqualTo and isLessThanOrEqualTo include the boundary', () async {
-      final all = await db.query<Todo>(
+      final all = await db.runQuery<Todo>(
         (q) => q.from('todos').orderBy(const [Sort.named('id')]).map(Todo.fromRow),
       );
       final firstId = all.first.id!;
@@ -654,13 +654,13 @@ void main() {
         const Value.varchar('beta'),
         const Value.nil(),
       ]) {
-        await notes.execute('INSERT INTO notes (body) VALUES (?)', [body]);
+        await notes.runSql('INSERT INTO notes (body) VALUES (?)', [body]);
       }
     });
 
     tearDown(() => notes.dispose());
 
-    Future<List<int>> idsWhere(Filter Function(FilterBuilder w) build) => notes.query<int>(
+    Future<List<int>> idsWhere(Filter Function(FilterBuilder w) build) => notes.runQuery<int>(
       (q) => q
           .from('notes')
           .select(const ['id'])
@@ -709,7 +709,7 @@ void main() {
     });
 
     test('contains, startsWith and endsWith match the text as written', () async {
-      await notes.execute('INSERT INTO notes (body) VALUES (?)', const [Value.varchar('50% off_sale\\now')]);
+      await notes.runSql('INSERT INTO notes (body) VALUES (?)', const [Value.varchar('50% off_sale\\now')]);
 
       expect(await idsWhere((w) => w.contains(key: 'body', text: 'lph')), [1]);
       expect(await idsWhere((w) => w.startsWith(key: 'body', text: 'be')), [2]);
@@ -732,10 +732,10 @@ void main() {
       const nineThirty = Time(hour: 9, minute: 30, second: 5, millisecond: 250);
       const ten = Time(hour: 10, minute: 0);
       for (final time in [nine, ten, nineThirty]) {
-        await slots.execute('INSERT INTO slots (at) VALUES (?)', [Value.time(time)]);
+        await slots.runSql('INSERT INTO slots (at) VALUES (?)', [Value.time(time)]);
       }
 
-      Future<List<int>> idsWhereAt(Filter Function(FilterBuilder w) build) => slots.query<int>(
+      Future<List<int>> idsWhereAt(Filter Function(FilterBuilder w) build) => slots.runQuery<int>(
         (q) => q
             .from('slots')
             .select(const ['id'])
@@ -753,11 +753,11 @@ void main() {
     test('an equality filter on a numeric interval treats 3 and 3.0 as the same bound', () async {
       final slots = LocalDatabase(name: 'intervals_filters.db', onCreate: _createSlots);
       await slots.open();
-      await slots.execute('INSERT INTO slots (at) VALUES (?)', [
+      await slots.runSql('INSERT INTO slots (at) VALUES (?)', [
         Value.interval(const IntervalBounds.num(start: 3.0, end: 4.5)),
       ]);
 
-      final ids = await slots.query<int>(
+      final ids = await slots.runQuery<int>(
         (q) => q
             .from('slots')
             .select(const ['id'])

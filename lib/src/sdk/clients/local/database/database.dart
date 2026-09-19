@@ -140,7 +140,7 @@ abstract base class Database extends LocalSdkClient {
   /// SQLite runs one transaction at a time, so there is no conflict to retry.
   Future<R> runTransaction<R>(Future<R> Function(Transaction transaction) action) {
     final tenant = Tenant.current;
-    return AppStorage.database.transaction((txn) => action(Transaction._(txn, tenant)));
+    return AppStorage.database.runTransaction((txn) => action(Transaction._(txn, tenant)));
   }
 
   /// Moves every anonymous row — what was saved before anyone signed in — to

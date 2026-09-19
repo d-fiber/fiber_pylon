@@ -117,18 +117,18 @@ void main() {
   }
 
   Future<int> countOf(LocalDatabase db, String table) async {
-    final rows = await db.rawQuery('SELECT COUNT(*) AS total FROM "$table"');
+    final rows = await db.runRawQuery('SELECT COUNT(*) AS total FROM "$table"');
     return rows.single['total']!.asInt;
   }
 
   Future<void> fillCells(LocalDatabase db) async {
     for (final (n, g) in [(1, 'a'), (2, 'a'), (3, 'b'), (4, 'b'), (5, 'a')]) {
-      await db.insert<Cells>((i) => i.into('cells').values(Cells(n, g)));
+      await db.runInsert<Cells>((i) => i.into('cells').values(Cells(n, g)));
     }
   }
 
   Future<List<int>> readNs(LocalDatabase db, QueryFrom<int> Function(QueryFrom<int> query) refine) =>
-      db.query<int>((q) => refine(q.from('cells').map((row) => row['n']!.asInt)));
+      db.runQuery<int>((q) => refine(q.from('cells').map((row) => row['n']!.asInt)));
 
   group('LocalDatabase transactions', () {
     test('runs a write made through the database inside the transaction instead of deadlocking', () async {
@@ -136,9 +136,9 @@ void main() {
 
       await expectLater(
         db
-            .transaction((txn) async {
+            .runTransaction((txn) async {
               await txn.insert<Note>((i) => i.into('notes').values(const Note('through the transaction')));
-              await db.insert<Note>((i) => i.into('notes').values(const Note('through the database')));
+              await db.runInsert<Note>((i) => i.into('notes').values(const Note('through the database')));
             })
             .timeout(const Duration(seconds: 2)),
         completes,
@@ -153,8 +153,8 @@ void main() {
 
       await expectLater(
         db
-            .transaction((txn) async {
-              await db.insert<Note>((i) => i.into('notes').values(const Note('through the database')));
+            .runTransaction((txn) async {
+              await db.runInsert<Note>((i) => i.into('notes').values(const Note('through the database')));
               throw StateError('abort');
             })
             .timeout(const Duration(seconds: 2)),
@@ -168,9 +168,9 @@ void main() {
       final db = await openWith('txn_nested.db', [_notes]);
 
       final answer = db
-          .transaction((outer) async {
+          .runTransaction((outer) async {
             await outer.insert<Note>((i) => i.into('notes').values(const Note('outer')));
-            return db.transaction((inner) async {
+            return db.runTransaction((inner) async {
               await inner.insert<Note>((i) => i.into('notes').values(const Note('inner')));
               return 7;
             });
@@ -187,8 +187,8 @@ void main() {
 
       await expectLater(
         db
-            .transaction((txn) async {
-              final batch = db.batch();
+            .runTransaction((txn) async {
+              final batch = db.newBatch();
               batch.insert<Note>((i) => i.into('notes').values(const Note('batched')));
               await batch.commit();
               throw StateError('abort');
@@ -206,8 +206,8 @@ void main() {
 
       await expectLater(
         first
-            .transaction((txn) async {
-              await second.insert<Note>((i) => i.into('notes').values(const Note('elsewhere')));
+            .runTransaction((txn) async {
+              await second.runInsert<Note>((i) => i.into('notes').values(const Note('elsewhere')));
               throw StateError('abort');
             })
             .timeout(const Duration(seconds: 2)),
@@ -221,7 +221,7 @@ void main() {
     test('reports a transaction used after it finished as TransactionClosedError', () async {
       final db = await openWith('txn_closed.db', [_notes]);
       late TransactionScope finished;
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         finished = txn;
       });
 
@@ -248,7 +248,7 @@ void main() {
       );
 
       await expectLater(
-        db.execute('INSERT INTO children (parent_id) VALUES (99)'),
+        db.runSql('INSERT INTO children (parent_id) VALUES (99)'),
         throwsA(isA<ForeignKeyConstraintError>()),
       );
       await db.dispose();
@@ -257,7 +257,7 @@ void main() {
     test('reports a broken CHECK as CheckConstraintError', () async {
       final db = await openWith('error_check.db', ['CREATE TABLE ages (n INTEGER CHECK (n > 0))']);
 
-      await expectLater(db.execute('INSERT INTO ages (n) VALUES (0)'), throwsA(isA<CheckConstraintError>()));
+      await expectLater(db.runSql('INSERT INTO ages (n) VALUES (0)'), throwsA(isA<CheckConstraintError>()));
       await db.dispose();
     });
 
@@ -265,7 +265,7 @@ void main() {
       final db = await openWith('error_strict.db', ['CREATE TABLE ages (n INTEGER) STRICT']);
 
       await expectLater(
-        db.execute('INSERT INTO ages (n) VALUES (?)', [const Value.varchar('old')]),
+        db.runSql('INSERT INTO ages (n) VALUES (?)', [const Value.varchar('old')]),
         throwsA(isA<DatatypeMismatchError>()),
       );
       await db.dispose();
@@ -274,9 +274,9 @@ void main() {
     test('reports a column that does not exist as NoSuchColumnError', () async {
       final db = await openWith('error_no_column.db', [_notes]);
 
-      await expectLater(db.rawQuery('SELECT missing FROM notes'), throwsA(isA<NoSuchColumnError>()));
+      await expectLater(db.runRawQuery('SELECT missing FROM notes'), throwsA(isA<NoSuchColumnError>()));
       await expectLater(
-        db.insert<Cells>((i) => i.into('notes').values(const Cells(1, 'a'))),
+        db.runInsert<Cells>((i) => i.into('notes').values(const Cells(1, 'a'))),
         throwsA(isA<NoSuchColumnError>()),
       );
       await db.dispose();
@@ -286,7 +286,7 @@ void main() {
       final db = await openWith('error_no_column_filter.db', [_notes]);
 
       await expectLater(
-        db.query<int>(
+        db.runQuery<int>(
           (q) => q
               .from('notes')
               .where((w) => w.isEqualTo(key: 'missing', value: const Value.integer(1)))
@@ -299,11 +299,11 @@ void main() {
 
     test('reports a table or an index created twice as AlreadyExistsError', () async {
       final db = await openWith('error_exists.db', [_notes]);
-      await db.execute('CREATE INDEX notes_body ON notes (body)');
+      await db.runSql('CREATE INDEX notes_body ON notes (body)');
 
-      await expectLater(db.execute(_notes), throwsA(isA<AlreadyExistsError>()));
+      await expectLater(db.runSql(_notes), throwsA(isA<AlreadyExistsError>()));
       await expectLater(
-        db.execute('CREATE INDEX notes_body ON notes (body)'),
+        db.runSql('CREATE INDEX notes_body ON notes (body)'),
         throwsA(isA<AlreadyExistsError>()),
       );
       await db.dispose();
@@ -313,13 +313,13 @@ void main() {
       final holder = await openWith('error_busy.db', [_notes], singleInstance: false);
       final waiter = LocalDatabase(name: 'error_busy.db', singleInstance: false);
       await waiter.open();
-      await holder.execute('BEGIN IMMEDIATE');
+      await holder.runSql('BEGIN IMMEDIATE');
 
       await expectLater(
-        waiter.insert<Note>((i) => i.into('notes').values(const Note('blocked'))),
+        waiter.runInsert<Note>((i) => i.into('notes').values(const Note('blocked'))),
         throwsA(isA<BusyError>()),
       );
-      await holder.execute('ROLLBACK');
+      await holder.runSql('ROLLBACK');
       await holder.dispose();
       await waiter.dispose();
     });
@@ -333,10 +333,10 @@ void main() {
 
     test('reports a write that finds the file full as StorageError', () async {
       final db = await openWith('error_full.db', ['CREATE TABLE blobs (data BLOB)']);
-      await db.execute('PRAGMA max_page_count = 4');
+      await db.runSql('PRAGMA max_page_count = 4');
 
       await expectLater(
-        db.execute('INSERT INTO blobs (data) VALUES (zeroblob(1000000))'),
+        db.runSql('INSERT INTO blobs (data) VALUES (zeroblob(1000000))'),
         throwsA(isA<StorageError>()),
       );
       await db.dispose();
@@ -351,7 +351,7 @@ void main() {
     test('still reports what it cannot classify as UnknownError', () async {
       final db = await openWith('error_unknown.db', [_notes]);
 
-      await expectLater(db.rawQuery('SELECT no_such_function(1)'), throwsA(isA<UnknownError>()));
+      await expectLater(db.runRawQuery('SELECT no_such_function(1)'), throwsA(isA<UnknownError>()));
       await db.dispose();
     });
   });
@@ -366,7 +366,7 @@ void main() {
       final db = await openWith('fk_default.db', parentAndChild);
 
       await expectLater(
-        db.execute('INSERT INTO children (parent_id) VALUES (99)'),
+        db.runSql('INSERT INTO children (parent_id) VALUES (99)'),
         throwsA(isA<StoreError>()),
         reason: 'a declared FOREIGN KEY that SQLite ignores protects nothing',
       );
@@ -380,7 +380,7 @@ void main() {
         onConfigure: (database) => database.execute('PRAGMA foreign_keys = OFF'),
       );
 
-      await db.execute('INSERT INTO children (parent_id) VALUES (99)');
+      await db.runSql('INSERT INTO children (parent_id) VALUES (99)');
 
       expect(await countOf(db, 'children'), 1);
       await db.dispose();
@@ -389,7 +389,7 @@ void main() {
     test('opens a read only database whose stored version differs from the requested one', () async {
       final writer = LocalDatabase(name: 'readonly_version.db', version: 3, onCreate: (d, v) => d.execute(_notes));
       await writer.open();
-      await writer.execute("INSERT INTO notes (body) VALUES ('kept')");
+      await writer.runSql("INSERT INTO notes (body) VALUES ('kept')");
       await writer.dispose();
 
       final reader = LocalDatabase(name: 'readonly_version.db', version: 1, readOnly: true);
@@ -459,7 +459,7 @@ void main() {
   group('StatementBatch reuse', () {
     test('does not run a statement again when the batch is committed twice', () async {
       final db = await openWith('batch_twice.db', [_notes]);
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Note>((i) => i.into('notes').values(const Note('once')));
 
       await batch.commit();
@@ -472,7 +472,7 @@ void main() {
 
     test('runs only the statements queued since the last commit', () async {
       final db = await openWith('batch_refill.db', [_notes]);
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<Note>((i) => i.into('notes').values(const Note('first')));
       await batch.commit();
 
@@ -506,7 +506,7 @@ void main() {
       final db = await openWith('where_update.db', [_cells]);
       await fillCells(db);
 
-      final changed = await db.update<Cells>(
+      final changed = await db.runUpdate<Cells>(
         (u) => u
             .table('cells')
             .set(const Cells(0, 'z'))
@@ -522,7 +522,7 @@ void main() {
       final db = await openWith('where_delete.db', [_cells]);
       await fillCells(db);
 
-      final removed = await db.delete(
+      final removed = await db.runDelete(
         (d) => d
             .from('cells')
             .where((w) => w.isEqualTo(key: 'g', value: const Value.varchar('a')))
@@ -538,7 +538,7 @@ void main() {
       final db = await openWith('having_twice.db', [_cells]);
       await fillCells(db);
 
-      final groups = await db.query<String>(
+      final groups = await db.runQuery<String>(
         (q) => q
             .from('cells')
             .select(['g'])
@@ -583,7 +583,7 @@ void main() {
       final db = await openWith('select_twice.db', [_cells]);
       await fillCells(db);
 
-      final widths = await db.query<int>((q) => q.from('cells').select(['n']).select(['g']).map((row) => row.length));
+      final widths = await db.runQuery<int>((q) => q.from('cells').select(['n']).select(['g']).map((row) => row.length));
 
       expect(widths, everyElement(2));
       await db.dispose();
@@ -592,10 +592,10 @@ void main() {
     test('reads a table name with a space as one name', () async {
       final db = await openWith('table_space.db', ['CREATE TABLE "my notes" (id INTEGER PRIMARY KEY, body TEXT)']);
 
-      await db.insert<Note>((i) => i.into('my notes').values(const Note('spaced')));
-      final bodies = await db.query<String>((q) => q.from('my notes').map((row) => row['body']!.asString));
-      final changed = await db.update<Note>((u) => u.table('my notes').set(const Note('changed')));
-      final removed = await db.delete((d) => d.from('my notes'));
+      await db.runInsert<Note>((i) => i.into('my notes').values(const Note('spaced')));
+      final bodies = await db.runQuery<String>((q) => q.from('my notes').map((row) => row['body']!.asString));
+      final changed = await db.runUpdate<Note>((u) => u.table('my notes').set(const Note('changed')));
+      final removed = await db.runDelete((d) => d.from('my notes'));
 
       expect(bodies, ['spaced']);
       expect([changed, removed], [1, 1]);
@@ -604,9 +604,9 @@ void main() {
 
     test('reads SQL inside a table name as a name and never as a statement', () async {
       final db = await openWith('table_injection.db', [_notes]);
-      await db.insert<Note>((i) => i.into('notes').values(const Note('kept')));
+      await db.runInsert<Note>((i) => i.into('notes').values(const Note('kept')));
 
-      await expectLater(db.delete((d) => d.from('notes WHERE 1 = 1 --')), throwsA(isA<NoSuchTableError>()));
+      await expectLater(db.runDelete((d) => d.from('notes WHERE 1 = 1 --')), throwsA(isA<NoSuchTableError>()));
       expect(await countOf(db, 'notes'), 1, reason: 'the injected condition removed rows');
       await db.dispose();
     });
@@ -614,11 +614,11 @@ void main() {
     test('reads a column name with a space as one name when inserting', () async {
       final db = await openWith('column_space.db', ['CREATE TABLE spaced (id INTEGER PRIMARY KEY, "my col" INTEGER)']);
 
-      await db.insert<Spaced>((i) => i.into('spaced').values(const Spaced(5)));
-      final changed = await db.update<Spaced>((u) => u.table('spaced').set(const Spaced(6)));
+      await db.runInsert<Spaced>((i) => i.into('spaced').values(const Spaced(5)));
+      final changed = await db.runUpdate<Spaced>((u) => u.table('spaced').set(const Spaced(6)));
 
       expect(changed, 1);
-      final rows = await db.rawQuery('SELECT "my col" AS value FROM spaced');
+      final rows = await db.runRawQuery('SELECT "my col" AS value FROM spaced');
       expect(rows.single['value']!.asInt, 6);
       await db.dispose();
     });
@@ -626,17 +626,17 @@ void main() {
     test('inserts a record with no columns using the defaults of the table', () async {
       final db = await openWith('insert_defaults.db', [_notes]);
 
-      final id = await db.insert<NoColumns>((i) => i.into('notes').values(const NoColumns()));
+      final id = await db.runInsert<NoColumns>((i) => i.into('notes').values(const NoColumns()));
 
       expect(id, 1);
-      final rows = await db.rawQuery('SELECT body FROM notes');
+      final rows = await db.runRawQuery('SELECT body FROM notes');
       expect(rows.single['body']!.asString, '');
       await db.dispose();
     });
 
     test('inserts a record with no columns through a batch too', () async {
       final db = await openWith('insert_defaults_batch.db', [_notes]);
-      final batch = db.batch();
+      final batch = db.newBatch();
       batch.insert<NoColumns>((i) => i.into('notes').values(const NoColumns()));
 
       final results = await batch.commit();
@@ -648,9 +648,9 @@ void main() {
     test('reads the columns of a table that does not exist as an empty list that tableExists explains', () async {
       final db = await openWith('columns_missing.db', [_notes]);
 
-      expect(await db.columns('absent'), isEmpty);
-      expect(await db.tableExists('absent'), isFalse);
-      expect(await db.columns('notes'), isNotEmpty);
+      expect(await db.listColumns('absent'), isEmpty);
+      expect(await db.hasTable('absent'), isFalse);
+      expect(await db.listColumns('notes'), isNotEmpty);
       await db.dispose();
     });
 
@@ -669,7 +669,7 @@ void main() {
       final db = await openWith('nan.db', ['CREATE TABLE measures (id INTEGER PRIMARY KEY, value REAL)']);
 
       await expectLater(
-        db.execute('INSERT INTO measures (value) VALUES (?)', [const Value.real(double.nan)]),
+        db.runSql('INSERT INTO measures (value) VALUES (?)', [const Value.real(double.nan)]),
         throwsArgumentError,
       );
       expect(await countOf(db, 'measures'), 0);
@@ -678,9 +678,9 @@ void main() {
 
     test('reads a whole number back from a NUMERIC column as a double', () async {
       final db = await openWith('numeric.db', ['CREATE TABLE prices (amount DECIMAL(10, 2))']);
-      await db.execute('INSERT INTO prices (amount) VALUES (?)', [const Value.real(3.0)]);
+      await db.runSql('INSERT INTO prices (amount) VALUES (?)', [const Value.real(3.0)]);
 
-      final rows = await db.rawQuery('SELECT amount FROM prices');
+      final rows = await db.runRawQuery('SELECT amount FROM prices');
 
       expect(rows.single['amount']!.asDouble, 3.0, reason: 'SQLite keeps 3.0 in a NUMERIC column as the integer 3');
       await db.dispose();

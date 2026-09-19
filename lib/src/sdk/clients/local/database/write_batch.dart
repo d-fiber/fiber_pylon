@@ -76,7 +76,7 @@ final class WriteBatch {
     _checkOpen();
     _committed = true;
     final tenant = Tenant.current;
-    return AppStorage.database.transaction((txn) async {
+    return AppStorage.database.runTransaction((txn) async {
       for (final operation in _operations) {
         await operation(txn, tenant);
       }

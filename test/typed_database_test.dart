@@ -410,7 +410,7 @@ Future<LocalDatabase> _open(String name) async {
 }
 
 Future<List<String>> _columnNames(LocalDatabase db, String table) async => [
-  for (final column in await db.columns(table)) column.name,
+  for (final column in await db.listColumns(table)) column.name,
 ];
 
 void main() {
@@ -434,9 +434,9 @@ void main() {
     test('creates every declared table with no callback and stores the schema version', () async {
       final db = await _open('declared.db');
 
-      expect(await db.tableNames(), containsAll(['items', 'labels', 'links', 'samples']));
+      expect(await db.listTables(), containsAll(['items', 'labels', 'links', 'samples']));
       expect(await _columnNames(db, 'items'), ['id', 'title', 'done', 'due', 'rank']);
-      final version = await db.rawQuery('PRAGMA user_version');
+      final version = await db.runRawQuery('PRAGMA user_version');
       expect(version.single['user_version']!.asInt, 1);
       await db.dispose();
     });
@@ -454,7 +454,7 @@ void main() {
     test('opens the journal in write-ahead mode', () async {
       final db = await _open('journal.db');
 
-      final rows = await db.rawQuery('PRAGMA journal_mode');
+      final rows = await db.runRawQuery('PRAGMA journal_mode');
 
       expect(rows.single['journal_mode']!.asString, 'wal');
       await db.dispose();
@@ -484,7 +484,7 @@ void main() {
         tables: [ItemsV2(gainedColumn: (c) => c.text('a').nullable())],
       );
       await older.open();
-      await older.execute('INSERT INTO items (title) VALUES (?)', const [Value.varchar('old')]);
+      await older.runSql('INSERT INTO items (title) VALUES (?)', const [Value.varchar('old')]);
       await older.dispose();
       final newer = LocalDatabase.declared(
         name: 'backfill.db',
@@ -492,7 +492,7 @@ void main() {
       );
       await newer.open();
 
-      final rows = await newer.rawQuery('SELECT rank FROM items');
+      final rows = await newer.runRawQuery('SELECT rank FROM items');
 
       expect(rows.single['rank']!.asInt, 3);
       await newer.dispose();
@@ -540,7 +540,7 @@ void main() {
 
       expect(seen, ['ran']);
       expect((await items.on(v2).list()).single.title, 'migrated');
-      final version = await v2.rawQuery('PRAGMA user_version');
+      final version = await v2.runRawQuery('PRAGMA user_version');
       expect(version.single['user_version']!.asInt, 2);
       await v2.dispose();
     });
@@ -556,7 +556,7 @@ void main() {
       await db.open();
 
       expect(seen, isEmpty);
-      final version = await db.rawQuery('PRAGMA user_version');
+      final version = await db.runRawQuery('PRAGMA user_version');
       expect(version.single['user_version']!.asInt, 3);
       await db.dispose();
     });
@@ -598,8 +598,8 @@ void main() {
 
       final again = LocalDatabase.declared(name: 'rollback.db', tables: [items]);
       await again.open();
-      expect(await again.tableExists('half_done'), isFalse);
-      final version = await again.rawQuery('PRAGMA user_version');
+      expect(await again.hasTable('half_done'), isFalse);
+      final version = await again.runRawQuery('PRAGMA user_version');
       expect(version.single['user_version']!.asInt, 1);
       await again.dispose();
     });
@@ -639,7 +639,7 @@ void main() {
       await db.dispose();
       final again = await _open('index.db');
 
-      final rows = await again.rawQuery(
+      final rows = await again.runRawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'links_label_id_idx'",
       );
 
@@ -658,7 +658,7 @@ void main() {
 
       await db.open();
 
-      expect(await db.tableNames(), containsAll(['items', 'audit']));
+      expect(await db.listTables(), containsAll(['items', 'audit']));
       await db.dispose();
     });
 
@@ -887,7 +887,7 @@ void main() {
 
       await prices.on(db).insert(const Price(Money(1250)));
 
-      final stored = await db.rawQuery('SELECT amount FROM prices');
+      final stored = await db.runRawQuery('SELECT amount FROM prices');
       expect(stored.single['amount']!.asInt, 1250);
       expect((await prices.on(db).list()).single.amount, const Money(1250));
       await db.dispose();
@@ -942,11 +942,11 @@ void main() {
     test('reading NULL from a column not declared nullable names the column', () async {
       final db = LocalDatabase.declared(name: 'null_in_required.db', tables: [items]);
       await db.open();
-      await db.execute('DROP TABLE items');
-      await db.execute(
+      await db.runSql('DROP TABLE items');
+      await db.runSql(
         'CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT, done INTEGER, due INTEGER, rank INTEGER)',
       );
-      await db.execute('INSERT INTO items DEFAULT VALUES');
+      await db.runSql('INSERT INTO items DEFAULT VALUES');
 
       await expectLater(
         items.on(db).list(),
@@ -1246,7 +1246,7 @@ void main() {
     test('commits every write across two tables together', () async {
       final db = await _open('txn_commit.db');
 
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         final item = await items.on(txn).insert(const Item(title: 'a'));
         final label = await labels.on(txn).insert(const Label(name: 'work'));
         await links.on(txn).insert(Link(itemId: item.id!, labelId: label.id!));
@@ -1261,7 +1261,7 @@ void main() {
       final db = await _open('txn_rollback.db');
 
       await expectLater(
-        db.transaction((txn) async {
+        db.runTransaction((txn) async {
           await items.on(txn).insert(const Item(title: 'a'));
           await labels.on(txn).insert(const Label(name: 'work'));
           throw StateError('stop');
@@ -1278,7 +1278,7 @@ void main() {
       final db = await _open('txn_join.db');
 
       await db
-          .transaction((txn) async {
+          .runTransaction((txn) async {
             await items.on(db).insert(const Item(title: 'a'));
             expect(await items.on(db).count(), 1);
             throw StateError('stop');
@@ -1294,8 +1294,8 @@ void main() {
       final db = await _open('txn_nested.db');
 
       await db
-          .transaction((outer) async {
-            await db.transaction((inner) async {
+          .runTransaction((outer) async {
+            await db.runTransaction((inner) async {
               await items.on(inner).insert(const Item(title: 'a'));
             });
             await items.on(outer).insert(const Item(title: 'b'));
@@ -1310,7 +1310,7 @@ void main() {
       final db = await _open('txn_upsert.db');
 
       await expectLater(
-        db.transaction((txn) async {
+        db.runTransaction((txn) async {
           await items.on(txn).upsert(const Item(title: 'a'));
           throw StateError('stop');
         }),

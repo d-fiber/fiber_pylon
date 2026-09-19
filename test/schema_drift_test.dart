@@ -332,7 +332,7 @@ void main() {
         final db = await openCreatedFrom('drift_in_transaction.db', declared);
 
         final result = await db
-            .transaction((txn) async => (await db.differences(declared), await db.columns('orders')))
+            .runTransaction((txn) async => (await db.differences(declared), await db.listColumns('orders')))
             .timeout(const Duration(seconds: 5));
 
         expect(result.$1, isEmpty);
@@ -345,7 +345,7 @@ void main() {
       final declared = orders();
       final db = await openCreatedFrom('drift_columns_typed.db', declared);
 
-      final columns = {for (final column in await db.columns('orders')) column.name: column};
+      final columns = {for (final column in await db.listColumns('orders')) column.name: column};
 
       expect(columns['id']!.type, ColumnType.integer);
       expect(columns['id']!.primaryKeyPosition, 1);
@@ -359,7 +359,7 @@ void main() {
     test('reads no ColumnType for a declared type outside the five a STRICT table takes', () async {
       final db = await openWith('drift_type.db', ['CREATE TABLE t (a VARCHAR(20), b, c integer)'], foreignKeys: false);
 
-      final columns = await db.columns('t');
+      final columns = await db.listColumns('t');
 
       expect(columns.map((column) => column.type), [null, null, ColumnType.integer]);
       await db.dispose();

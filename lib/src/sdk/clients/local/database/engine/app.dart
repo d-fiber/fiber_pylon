@@ -95,7 +95,7 @@ class AppStorage {
   /// `false` when [encryption] is [EncryptionPolicy.whenAvailable] and the
   /// platform has no SQLCipher: the data is then in clear, and this is how a
   /// project finds out.
-  static bool get isEncrypted => GetIt.instance<AppStorage>()._database.isEncrypted;
+  static bool get isEncrypted => GetIt.instance<AppStorage>()._database.encrypted;
 
   /// Whether the app database is encrypted, decided when `configureSdk` opens
   /// it: set it before that call.
@@ -126,7 +126,7 @@ class AppStorage {
   /// Declares [tables] on the app database, creating what they declare. See
   /// [LocalDatabase.declare].
   @internal
-  static Future<void> declare(List<TypedTable<Object>> tables) => database.declare(tables);
+  static Future<void> declare(List<TypedTable<Object>> tables) => database.declareTables(tables);
 
   /// The database, once [fingerprint] is shown to be the app's own: reading
   /// the whole database is the whole-database mechanism, and it is closed to a
@@ -147,53 +147,53 @@ class AppStorage {
   /// database, every tenant included, and so takes the app's [Fingerprint]
   /// (`SecureStorage.fingerprint`); a [StateError] answers any other.
   static Future<void> execute(Fingerprint fingerprint, String sql, [List<Value>? arguments]) =>
-      _whole(fingerprint).execute(sql, arguments);
+      _whole(fingerprint).runSql(sql, arguments);
 
   /// See [LocalDatabase.insert].
   static Future<int> insert<T extends Storable>(
     Fingerprint fingerprint,
     InsertValues<T> Function(Insert<T> insert) build,
-  ) => _whole(fingerprint).insert<T>(build);
+  ) => _whole(fingerprint).runInsert<T>(build);
 
   /// See [LocalDatabase.query].
   static Future<List<T>> query<T extends Object>(
     Fingerprint fingerprint,
     QueryFrom<T> Function(Select<T> query) build,
-  ) => _whole(fingerprint).query<T>(build);
+  ) => _whole(fingerprint).runQuery<T>(build);
 
   /// See [LocalDatabase.rawQuery].
   static Future<List<RawRow>> rawQuery(Fingerprint fingerprint, String sql, [List<Value>? arguments]) =>
-      _whole(fingerprint).rawQuery(sql, arguments);
+      _whole(fingerprint).runRawQuery(sql, arguments);
 
   /// See [LocalDatabase.update].
   static Future<int> update<T extends Storable>(
     Fingerprint fingerprint,
     UpdateSet<T> Function(Update<T> update) build,
-  ) => _whole(fingerprint).update<T>(build);
+  ) => _whole(fingerprint).runUpdate<T>(build);
 
   /// See [LocalDatabase.delete].
   static Future<int> delete(Fingerprint fingerprint, DeleteFrom Function(Delete delete) build) =>
-      _whole(fingerprint).delete(build);
+      _whole(fingerprint).runDelete(build);
 
   /// See [LocalDatabase.transaction].
   static Future<T> transaction<T>(Fingerprint fingerprint, Future<T> Function(TransactionScope txn) action) =>
-      _whole(fingerprint).transaction<T>(action);
+      _whole(fingerprint).runTransaction<T>(action);
 
   /// See [LocalDatabase.batch].
-  static StatementBatch batch(Fingerprint fingerprint) => _whole(fingerprint).batch();
+  static StatementBatch batch(Fingerprint fingerprint) => _whole(fingerprint).newBatch();
 
   /// See [LocalDatabase.tableExists].
-  static Future<bool> tableExists(Fingerprint fingerprint, String table) => _whole(fingerprint).tableExists(table);
+  static Future<bool> tableExists(Fingerprint fingerprint, String table) => _whole(fingerprint).hasTable(table);
 
   /// See [LocalDatabase.tableNames].
-  static Future<List<String>> tableNames(Fingerprint fingerprint) => _whole(fingerprint).tableNames();
+  static Future<List<String>> tableNames(Fingerprint fingerprint) => _whole(fingerprint).listTables();
 
   /// See [LocalDatabase.columns].
   static Future<List<ColumnInfo>> columns(Fingerprint fingerprint, String table) =>
-      _whole(fingerprint).columns(table);
+      _whole(fingerprint).listColumns(table);
 
   /// See [LocalDatabase.checkpoint].
-  static Future<void> checkpoint(Fingerprint fingerprint) => _whole(fingerprint).checkpoint();
+  static Future<void> checkpoint(Fingerprint fingerprint) => _whole(fingerprint).runCheckpoint();
 }
 
 /// The file name the app's database gets: [appName] followed by `.db`, with
@@ -282,7 +282,7 @@ void _refuseClearFile(String path, String name) {
 Future<void> _openHealthy(LocalDatabase db, String name) async {
   try {
     await db.open();
-    final rows = await db.rawQuery('PRAGMA quick_check');
+    final rows = await db.runRawQuery('PRAGMA quick_check');
     final verdict = rows.isEmpty ? null : rows.first.values.first.asString;
     if (verdict != 'ok') {
       throw OpenFailedError('$name is corrupted: quick_check answered $verdict');

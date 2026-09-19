@@ -248,25 +248,25 @@ void main() {
 
   group('the schema of a tunnel', () {
     test('a shared table gains nothing', () async {
-      final columns = await db.columns('settings');
+      final columns = await db.listColumns('settings');
 
       expect(columns.map((c) => c.name), ['name', 'value']);
     });
 
     test('an isolated table gains a hidden tenant column', () async {
-      final columns = await db.columns('notes');
+      final columns = await db.listColumns('notes');
 
       expect(columns.map((c) => c.name), ['id', 'title', '__tenant']);
     });
 
     test('an auto-numbered key stays alone the primary key', () async {
-      final keys = (await db.columns('notes')).where((c) => c.primaryKeyPosition > 0);
+      final keys = (await db.listColumns('notes')).where((c) => c.primaryKeyPosition > 0);
 
       expect(keys.map((c) => c.name), ['id']);
     });
 
     test('a text key becomes unique per tenant, the tenant joining it', () async {
-      final keys = (await db.columns('profiles')).where((c) => c.primaryKeyPosition > 0);
+      final keys = (await db.listColumns('profiles')).where((c) => c.primaryKeyPosition > 0);
 
       expect(keys.map((c) => c.name).toSet(), {'__tenant', 'handle'});
     });
@@ -404,7 +404,7 @@ void main() {
 
     test('reads the tenant at each call inside a transaction', () async {
       Tenant.use('a');
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         await notes.on(txn).insert(const Note(title: 'in a'));
         Tenant.use('b');
         await notes.on(txn).insert(const Note(title: 'in b'));
@@ -707,7 +707,7 @@ void main() {
       final subscription = notes.on(db).watch().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         Tenant.use('b');
         await notes.on(txn).insert(const Note(title: 'b'));
       });

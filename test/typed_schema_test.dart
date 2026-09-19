@@ -155,7 +155,7 @@ void main() {
       final authors = Authors();
       final db = LocalDatabase.declared(name: 'declared_drift.db', tables: [authors]);
       await db.open();
-      await db.execute('ALTER TABLE authors ADD COLUMN born INTEGER');
+      await db.runSql('ALTER TABLE authors ADD COLUMN born INTEGER');
 
       final differences = await db.differences(authors.declaration);
 

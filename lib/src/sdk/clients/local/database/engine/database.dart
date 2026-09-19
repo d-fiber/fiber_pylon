@@ -327,7 +327,7 @@ class LocalDatabase extends Connection {
 
   /// Whether this database was asked to encrypt its file. [open] has already
   /// checked it can: a database that is open and says `true` here is encrypted.
-  bool get isEncrypted => _encrypted;
+  bool get encrypted => _encrypted;
 
   /// Opens the database file, running whichever of [onConfigure], [onCreate],
   /// [onUpgrade], [onDowngrade] and [onOpen] has work to do, and makes this
@@ -455,7 +455,7 @@ class LocalDatabase extends Connection {
   /// database as it was, tables and file alike.
   ///
   /// Throws a [StateError] on a read only database, or one that is not open.
-  Future<void> declare(List<TypedTable<Object>> tables) {
+  Future<void> declareTables(List<TypedTable<Object>> tables) {
     final run = _declaring.then((_) => _declare(tables));
     _declaring = run.then((_) {}, onError: (Object _) {});
     return run;
@@ -488,7 +488,7 @@ class LocalDatabase extends Connection {
   /// Runs [sql] directly, for anything [insert], [query], [update] and
   /// [delete] do not cover — a `CREATE TABLE`, a `CREATE INDEX`, a schema
   /// change inside [onUpgrade].
-  Future<void> execute(String sql, [List<Value>? arguments]) => _guarded(() async {
+  Future<void> runSql(String sql, [List<Value>? arguments]) => _guarded(() async {
     await _executor().execute(sql, _toNativeArgs(arguments));
     _notifyWrite(null);
   });
@@ -497,7 +497,7 @@ class LocalDatabase extends Connection {
   /// [build] must return a fully composed [InsertValues], the same way
   /// a raw `INSERT` needs an `INTO` and a `VALUES` before it means anything
   /// — answering the row id sqflite assigned.
-  Future<int> insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) => _guarded(() async {
+  Future<int> runInsert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) => _guarded(() async {
     final spec = build(Insert<T>._());
     final rowId = await _executor().rawInsert(spec._sql, spec._arguments);
     _notifyWrite({_unquotedIdentifier(spec._table)});
@@ -508,7 +508,7 @@ class LocalDatabase extends Connection {
   /// composes it from an empty [Select] — [build] must return a
   /// [QueryFrom], the same way a raw `SELECT` needs a `FROM` before it
   /// means anything.
-  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(Select<T> query) build) => _guarded(() async {
+  Future<List<T>> runQuery<T extends Object>(QueryFrom<T> Function(Select<T> query) build) => _guarded(() async {
     final spec = build(Select<T>._());
     final rows = await _executor().query(
       spec._table,
@@ -529,7 +529,7 @@ class LocalDatabase extends Connection {
   /// Runs [sql] directly and answers the rows it selected, for a query
   /// [query] cannot express — a join, an aggregate, anything past one
   /// table's own `WHERE`.
-  Future<List<RawRow>> rawQuery(String sql, [List<Value>? arguments]) => _guarded(() async {
+  Future<List<RawRow>> runRawQuery(String sql, [List<Value>? arguments]) => _guarded(() async {
     final rows = await _executor().rawQuery(sql, _toNativeArgs(arguments));
     return rows.map(_fromNativeRow).toList();
   });
@@ -538,7 +538,7 @@ class LocalDatabase extends Connection {
   /// empty [Update] — [build] must return a [UpdateSet], the same
   /// way a raw `UPDATE table` needs a `SET` before it means anything —
   /// answering how many rows changed.
-  Future<int> update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) => _guarded(() async {
+  Future<int> runUpdate<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) => _guarded(() async {
     final spec = build(Update<T>._());
     final changed = await _executor().update(
       spec._table,
@@ -555,7 +555,7 @@ class LocalDatabase extends Connection {
   /// [Delete] — [build] must return a [DeleteFrom], the same way
   /// a raw `DELETE` needs a `FROM` before it means anything — answering how
   /// many rows were removed.
-  Future<int> delete(DeleteFrom Function(Delete delete) build) => _guarded(() async {
+  Future<int> runDelete(DeleteFrom Function(Delete delete) build) => _guarded(() async {
     final spec = build(const Delete._());
     final removed = await _executor().delete(
       spec._table,
@@ -576,7 +576,7 @@ class LocalDatabase extends Connection {
   /// holds for the code [action] awaits, at any depth. A [transaction] called
   /// inside [action] joins the outer one rather than starting another, so its
   /// writes are kept or undone with the outer transaction, not on their own.
-  Future<T> transaction<T>(Future<T> Function(TransactionScope txn) action) => _guarded(() async {
+  Future<T> runTransaction<T>(Future<T> Function(TransactionScope txn) action) => _guarded(() async {
     final db = _requireOpen();
     final joined = _joinedTransaction(db);
     if (joined != null) return action(TransactionScope._(joined, this));
@@ -596,11 +596,11 @@ class LocalDatabase extends Connection {
   /// implicit transaction, which for anything beyond a handful of rows is
   /// the difference between finishing instantly and taking seconds, since
   /// every commit costs its own fsync.
-  StatementBatch batch() => StatementBatch._(_executor(), this);
+  StatementBatch newBatch() => StatementBatch._(_executor(), this);
 
   /// Whether [table] exists in this database.
-  Future<bool> tableExists(String table) => _guarded(() async {
-    final rows = await rawQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", [
+  Future<bool> hasTable(String table) => _guarded(() async {
+    final rows = await runRawQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", [
       Value.varchar(table),
     ]);
     return rows.isNotEmpty;
@@ -608,7 +608,7 @@ class LocalDatabase extends Connection {
 
   /// The name of every table this database declares, excluding SQLite's own
   /// internal `sqlite_` tables.
-  Future<List<String>> tableNames() => query<String>(
+  Future<List<String>> listTables() => runQuery<String>(
     (q) => q
         .from('sqlite_master')
         .select(const ['name'])
@@ -626,10 +626,10 @@ class LocalDatabase extends Connection {
   ///
   /// Answers an empty list for a table that does not exist; [tableExists]
   /// tells that answer apart from a table that has columns.
-  Future<List<ColumnInfo>> columns(String table) => _guarded(() async {
+  Future<List<ColumnInfo>> listColumns(String table) => _guarded(() async {
     final quoted = _quotedIdentifier(table);
-    final extended = await rawQuery('PRAGMA table_xinfo($quoted)');
-    final rows = extended.isNotEmpty ? extended : await rawQuery('PRAGMA table_info($quoted)');
+    final extended = await runRawQuery('PRAGMA table_xinfo($quoted)');
+    final rows = extended.isNotEmpty ? extended : await runRawQuery('PRAGMA table_info($quoted)');
     return rows.map(ColumnInfo._fromRow).toList();
   });
 
@@ -662,7 +662,7 @@ class LocalDatabase extends Connection {
           actual: 'foreign_keys OFF',
         ),
     ];
-    if (!await tableExists(declared.name)) {
+    if (!await hasTable(declared.name)) {
       return [
         ...foreignKeys,
         SchemaDifference(
@@ -683,7 +683,7 @@ class LocalDatabase extends Connection {
   /// Run this before copying the database file for a backup: with
   /// `journal_mode = WAL`, some already-committed data lives only in a
   /// separate `-wal` file until a checkpoint like this one folds it back in.
-  Future<void> checkpoint() => execute('PRAGMA wal_checkpoint(TRUNCATE)');
+  Future<void> runCheckpoint() => runSql('PRAGMA wal_checkpoint(TRUNCATE)');
 
   /// Closes the database.
   ///
@@ -737,7 +737,7 @@ class LocalDatabase extends Connection {
   LocalDatabase get _database => this;
 
   @override
-  Future<T> _atomically<T>(Future<T> Function(Connection session) action) => transaction(action);
+  Future<T> _atomically<T>(Future<T> Function(Connection session) action) => runTransaction(action);
 
   /// Tells the watchers of [tables] — of every table when it is `null` — that
   /// a write happened: at once, or once the transaction this call runs inside

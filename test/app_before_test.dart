@@ -216,10 +216,10 @@ final class TodoStore {
 
   Future<void> open() => db.open();
 
-  Future<int> add(Todo todo) => db.insert<Todo>((i) => i.into('todos').values(todo));
+  Future<int> add(Todo todo) => db.runInsert<Todo>((i) => i.into('todos').values(todo));
 
   Future<Todo?> getById(int id) async {
-    final rows = await db.query<Todo>(
+    final rows = await db.runQuery<Todo>(
       (q) => q
           .from('todos')
           .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id)))
@@ -229,7 +229,7 @@ final class TodoStore {
     return rows.isEmpty ? null : rows.first;
   }
 
-  Future<List<Todo>> page({required Status status, required int page, required int size}) => db.query<Todo>(
+  Future<List<Todo>> page({required Status status, required int page, required int size}) => db.runQuery<Todo>(
     (q) => q
         .from('todos')
         .where(
@@ -244,7 +244,7 @@ final class TodoStore {
         .map(Todo.fromRow),
   );
 
-  Future<int> markDone(int id) => db.update<DonePatch>(
+  Future<int> markDone(int id) => db.runUpdate<DonePatch>(
     (u) => u
         .table('todos')
         .set(const DonePatch(true))
@@ -252,30 +252,30 @@ final class TodoStore {
   );
 
   Future<int> upsertTag(Tag tag) async {
-    await db.insert<Tag>((i) => i.into('tags').values(tag).onConflict(ConflictAlgorithm.replace));
+    await db.runInsert<Tag>((i) => i.into('tags').values(tag).onConflict(ConflictAlgorithm.replace));
     return 1;
   }
 
   Future<int> delete(int id) =>
-      db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))));
+      db.runDelete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))));
 
   Future<int> countOpen() async {
-    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM todos WHERE done = ?', [Value.boolean(false)]);
+    final rows = await db.runRawQuery('SELECT COUNT(*) AS n FROM todos WHERE done = ?', [Value.boolean(false)]);
     return rows.single['n']!.asInt;
   }
 
   Future<bool> exists(int id) async {
-    final rows = await db.rawQuery('SELECT 1 AS present FROM todos WHERE id = ? LIMIT 1', [Value.integer(id)]);
+    final rows = await db.runRawQuery('SELECT 1 AS present FROM todos WHERE id = ? LIMIT 1', [Value.integer(id)]);
     return rows.isNotEmpty;
   }
 
-  Future<void> tag(int todoId, Tag tag) => db.transaction((txn) async {
+  Future<void> tag(int todoId, Tag tag) => db.runTransaction((txn) async {
     await txn.insert<Tag>((i) => i.into('tags').values(tag));
     await txn.insert<TodoTag>((i) => i.into('todo_tags').values(TodoTag(todoId: todoId, tagId: tag.id)));
   });
 
   Future<List<Todo>> withTag(String name) async {
-    final rows = await db.rawQuery(
+    final rows = await db.runRawQuery(
       'SELECT todos.* FROM todos JOIN todo_tags ON todo_tags.todo_id = todos.id '
       'JOIN tags ON tags.id = todo_tags.tag_id WHERE tags.name = ?',
       [Value.varchar(name)],
@@ -284,7 +284,7 @@ final class TodoStore {
   }
 
   Future<List<int>> addAll(List<Todo> todos) async {
-    final batch = db.batch();
+    final batch = db.newBatch();
     for (final todo in todos) {
       batch.insert<Todo>((i) => i.into('todos').values(todo));
     }
@@ -292,9 +292,9 @@ final class TodoStore {
     return [for (final result in results) (result as BatchInserted).rowId!];
   }
 
-  Future<void> addNote(Note note) => db.insert<Note>((i) => i.into('notes').values(note));
+  Future<void> addNote(Note note) => db.runInsert<Note>((i) => i.into('notes').values(note));
 
-  Future<List<Note>> notesOf(int todoId) => db.query<Note>(
+  Future<List<Note>> notesOf(int todoId) => db.runQuery<Note>(
     (q) => q
         .from('notes')
         .where((w) => w.isEqualTo(key: 'todo_id', value: Value.integer(todoId)))
@@ -302,7 +302,7 @@ final class TodoStore {
   );
 
   Future<int> tagLinks() async {
-    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM todo_tags');
+    final rows = await db.runRawQuery('SELECT COUNT(*) AS n FROM todo_tags');
     return rows.single['n']!.asInt;
   }
 }
@@ -354,7 +354,7 @@ void main() {
       ),
     );
     await v1.open();
-    await v1.execute('INSERT INTO todos (title, done, status, priority) VALUES (?, ?, ?, ?)', [
+    await v1.runSql('INSERT INTO todos (title, done, status, priority) VALUES (?, ?, ?, ?)', [
       const Value.varchar('Old'),
       Value.boolean(false),
       Value.enum_(Status.open),

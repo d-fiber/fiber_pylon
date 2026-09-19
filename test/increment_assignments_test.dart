@@ -218,7 +218,7 @@ void main() {
     test('is refused by an insert and by an upsert, which have nothing to add to', () async {
       final wrong = Wrong(counters);
 
-      await expectLater(db.transaction((txn) => wrong.on(txn).insert(const Counter(name: 'x'))), throwsStateError);
+      await expectLater(db.runTransaction((txn) => wrong.on(txn).insert(const Counter(name: 'x'))), throwsStateError);
     });
 
     test('is refused twice on one column in one update', () async {

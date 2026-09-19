@@ -360,8 +360,8 @@ void main() {
       );
       await db.open();
 
-      await db.execute('INSERT INTO todos (title) VALUES (?)', const [Value.varchar('Ship it')]);
-      final rows = await db.rawQuery('SELECT id, title, done FROM todos');
+      await db.runSql('INSERT INTO todos (title) VALUES (?)', const [Value.varchar('Ship it')]);
+      final rows = await db.runRawQuery('SELECT id, title, done FROM todos');
       expect(rows, [
         const {
           'id': Value.integer(1),
@@ -370,8 +370,8 @@ void main() {
         },
       ]);
 
-      expect(await db.tableNames(), ['todos']);
-      final columns = await db.columns('todos');
+      expect(await db.listTables(), ['todos']);
+      final columns = await db.listColumns('todos');
       expect(columns.map((column) => column.name), ['id', 'title', 'done']);
 
       await db.dispose();
@@ -401,8 +401,8 @@ void main() {
       final db = openDeclared('schema_defaults.db', declared);
       await db.open();
 
-      await db.execute('INSERT INTO samples DEFAULT VALUES');
-      final row = (await db.rawQuery('SELECT done, ratio, label, payload FROM samples')).single;
+      await db.runSql('INSERT INTO samples DEFAULT VALUES');
+      final row = (await db.runRawQuery('SELECT done, ratio, label, payload FROM samples')).single;
 
       expect(row['done']!.asBoolean, isTrue);
       expect(row['ratio']!.asDouble, 0.25);
@@ -417,10 +417,10 @@ void main() {
       ).columns((c) => {'name': c.text().isNullable(false).unique().collation(Collation.noCase)});
       final db = openDeclared('schema_collation.db', declared);
       await db.open();
-      await db.execute('INSERT INTO people (name) VALUES (?)', const [Value.varchar('Ada')]);
+      await db.runSql('INSERT INTO people (name) VALUES (?)', const [Value.varchar('Ada')]);
 
       await expectLater(
-        db.execute('INSERT INTO people (name) VALUES (?)', const [Value.varchar('ADA')]),
+        db.runSql('INSERT INTO people (name) VALUES (?)', const [Value.varchar('ADA')]),
         throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
@@ -437,10 +437,10 @@ void main() {
           .columns((c) => {'group': c.text(), 'email': c.text()});
       final db = openDeclared('schema_indexes.db', declared);
       await db.open();
-      await db.execute('INSERT INTO people (email) VALUES (?)', const [Value.varchar('Ada@Example.com')]);
+      await db.runSql('INSERT INTO people (email) VALUES (?)', const [Value.varchar('Ada@Example.com')]);
 
       await expectLater(
-        db.execute('INSERT INTO people (email) VALUES (?)', const [Value.varchar('ada@example.com')]),
+        db.runSql('INSERT INTO people (email) VALUES (?)', const [Value.varchar('ada@example.com')]),
         throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
@@ -467,12 +467,12 @@ void main() {
       );
       await db.open();
 
-      await db.transaction((txn) async {
+      await db.runTransaction((txn) async {
         await txn.execute('INSERT INTO children (id, parent_id) VALUES (1, 7)');
         await txn.execute('INSERT INTO parents (id) VALUES (7)');
       });
 
-      expect(await db.rawQuery('SELECT id FROM children'), hasLength(1));
+      expect(await db.runRawQuery('SELECT id FROM children'), hasLength(1));
       await db.dispose();
     });
 
@@ -496,7 +496,7 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.transaction((txn) => txn.execute('INSERT INTO children (id, parent_id) VALUES (1, 7)')),
+        db.runTransaction((txn) => txn.execute('INSERT INTO children (id, parent_id) VALUES (1, 7)')),
         throwsA(isA<StoreError>()),
       );
       await db.dispose();
@@ -518,7 +518,7 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.execute('INSERT INTO todos (title) VALUES (?)', const [Value.varchar('')]),
+        db.runSql('INSERT INTO todos (title) VALUES (?)', const [Value.varchar('')]),
         throwsA(isA<StoreError>()),
       );
 
@@ -539,7 +539,7 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.execute('INSERT INTO kv (key, value) VALUES (?, ?)', const [
+        db.runSql('INSERT INTO kv (key, value) VALUES (?, ?)', const [
           Value.varchar('a'),
           Value.varchar('not a number'),
         ]),

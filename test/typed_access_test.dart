@@ -78,7 +78,7 @@ void main() {
     final db = LocalDatabase(name: name, onCreate: _createNotes);
     await db.open();
     for (final note in notes) {
-      await db.insert<Note>((i) => i.into('notes').values(note));
+      await db.runInsert<Note>((i) => i.into('notes').values(note));
     }
     return db;
   }
@@ -86,7 +86,7 @@ void main() {
   group('RowReading', () {
     test('required names the column when the row does not carry it', () async {
       final db = await openWithNotes('row_missing.db', const [Note(title: 'A')]);
-      final row = (await db.rawQuery('SELECT title FROM notes')).single;
+      final row = (await db.runRawQuery('SELECT title FROM notes')).single;
 
       expect(
         () => row.required('titel'),
@@ -99,7 +99,7 @@ void main() {
 
     test('required names the column when it is NULL', () async {
       final db = await openWithNotes('row_null.db', const [Note(title: 'A')]);
-      final row = (await db.rawQuery('SELECT body FROM notes')).single;
+      final row = (await db.runRawQuery('SELECT body FROM notes')).single;
 
       expect(
         () => row.required('body'),
@@ -110,7 +110,7 @@ void main() {
 
     test('required answers the value of a column that is set', () async {
       final db = await openWithNotes('row_set.db', const [Note(title: 'A')]);
-      final row = (await db.rawQuery('SELECT title FROM notes')).single;
+      final row = (await db.runRawQuery('SELECT title FROM notes')).single;
 
       expect(row.required('title').asString, 'A');
       await db.dispose();
@@ -118,7 +118,7 @@ void main() {
 
     test('nullable answers null for NULL and the value otherwise', () async {
       final db = await openWithNotes('row_nullable.db', const [Note(title: 'A'), Note(title: 'B', body: 'text')]);
-      final rows = await db.rawQuery('SELECT body FROM notes ORDER BY id');
+      final rows = await db.runRawQuery('SELECT body FROM notes ORDER BY id');
 
       expect(rows.map((row) => row.nullable('body')?.asString), [null, 'text']);
       await db.dispose();
@@ -126,7 +126,7 @@ void main() {
 
     test('nullable still refuses a column the row does not carry', () async {
       final db = await openWithNotes('row_nullable_missing.db', const [Note(title: 'A')]);
-      final row = (await db.rawQuery('SELECT title FROM notes')).single;
+      final row = (await db.runRawQuery('SELECT title FROM notes')).single;
 
       expect(
         () => row.nullable('body'),
@@ -161,10 +161,10 @@ void main() {
       final db = LocalDatabase(name: 'strict_any.db');
       await db.open();
       final declared = TableBuilder('anys').strict().columns((c) => {'a': c.any()});
-      await db.execute(declared.statements.first);
-      await db.execute('INSERT INTO anys VALUES (?)', const [Value.varchar('007')]);
+      await db.runSql(declared.statements.first);
+      await db.runSql('INSERT INTO anys VALUES (?)', const [Value.varchar('007')]);
 
-      final rows = await db.rawQuery('SELECT a FROM anys');
+      final rows = await db.runRawQuery('SELECT a FROM anys');
 
       expect(rows.single.required('a'), const Value.varchar('007'));
       await db.dispose();

@@ -187,9 +187,9 @@ void main() {
       final db = await plain();
       final notes = Notes();
 
-      await db.declare([notes]);
+      await db.declareTables([notes]);
 
-      expect(await db.tableExists('notes'), isTrue);
+      expect(await db.hasTable('notes'), isTrue);
       await notes.on(db).insert(const Note(title: 'one'));
       expect((await notes.on(db).list()).single.title, 'one');
       await db.dispose();
@@ -198,11 +198,11 @@ void main() {
     test('is done once for the same declaration, and does nothing the second time', () async {
       final db = await plain();
       final notes = Notes();
-      await db.declare([notes]);
+      await db.declareTables([notes]);
       await notes.on(db).insert(const Note(title: 'kept'));
 
-      await db.declare([notes]);
-      await db.declare([Notes()]);
+      await db.declareTables([notes]);
+      await db.declareTables([Notes()]);
 
       expect((await notes.on(db).list()).single.title, 'kept');
       await db.dispose();
@@ -211,10 +211,10 @@ void main() {
     test('takes tables one call after another, foreign keys across calls included', () async {
       final db = await plain();
       final notes = Notes();
-      await db.declare([notes]);
+      await db.declareTables([notes]);
       final tags = Tags(notes);
 
-      await db.declare([tags]);
+      await db.declareTables([tags]);
 
       final note = await notes.on(db).insert(const Note(title: 'n'));
       await tags.on(db).insert(Tag(noteId: note.id!, label: 'x'));
@@ -228,9 +228,9 @@ void main() {
     test('refuses the same table declared differently, and leaves everything as it was', () async {
       final db = await plain();
       final notes = Notes();
-      await db.declare([notes]);
+      await db.declareTables([notes]);
 
-      await expectLater(db.declare([NotesV2()]), throwsStateError);
+      await expectLater(db.declareTables([NotesV2()]), throwsStateError);
 
       expect(await notes.on(db).count(), 0);
       await db.dispose();
@@ -238,13 +238,13 @@ void main() {
 
     test('adds a nullable column to a table another launch created', () async {
       final first = await plain();
-      await first.declare([Notes()]);
+      await first.declareTables([Notes()]);
       await Notes().on(first).insert(const Note(title: 'old'));
       await first.dispose();
 
       final second = await plain();
       final v2 = NotesV2();
-      await second.declare([v2]);
+      await second.declareTables([v2]);
 
       final rows = await v2.on(second).list();
       expect(rows.single.title, 'old');
@@ -254,13 +254,13 @@ void main() {
 
     test('finds again the tables and rows a previous launch left', () async {
       final first = await plain();
-      await first.declare([Notes()]);
+      await first.declareTables([Notes()]);
       await Notes().on(first).insert(const Note(title: 'left'));
       await first.dispose();
 
       final second = await plain();
       final notes = Notes();
-      await second.declare([notes]);
+      await second.declareTables([notes]);
 
       expect((await notes.on(second).list()).single.title, 'left');
       await second.dispose();
@@ -268,20 +268,20 @@ void main() {
 
     test('a column that cannot be added stops the declaration and leaves the database as it was', () async {
       final first = await plain();
-      await first.declare([Notes()]);
+      await first.declareTables([Notes()]);
       await Notes().on(first).insert(const Note(title: 'old'));
       await first.dispose();
 
       final second = await plain();
-      await expectLater(second.declare([NotesBroken()]), throwsA(isA<MigrationRequiredError>()));
+      await expectLater(second.declareTables([NotesBroken()]), throwsA(isA<MigrationRequiredError>()));
 
-      expect(await second.columns('notes').then((c) => c.map((x) => x.name)), ['id', 'title']);
+      expect(await second.listColumns('notes').then((c) => c.map((x) => x.name)), ['id', 'title']);
       await second.dispose();
     });
 
     test('once tables were declared, a table that was not is refused', () async {
       final db = await plain();
-      await db.declare([Notes()]);
+      await db.declareTables([Notes()]);
 
       expect(() => Privates().on(db), throwsStateError);
       await db.dispose();
@@ -293,7 +293,7 @@ void main() {
       await db.open();
       final privates = Privates();
 
-      await db.declare([privates]);
+      await db.declareTables([privates]);
 
       await privates.on(db).insert(const Private(text: 'p'));
       expect(await privates.on(db).count(), 1);
@@ -303,13 +303,13 @@ void main() {
     test('an isolated table declared later is isolated all the same', () async {
       final db = await plain();
       final privates = Privates();
-      await db.declare([privates]);
+      await db.declareTables([privates]);
       Tenant.use('a');
       await privates.on(db).insert(const Private(text: 'a'));
       Tenant.use('b');
 
       expect(await privates.on(db).count(), 0);
-      expect((await db.columns('privates')).map((c) => c.name), contains('__tenant'));
+      expect((await db.listColumns('privates')).map((c) => c.name), contains('__tenant'));
       await db.dispose();
     });
 
@@ -319,12 +319,12 @@ void main() {
       final tags = Tags(notes);
 
       await Future.wait([
-        db.declare([notes]),
-        db.declare([tags]),
+        db.declareTables([notes]),
+        db.declareTables([tags]),
       ]);
 
-      expect(await db.tableExists('notes'), isTrue);
-      expect(await db.tableExists('tags'), isTrue);
+      expect(await db.hasTable('notes'), isTrue);
+      expect(await db.hasTable('tags'), isTrue);
       await db.dispose();
     });
 
@@ -335,20 +335,20 @@ void main() {
       await readOnly.open();
       final closed = LocalDatabase(name: 'closed.db');
 
-      await expectLater(readOnly.declare([Notes()]), throwsStateError);
-      await expectLater(closed.declare([Notes()]), throwsStateError);
+      await expectLater(readOnly.declareTables([Notes()]), throwsStateError);
+      await expectLater(closed.declareTables([Notes()]), throwsStateError);
       await readOnly.dispose();
     });
 
     test('keeps working after a failed declaration', () async {
       final db = await plain();
       final notes = Notes();
-      await db.declare([notes]);
-      await expectLater(db.declare([NotesV2()]), throwsStateError);
+      await db.declareTables([notes]);
+      await expectLater(db.declareTables([NotesV2()]), throwsStateError);
 
-      await db.declare([Privates()]);
+      await db.declareTables([Privates()]);
 
-      expect(await db.tableExists('privates'), isTrue);
+      expect(await db.hasTable('privates'), isTrue);
       await db.dispose();
     });
   });
