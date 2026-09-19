@@ -34,6 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:async';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -103,6 +105,113 @@ void main() {
       await observable.dispose();
 
       observable.emitError(StateError('too late'));
+    });
+
+    test('holds what a followed source emits, and answers true once it began with a value', () async {
+      final observable = MutableObservable<int?>(null);
+      final source = StreamController<int?>();
+
+      final began = observable.follow(source.stream);
+      source.add(3);
+
+      expect(await began, isTrue);
+      await pumpEventQueue();
+      expect(observable.value, 3);
+
+      source.add(4);
+      await pumpEventQueue();
+      expect(observable.value, 4);
+      await observable.dispose();
+      await source.close();
+    });
+
+    test('answers true for a source that begins with nothing to hold', () async {
+      final observable = MutableObservable<int?>(null);
+
+      final began = observable.follow(Stream<int?>.value(null));
+
+      expect(await began, isTrue);
+      expect(observable.value, isNull);
+      await observable.dispose();
+    });
+
+    test('hands the errors of a followed source to the listeners and answers false when it began with one', () async {
+      final observable = MutableObservable<int?>(null);
+      final errors = <Object>[];
+      observable.stream.listen((_) {}, onError: errors.add);
+      final source = StreamController<int?>();
+
+      final began = observable.follow(source.stream);
+      source.addError(StateError('the source failed'));
+
+      expect(await began, isFalse);
+      await pumpEventQueue();
+      expect(errors.single, isA<StateError>());
+      expect(observable.value, isNull);
+      await observable.dispose();
+      await source.close();
+    });
+
+    test('answers false for a source that ends without a word', () async {
+      final observable = MutableObservable<int?>(null);
+
+      expect(await observable.follow(const Stream<int?>.empty()), isFalse);
+      await observable.dispose();
+    });
+
+    test('stops following the first source once it follows another', () async {
+      final observable = MutableObservable<int?>(null);
+      final first = StreamController<int?>();
+      final second = StreamController<int?>();
+      final began = observable.follow(first.stream);
+      first.add(1);
+      await began;
+
+      observable.follow(second.stream);
+      second.add(2);
+      first.add(99);
+      await pumpEventQueue();
+
+      expect(observable.value, 2);
+      expect(first.hasListener, isFalse);
+      await observable.dispose();
+      await first.close();
+      await second.close();
+    });
+
+    test('stops following on request, keeps its value, and can follow again', () async {
+      final observable = MutableObservable<int?>(null);
+      final first = StreamController<int?>();
+      final began = observable.follow(first.stream);
+      first.add(1);
+      await began;
+
+      await observable.unfollow();
+      first.add(99);
+      await pumpEventQueue();
+
+      expect(observable.value, 1);
+      expect(first.hasListener, isFalse);
+
+      expect(await observable.follow(Stream<int?>.value(5)), isTrue);
+      await pumpEventQueue();
+      expect(observable.value, 5);
+      await observable.dispose();
+      await first.close();
+    });
+
+    test('stops following once disposed, and follows nothing after', () async {
+      final observable = MutableObservable<int?>(null);
+      final source = StreamController<int?>();
+      final began = observable.follow(source.stream);
+      source.add(1);
+      await began;
+
+      await observable.dispose();
+
+      expect(source.hasListener, isFalse);
+      expect(await observable.follow(Stream<int?>.value(5)), isFalse);
+      await source.close();
     });
 
     test('keeps its last value readable once disposed, and publishes nothing more', () async {

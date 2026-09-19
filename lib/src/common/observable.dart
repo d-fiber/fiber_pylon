@@ -34,6 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:async';
+
 import 'package:rxdart/rxdart.dart';
 
 /// A value that can be read now and followed for changes.
@@ -71,6 +73,7 @@ class MutableObservable<T> extends Observable<T> {
 
   /// The current value and its changes.
   final BehaviorSubject<T> _subject;
+  StreamSubscription<T>? _source;
 
   @override
   T get value => _subject.value;
@@ -102,16 +105,57 @@ class MutableObservable<T> extends Observable<T> {
     _subject.addError(error, stackTrace);
   }
 
+  /// Holds what [source] emits: every event becomes [value], and every error goes
+  /// to the listeners through [emitError].
+  ///
+  /// Answers once, as soon as [source] has said something: `true` when it began
+  /// with a value, `false` when it began with an error or ended without a word. A
+  /// source that never says anything never answers, so [source] is one that
+  /// starts with what it holds now.
+  ///
+  /// Following another source stops following the first, and [dispose] stops
+  /// following. Answers `false` at once when this has been disposed.
+  Future<bool> follow(Stream<T> source) {
+    if (_subject.isClosed) return Future<bool>.value(false);
+    final first = Completer<bool>();
+    unawaited(_source?.cancel());
+    _source = source.listen(
+      (event) {
+        value = event;
+        if (!first.isCompleted) first.complete(true);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        emitError(error, stackTrace);
+        if (!first.isCompleted) first.complete(false);
+      },
+      onDone: () {
+        if (!first.isCompleted) first.complete(false);
+      },
+    );
+    return first.future;
+  }
+
+  /// Stops following its source and keeps [value] as it is, so that it can follow
+  /// again later. Emptying it is up to the owner, with `value =`.
+  Future<void> unfollow() async {
+    await _source?.cancel();
+    _source = null;
+  }
+
   @override
   Stream<T> get stream => _subject.stream;
 
   /// Whether this observable has been disposed.
   bool get isClosed => _subject.isClosed;
 
-  /// Closes [stream] for every listener.
+  /// Stops following its source and closes [stream] for every listener.
   ///
   /// [value] stays readable afterwards: the last value a disposed observable
   /// held is still the truth about what happened, and callers routinely read it
   /// during teardown.
-  Future<void> dispose() => _subject.close();
+  Future<void> dispose() async {
+    await _source?.cancel();
+    _source = null;
+    await _subject.close();
+  }
 }
