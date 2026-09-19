@@ -223,7 +223,14 @@ extension LocalDatabaseTenants on LocalDatabase {
   /// listing the tenants, removing one's rows, moving rows from one tenant to
   /// another. A separate entry point on purpose; nothing reachable through
   /// [DatabaseTable.on] leads here.
-  DatabaseWholeAccess get wholeDatabase => DatabaseWholeAccess._(this);
+  ///
+  /// It takes the app's [Fingerprint], which must be the one this database was
+  /// opened with: throws a [StateError] when it was opened with none, or with
+  /// another.
+  DatabaseWholeAccess wholeDatabase(Fingerprint fingerprint) {
+    _requireFingerprint(fingerprint);
+    return DatabaseWholeAccess._(this);
+  }
 
   Iterable<String> get _isolatedTableNames => [
     for (final table in _tables ?? const <DatabaseTable<Object>>[])
@@ -270,7 +277,8 @@ extension LocalDatabaseTenants on LocalDatabase {
 }
 
 /// The whole-database mechanism on a [LocalDatabase], opened by
-/// [LocalDatabaseTenants.wholeDatabase]: what concerns every tenant at once.
+/// [LocalDatabaseTenants.wholeDatabase], which asks for the app's fingerprint:
+/// what concerns every tenant at once.
 final class DatabaseWholeAccess {
   const DatabaseWholeAccess._(this._database);
 

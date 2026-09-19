@@ -38,6 +38,7 @@ import 'dart:io';
 
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -73,6 +74,8 @@ void main() {
     directory = await Directory.systemTemp.createTemp('pylon_storage');
     databaseFactoryFfi.setDatabasesPath(directory.path);
     SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    AppStorage.encryption = EncryptionPolicy.off;
     PackageInfo.setMockInitialValues(
       appName: 'pylon_test',
       packageName: 'dev.fiber.pylon_test',
@@ -118,37 +121,31 @@ void main() {
       expect(await store.read(), isNull);
     });
 
-    test(
-      'reads back nothing when the stored shape no longer decodes',
-      () async {
-        SharedPreferences.setMockInitialValues({'ticket': 'abc'});
-        final preferences = await _preferences();
-        final store = StoredCredential<Ticket>(
-          preferences,
-          key: 'ticket',
-          encode: (ticket) => ticket.value,
-          decode: (raw) => throw const FormatException('changed shape'),
-        );
+    test('reads back nothing when the stored shape no longer decodes', () async {
+      SharedPreferences.setMockInitialValues({'ticket': 'abc'});
+      final preferences = await _preferences();
+      final store = StoredCredential<Ticket>(
+        preferences,
+        key: 'ticket',
+        encode: (ticket) => ticket.value,
+        decode: (raw) => throw const FormatException('changed shape'),
+      );
 
-        expect(await store.read(), isNull);
-      },
-    );
+      expect(await store.read(), isNull);
+    });
   });
 
   group('ValkeryStorage', () {
-    test(
-      'every entry answers its default value before anything is written',
-      () async {
-        final prefs = await _appPreferences();
+    test('every entry answers its default value before anything is written', () async {
+      final prefs = await _appPreferences();
 
-        expect(prefs.volume.value, 50);
-        expect(prefs.enabled.value, isFalse);
-        expect(prefs.ratio.value, 1.0);
-        expect(prefs.label.value, 'default');
-        expect(prefs.mood.value, Mood.neutral);
-        expect(prefs.profile.value.name, 'anonymous');
-      },
-    );
+      expect(prefs.volume.value, 50);
+      expect(prefs.enabled.value, isFalse);
+      expect(prefs.ratio.value, 1.0);
+      expect(prefs.label.value, 'default');
+      expect(prefs.mood.value, Mood.neutral);
+      expect(prefs.profile.value.name, 'anonymous');
+    });
 
     test('reads back each native type through the shared_preferences getter '
         'matching it', () async {
@@ -175,15 +172,12 @@ void main() {
       expect(prefs.mood.value, Mood.happy);
     });
 
-    test(
-      'answers the fallback for a stored enum value that no longer matches',
-      () async {
-        SharedPreferences.setMockInitialValues({'mood': 'furious'});
-        final prefs = await _appPreferences();
+    test('answers the fallback for a stored enum value that no longer matches', () async {
+      SharedPreferences.setMockInitialValues({'mood': 'furious'});
+      final prefs = await _appPreferences();
 
-        expect(prefs.mood.value, Mood.neutral);
-      },
-    );
+      expect(prefs.mood.value, Mood.neutral);
+    });
 
     test('reads back a JSON-encoded value', () async {
       final prefs = await _appPreferences();
@@ -193,15 +187,12 @@ void main() {
       expect(prefs.profile.value.name, 'Alex');
     });
 
-    test(
-      'answers the fallback for a stored JSON value that no longer decodes',
-      () async {
-        SharedPreferences.setMockInitialValues({'profile': 'not json'});
-        final prefs = await _appPreferences();
+    test('answers the fallback for a stored JSON value that no longer decodes', () async {
+      SharedPreferences.setMockInitialValues({'profile': 'not json'});
+      final prefs = await _appPreferences();
 
-        expect(prefs.profile.value.name, 'anonymous');
-      },
-    );
+      expect(prefs.profile.value.name, 'anonymous');
+    });
 
     test('reads back a JSON-encoded list of a native type', () async {
       final prefs = await _appPreferences();
@@ -219,15 +210,12 @@ void main() {
       expect(prefs.crew.value.map((profile) => profile.name), ['Alex', 'Sam']);
     });
 
-    test(
-      'answers the fallback for a stored JSON list that no longer decodes',
-      () async {
-        SharedPreferences.setMockInitialValues({'scores': 'not json'});
-        final prefs = await _appPreferences();
+    test('answers the fallback for a stored JSON list that no longer decodes', () async {
+      SharedPreferences.setMockInitialValues({'scores': 'not json'});
+      final prefs = await _appPreferences();
 
-        expect(prefs.scores.value, isEmpty);
-      },
-    );
+      expect(prefs.scores.value, isEmpty);
+    });
 
     test('publishes every value it is given', () async {
       final prefs = await _appPreferences();
@@ -263,11 +251,7 @@ class _AppPreferences {
   late final ratio = ValkeryStorage.double_('ratio', 1.0);
   late final label = ValkeryStorage.string_('label', 'default');
   late final mood = ValkeryStorage.enum_('mood', Mood.values, Mood.neutral);
-  late final profile = ValkeryStorage.json_(
-    'profile',
-    const _Profile(name: 'anonymous'),
-    _Profile.fromJson,
-  );
+  late final profile = ValkeryStorage.json_('profile', const _Profile(name: 'anonymous'), _Profile.fromJson);
   late final scores = ValkeryStorage.list_<int>('scores', const [], (json) => json as int);
   late final crew = ValkeryStorage.list_<_Profile>(
     'crew',
@@ -282,8 +266,7 @@ class _Profile implements ValkeryJson {
 
   const _Profile({required this.name});
 
-  factory _Profile.fromJson(Map<String, dynamic> json) =>
-      _Profile(name: json['name'] as String);
+  factory _Profile.fromJson(Map<String, dynamic> json) => _Profile(name: json['name'] as String);
 
   @override
   Map<String, dynamic> toJson() => {'name': name};

@@ -41,6 +41,7 @@ import 'dart:io';
 
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database, Tenant, Tunnel, TransferConflict;
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart' show TransferConflict, Tenant, Tunnel;
+import 'package:fiber_pylon/src/security/fingerprint.dart' show SecretStore;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
@@ -212,6 +213,7 @@ void main() {
   late Comments comments;
   late Settings settings;
   late LocalDatabase db;
+  late Fingerprint fingerprint;
 
   setUpAll(() {
     sqfliteFfiInit();
@@ -222,11 +224,16 @@ void main() {
     Tenant.leave();
     directory = await Directory.systemTemp.createTemp('pylon_tenant_tables');
     databaseFactoryFfi.setDatabasesPath(directory.path);
+    fingerprint = Fingerprint.generate();
     notes = Notes();
     profiles = Profiles();
     comments = Comments(notes);
     settings = Settings();
-    db = LocalDatabase.declared(name: 'tenants.db', tables: [notes, profiles, comments, settings]);
+    db = LocalDatabase.declared(
+      name: 'tenants.db',
+      tables: [notes, profiles, comments, settings],
+      fingerprint: fingerprint,
+    );
     await db.open();
   });
 
@@ -469,24 +476,24 @@ void main() {
     });
 
     test('reads every tenant, and the anonymous rows', () async {
-      final rows = await notes.onWholeDatabase(db).orderBy([notes.id.asc()]).list();
+      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).list();
 
       expect(rows.map((n) => n.title), ['a1', 'a2', 'b1', 'guest']);
-      expect(await notes.onWholeDatabase(db).count(), 4);
+      expect(await notes.onWholeDatabase(db, fingerprint).count(), 4);
     });
 
     test('says whose each row is', () async {
-      final rows = await notes.onWholeDatabase(db).orderBy([notes.id.asc()]).listWithTenants();
+      final rows = await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).listWithTenants();
 
       expect(rows.map((r) => (r.tenant, r.record.title)), [('a', 'a1'), ('a', 'a2'), ('b', 'b1'), (null, 'guest')]);
     });
 
     test('filters and narrows to some tenants', () async {
-      final only = notes.onWholeDatabase(db).ofTenants(['a', 'b']).orderBy([notes.id.asc()]);
+      final only = notes.onWholeDatabase(db, fingerprint).ofTenants(['a', 'b']).orderBy([notes.id.asc()]);
 
       expect((await only.list()).map((n) => n.title), ['a1', 'a2', 'b1']);
-      expect(await notes.onWholeDatabase(db).where(notes.title.isEqualTo('b1')).count(), 1);
-      expect(() => notes.onWholeDatabase(db).ofTenants([]), throwsArgumentError);
+      expect(await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('b1')).count(), 1);
+      expect(() => notes.onWholeDatabase(db, fingerprint).ofTenants([]), throwsArgumentError);
     });
 
     test('brings back the same key once per tenant', () async {
@@ -495,16 +502,16 @@ void main() {
       Tenant.use('b');
       await profiles.on(db).insert(const Profile('ada', 'b@x.dev'));
 
-      final rows = await profiles.onWholeDatabase(db).orderBy([profiles.handle.asc()]).listWithTenants();
+      final rows = await profiles.onWholeDatabase(db, fingerprint).orderBy([profiles.handle.asc()]).listWithTenants();
 
       expect(rows.map((r) => (r.tenant, r.record.email)), [('a', 'a@x.dev'), ('b', 'b@x.dev')]);
     });
 
     test('edits and removes what a filter keeps, wherever it belongs', () async {
-      await notes.onWholeDatabase(db).where(notes.title.isEqualTo('a1')).update([notes.title.to('A1')]);
-      await notes.onWholeDatabase(db).where(notes.title.isEqualTo('b1')).delete();
+      await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('a1')).update([notes.title.to('A1')]);
+      await notes.onWholeDatabase(db, fingerprint).where(notes.title.isEqualTo('b1')).delete();
 
-      expect((await notes.onWholeDatabase(db).orderBy([notes.id.asc()]).list()).map((n) => n.title), [
+      expect((await notes.onWholeDatabase(db, fingerprint).orderBy([notes.id.asc()]).list()).map((n) => n.title), [
         'A1',
         'a2',
         'guest',
@@ -514,30 +521,30 @@ void main() {
     test('is simply all of a shared table', () async {
       await settings.on(db).insert(const Setting('theme', 'dark'));
 
-      final rows = await settings.onWholeDatabase(db).listWithTenants();
+      final rows = await settings.onWholeDatabase(db, fingerprint).listWithTenants();
 
       expect(rows.map((r) => (r.tenant, r.record.name)), [(null, 'theme')]);
     });
 
     test('lists the tenants that hold rows, not the anonymous ones', () async {
-      expect(await db.wholeDatabase.tenants(), ['a', 'b']);
+      expect(await db.wholeDatabase(fingerprint).tenants(), ['a', 'b']);
     });
 
     test('removes one tenant from every isolated table and nothing else', () async {
       await settings.on(db).insert(const Setting('theme', 'dark'));
 
-      await db.wholeDatabase.purge('a');
+      await db.wholeDatabase(fingerprint).purge('a');
 
-      expect(await db.wholeDatabase.tenants(), ['b']);
-      expect(await notes.onWholeDatabase(db).count(), 2);
+      expect(await db.wholeDatabase(fingerprint).tenants(), ['b']);
+      expect(await notes.onWholeDatabase(db, fingerprint).count(), 2);
       expect(await settings.on(db).count(), 1);
     });
 
     test('moves the rows of one tenant to another, counting them', () async {
-      final moved = await db.wholeDatabase.transfer(from: 'a', to: 'c');
+      final moved = await db.wholeDatabase(fingerprint).transfer(from: 'a', to: 'c');
 
       expect(moved, 2);
-      expect(await db.wholeDatabase.tenants(), ['b', 'c']);
+      expect(await db.wholeDatabase(fingerprint).tenants(), ['b', 'c']);
       Tenant.use('c');
       expect(await titles(), ['a1', 'a2']);
     });
@@ -548,13 +555,13 @@ void main() {
       Tenant.use('b');
       await profiles.on(db).insert(const Profile('ada', 'b@x.dev'));
 
-      await db.wholeDatabase.transfer(from: 'b', to: 'a');
+      await db.wholeDatabase(fingerprint).transfer(from: 'b', to: 'a');
       Tenant.use('a');
       expect((await profiles.on(db).get('ada'))!.email, 'a@x.dev');
 
       Tenant.use('b');
       await profiles.on(db).insert(const Profile('ada', 'b2@x.dev'));
-      await db.wholeDatabase.transfer(from: 'b', to: 'a', onConflict: TransferConflict.keepSource);
+      await db.wholeDatabase(fingerprint).transfer(from: 'b', to: 'a', onConflict: TransferConflict.keepSource);
       Tenant.use('a');
       expect((await profiles.on(db).get('ada'))!.email, 'b2@x.dev');
     });
@@ -564,16 +571,51 @@ void main() {
       final note = (await notes.on(db).list()).first;
       await comments.on(db).insert(Comment(noteId: note.id!, text: 'hi'));
 
-      await db.wholeDatabase.transfer(from: 'a', to: 'c');
+      await db.wholeDatabase(fingerprint).transfer(from: 'a', to: 'c');
 
       Tenant.use('c');
       expect((await comments.on(db).list()).single.noteId, note.id);
     });
 
     test('refuses to move a tenant onto itself, or an empty id', () async {
-      await expectLater(() => db.wholeDatabase.transfer(from: 'a', to: 'a'), throwsArgumentError);
-      await expectLater(() => db.wholeDatabase.transfer(), throwsArgumentError);
-      await expectLater(() => db.wholeDatabase.purge(''), throwsArgumentError);
+      await expectLater(() => db.wholeDatabase(fingerprint).transfer(from: 'a', to: 'a'), throwsArgumentError);
+      await expectLater(() => db.wholeDatabase(fingerprint).transfer(), throwsArgumentError);
+      await expectLater(() => db.wholeDatabase(fingerprint).purge(''), throwsArgumentError);
+    });
+  });
+
+  group('the fingerprint that opens the whole database', () {
+    test('is refused when the database was opened without one', () async {
+      final bare = LocalDatabase.declared(name: 'bare.db', tables: [notes]);
+      await bare.open();
+
+      expect(() => notes.onWholeDatabase(bare, fingerprint), throwsStateError);
+      expect(() => bare.wholeDatabase(fingerprint), throwsStateError);
+      await bare.dispose();
+    });
+
+    test('is refused when it is not the one the database was opened with', () {
+      final other = Fingerprint.generate();
+
+      expect(() => notes.onWholeDatabase(db, other), throwsStateError);
+      expect(() => db.wholeDatabase(other), throwsStateError);
+    });
+
+    test('is accepted when it is the same fingerprint, however it was obtained', () async {
+      final store = <String, String>{};
+      final first = await Fingerprint.load(store: _MapStore(store));
+      final again = await Fingerprint.load(store: _MapStore(store));
+      final keyed = LocalDatabase.declared(name: 'keyed.db', tables: [notes], fingerprint: first);
+      await keyed.open();
+
+      expect(await notes.onWholeDatabase(keyed, again).count(), 0);
+      await keyed.dispose();
+    });
+
+    test('is needed for the tenant mechanism\'s own reads not at all', () async {
+      Tenant.use('a');
+
+      expect(await notes.on(db).count(), 0);
     });
   });
 
@@ -702,7 +744,7 @@ void main() {
 
     test('the whole-database mechanism sees every tenant\'s writes and ignores a change of tenant', () async {
       final events = <int>[];
-      final subscription = notes.onWholeDatabase(db).watch().listen((rows) => events.add(rows.length));
+      final subscription = notes.onWholeDatabase(db, fingerprint).watch().listen((rows) => events.add(rows.length));
       await _waitFor(events, 1);
 
       Tenant.use('a');
@@ -730,4 +772,16 @@ void main() {
       expect(events, [1, 0]);
     });
   });
+}
+
+final class _MapStore implements SecretStore {
+  _MapStore(this.values);
+
+  final Map<String, String> values;
+
+  @override
+  Future<String?> read(String name) async => values[name];
+
+  @override
+  Future<void> write(String name, String value) async => values[name] = value;
 }

@@ -283,8 +283,12 @@ abstract class DatabaseTable<R extends Object> {
   /// This table across every tenant, read and written through [session]: the
   /// whole-database mechanism, which is a separate entry point from [on], not a
   /// wider view of it. See [DatabaseWholeRows].
-  DatabaseWholeRows<R> onWholeDatabase(DatabaseSession session) {
+  ///
+  /// Reaching the whole database takes the app's [Fingerprint], which must be
+  /// the one the database was opened with: throws a [StateError] otherwise.
+  DatabaseWholeRows<R> onWholeDatabase(DatabaseSession session, Fingerprint fingerprint) {
     session._database._requireDeclared(this);
+    session._database._requireFingerprint(fingerprint);
     return DatabaseWholeRows<R>._(session, this);
   }
 

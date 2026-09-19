@@ -43,6 +43,7 @@ import 'dart:io';
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart' hide Database;
 import 'package:fiber_pylon/fiber_pylon.dart' as pylon show Database;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -193,6 +194,8 @@ void main() {
       buildSignature: '',
     );
     SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    AppStorage.encryption = EncryptionPolicy.off;
     await GetIt.instance.reset();
     await configureSdk();
     db = OwnDatabase();

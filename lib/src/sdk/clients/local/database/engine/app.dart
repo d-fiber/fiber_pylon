@@ -42,8 +42,27 @@ import 'package:meta/meta.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart' as cipher show databaseFactory;
 
+import '../../../../../security/fingerprint.dart';
 import 'database.dart';
+
+/// Whether the file of the app database is encrypted.
+enum EncryptionPolicy {
+  /// Always: the app refuses to start on a SQLite that cannot encrypt, rather
+  /// than keep its data in clear.
+  required,
+
+  /// Where SQLCipher exists — Android, iOS and macOS — and in clear elsewhere,
+  /// which [AppStorage.isEncrypted] then says. The default.
+  whenAvailable,
+
+  /// Never. For a test, or a platform with no SQLCipher that must still run.
+  off,
+}
+
+/// Whether the platform this app runs on has SQLCipher to encrypt with.
+bool get _sqlCipherSupported => Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
 
 /// The one database the whole app shares, named after the app itself —
 /// `<app name>.db` — and reachable from anywhere, as static calls, once
@@ -69,13 +88,26 @@ class AppStorage {
 
   final LocalDatabase _database;
 
+  /// Whether the app database is encrypted, by a key derived from the app's own
+  /// [Fingerprint], so that a copy of the file cannot be read without it.
+  ///
+  /// `false` when [encryption] is [EncryptionPolicy.whenAvailable] and the
+  /// platform has no SQLCipher: the data is then in clear, and this is how a
+  /// project finds out.
+  static bool get isEncrypted => GetIt.instance<AppStorage>()._database.isEncrypted;
+
+  /// Whether the app database is encrypted, decided when `configureSdk` opens
+  /// it: set it before that call.
+  static EncryptionPolicy encryption = EncryptionPolicy.whenAvailable;
+
   /// Resolves the [AppStorage] `configureSdk` registers.
   ///
   /// Marked [FactoryMethod.preResolve] so `configureSdk` awaits the open — and
   /// any repair it needs — before registering the result.
   @internal
   @FactoryMethod(preResolve: true)
-  static Future<AppStorage> initialize() async => AppStorage._(await openAppDatabase());
+  static Future<AppStorage> initialize(Fingerprint fingerprint) async =>
+      AppStorage._(await openAppDatabase(fingerprint: fingerprint, encryption: encryption));
 
   /// Closes the database, which is what `GetIt.reset` does to it.
   @internal
@@ -160,19 +192,57 @@ String _fileName(String appName) {
 /// attempt fails with, when even a fresh file cannot be opened (a directory
 /// this process may not write to, say): recreating cannot fix that.
 @visibleForTesting
-Future<LocalDatabase> openAppDatabase({String? appName, DatabaseFactory? factory}) async {
-  final resolvedFactory = factory ?? databaseFactory;
+Future<LocalDatabase> openAppDatabase({
+  String? appName,
+  DatabaseFactory? factory,
+  Fingerprint? fingerprint,
+  EncryptionPolicy encryption = EncryptionPolicy.whenAvailable,
+}) async {
+  final encrypt =
+      fingerprint != null &&
+      (encryption == EncryptionPolicy.required ||
+          (encryption == EncryptionPolicy.whenAvailable && _sqlCipherSupported));
+  final resolvedFactory = factory ?? (encrypt ? cipher.databaseFactory : databaseFactory);
   final name = _fileName(appName ?? (await PackageInfo.fromPlatform()).appName);
   final path = p.join(await resolvedFactory.getDatabasesPath(), name);
-  final db = LocalDatabase(name: name, factory: resolvedFactory);
+  if (encrypt) _refuseClearFile(path, name);
+  final db = LocalDatabase(name: name, factory: resolvedFactory, fingerprint: fingerprint, encrypt: encrypt);
 
   try {
     await _openHealthy(db, name);
+  } on DatabaseEncryptionUnavailableError {
+    rethrow; // nothing is wrong with the file: deleting it would only lose it
   } on DatabaseError {
     await _deleteFiles(path, resolvedFactory);
     await _openHealthy(db, name);
   }
   return db;
+}
+
+/// The first bytes of every SQLite file that is not encrypted.
+const _clearFileHeader = 'SQLite format 3\u0000';
+
+/// Refuses to encrypt over a database that is in clear.
+///
+/// Opening it with a key would fail as if it were corrupt, and the repair
+/// would then delete it: a database from before encryption existed, with the
+/// data in it, would be lost silently. Delete it, or move its rows over, on
+/// purpose.
+void _refuseClearFile(String path, String name) {
+  final file = File(path);
+  if (!file.existsSync()) return;
+  final header = file.openSync()..setPositionSync(0);
+  try {
+    final bytes = header.readSync(_clearFileHeader.length);
+    if (String.fromCharCodes(bytes) == _clearFileHeader) {
+      throw StateError(
+        '$name is a database in clear, and the app now encrypts it. It was left as it is: '
+        'delete it, or copy its rows into a new encrypted database, to go on.',
+      );
+    }
+  } finally {
+    header.closeSync();
+  }
 }
 
 /// Opens [db] and runs `PRAGMA quick_check` on it, closing it again and

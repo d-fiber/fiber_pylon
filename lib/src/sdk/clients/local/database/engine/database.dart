@@ -41,8 +41,10 @@ import 'dart:typed_data';
 import 'package:equatable/equatable.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqlite_api.dart' show SqlCipherOpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
+import '../../../../../security/fingerprint.dart';
 import 'schema/schema.dart';
 import 'sort_order.dart';
 
@@ -186,6 +188,8 @@ class LocalDatabase extends DatabaseSession {
   final List<DatabaseTable<Object>>? _tables;
   final List<DeclaredTable> _declarations;
   final List<DatabaseMigration> _migrations;
+  final Fingerprint? _fingerprint;
+  final bool _encrypted;
   Database? _db;
   Future<void>? _opening;
   final StreamController<Set<String>?> _writes = StreamController<Set<String>?>.broadcast();
@@ -216,6 +220,14 @@ class LocalDatabase extends DatabaseSession {
   /// [databaseFactory]; give it `databaseFactoryFfi` in a test, or another
   /// implementation's own factory — `sqflite_sqlcipher`'s, say — to encrypt
   /// the file without this class knowing that happened.
+  ///
+  /// [fingerprint] is what opens the whole-database mechanism
+  /// ([wholeDatabase], [DatabaseTable.onWholeDatabase]): without one, that
+  /// mechanism is closed on this database, and with one, a call must present
+  /// the same fingerprint. With [encrypt] the file is also encrypted with a key
+  /// derived from [fingerprint], so a copy of it cannot be read without it. That
+  /// needs a SQLCipher [factory]; on a SQLite that is not one, [open] throws a
+  /// [DatabaseEncryptionUnavailableError] instead of writing the file in clear.
   LocalDatabase({
     required String name,
     int version = 1,
@@ -227,6 +239,8 @@ class LocalDatabase extends DatabaseSession {
     bool readOnly = false,
     bool singleInstance = true,
     DatabaseFactory? factory,
+    Fingerprint? fingerprint,
+    bool encrypt = false,
   }) : _name = name,
        _version = version,
        _onConfigure = onConfigure,
@@ -239,7 +253,11 @@ class LocalDatabase extends DatabaseSession {
        _factory = factory ?? databaseFactory,
        _tables = null,
        _declarations = const [],
-       _migrations = const [];
+       _migrations = const [],
+       _fingerprint = fingerprint,
+       _encrypted = encrypt {
+    _requireFingerprintToEncrypt(encrypt, fingerprint);
+  }
 
   /// Opens the database file called [name] with the schema declared by
   /// [tables], and creates and migrates that schema by itself, so that no
@@ -276,6 +294,8 @@ class LocalDatabase extends DatabaseSession {
     bool readOnly = false,
     bool singleInstance = true,
     DatabaseFactory? factory,
+    Fingerprint? fingerprint,
+    bool encrypt = false,
   }) : _name = name,
        _version = 1,
        _onConfigure = _configureDeclared(readOnly),
@@ -288,10 +308,24 @@ class LocalDatabase extends DatabaseSession {
        _factory = factory ?? databaseFactory,
        _tables = tables,
        _declarations = declarations,
-       _migrations = migrations;
+       _migrations = migrations,
+       _fingerprint = fingerprint,
+       _encrypted = encrypt {
+    _requireFingerprintToEncrypt(encrypt, fingerprint);
+  }
+
+  static void _requireFingerprintToEncrypt(bool encrypt, Fingerprint? fingerprint) {
+    if (encrypt && fingerprint == null) {
+      throw ArgumentError.value(encrypt, 'encrypt', 'needs a fingerprint to derive the key from');
+    }
+  }
 
   /// Whether [open] has run and [dispose] has not undone it.
   bool get isOpen => _db?.isOpen ?? false;
+
+  /// Whether this database was asked to encrypt its file. [open] has already
+  /// checked it can: a database that is open and says `true` here is encrypted.
+  bool get isEncrypted => _encrypted;
 
   /// Opens the database file, running whichever of [onConfigure], [onCreate],
   /// [onUpgrade], [onDowngrade] and [onOpen] has work to do, and makes this
@@ -313,22 +347,47 @@ class LocalDatabase extends DatabaseSession {
     try {
       final directory = await _factory.getDatabasesPath();
       final path = p.join(directory, _name);
+      final version = _readOnly || _tables != null ? null : _version;
+      // A file this call creates is in clear until the key is checked, so it is
+      // removed again if the key turns out to be useless.
+      final existed = !_encrypted || await _factory.databaseExists(path);
       final db = await _factory.openDatabase(
         path,
-        options: OpenDatabaseOptions(
-          version: _readOnly || _tables != null ? null : _version,
-          onConfigure: _configure,
-          onCreate: _onCreate,
-          onUpgrade: _onUpgrade,
-          onDowngrade: _onDowngrade,
-          onOpen: _onOpen,
-          readOnly: _readOnly,
-          singleInstance: _singleInstance,
-        ),
+        options: _encrypted
+            ? SqlCipherOpenDatabaseOptions(
+                version: version,
+                onConfigure: _configure,
+                onCreate: _onCreate,
+                onUpgrade: _onUpgrade,
+                onDowngrade: _onDowngrade,
+                onOpen: _onOpen,
+                password: _fingerprint!.deriveHex(_databaseKeyPurpose),
+                readOnly: _readOnly,
+                singleInstance: _singleInstance,
+              )
+            : OpenDatabaseOptions(
+                version: version,
+                onConfigure: _configure,
+                onCreate: _onCreate,
+                onUpgrade: _onUpgrade,
+                onDowngrade: _onDowngrade,
+                onOpen: _onOpen,
+                readOnly: _readOnly,
+                singleInstance: _singleInstance,
+              ),
       );
       if (_singleInstance) {
         _sharedKey = (_factory, path);
         _sharedInstances.update((_factory, path), (count) => count + 1, ifAbsent: () => 1);
+      }
+      if (_encrypted) {
+        try {
+          await _requireCipher(db);
+        } catch (_) {
+          await _close(db);
+          if (!existed) await _factory.deleteDatabase(path);
+          rethrow;
+        }
       }
       if (_tables != null && !_readOnly) {
         try {
@@ -342,6 +401,35 @@ class LocalDatabase extends DatabaseSession {
     } on DatabaseException catch (error) {
       final reason = DatabaseError.from(error);
       throw reason is DatabaseUnknownError ? DatabaseOpenFailedError(reason.message) : reason;
+    }
+  }
+
+  /// Throws unless [db] runs on SQLCipher: on any other SQLite, the key was
+  /// ignored and the file is in clear, which is exactly what asking to encrypt
+  /// it was meant to prevent.
+  Future<void> _requireCipher(Database db) async {
+    final rows = await db.rawQuery('PRAGMA cipher_version');
+    final version = rows.isEmpty ? null : rows.first.values.first;
+    if (version is! String || version.isEmpty) {
+      throw DatabaseEncryptionUnavailableError(
+        '$_name was to be encrypted, but the SQLite it runs on is not SQLCipher: '
+        'give the LocalDatabase the factory of sqflite_sqlcipher.',
+      );
+    }
+  }
+
+  /// Checks that [presented] is the fingerprint this database was opened with,
+  /// which is what opens the whole-database mechanism.
+  void _requireFingerprint(Fingerprint presented) {
+    final own = _fingerprint;
+    if (own == null) {
+      throw StateError(
+        '$_name was opened without a fingerprint, so the whole-database mechanism is closed. '
+        'Open it with the fingerprint of the app.',
+      );
+    }
+    if (!own.matches(presented)) {
+      throw StateError('The fingerprint presented is not the one $_name was opened with.');
     }
   }
 
@@ -636,6 +724,9 @@ class LocalDatabase extends DatabaseSession {
 }
 
 final Map<(DatabaseFactory, String), int> _sharedInstances = {};
+
+/// What the database key is derived for. Nothing else derives for this purpose.
+const String _databaseKeyPurpose = 'database';
 
 final Object _transactionZoneKey = Object();
 

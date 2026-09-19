@@ -202,6 +202,14 @@ final class DatabaseSchemaTooNewError extends DatabaseError {
   const DatabaseSchemaTooNewError(super.message);
 }
 
+/// A [LocalDatabase] was asked to encrypt its file, and the SQLite it runs on
+/// cannot: it is not SQLCipher. It refused to open, rather than write in clear
+/// what was meant to be unreadable.
+final class DatabaseEncryptionUnavailableError extends DatabaseError {
+  /// Wraps the [message] naming the database.
+  const DatabaseEncryptionUnavailableError(super.message);
+}
+
 /// [LocalDatabase.open] found a declared column it cannot add to an existing
 /// file by itself. Declare it nullable, give it a default, or add a migration.
 final class DatabaseMigrationRequiredError extends DatabaseError {

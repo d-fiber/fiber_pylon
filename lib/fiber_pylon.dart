@@ -171,7 +171,7 @@ export 'src/storage/valkery_storage.dart';
 export 'src/sdk/clients/client.dart';
 export 'src/sdk/clients/environments.dart';
 export 'src/sdk/clients/local/database/database.dart';
-export 'src/sdk/clients/local/database/engine/app.dart' show AppStorage;
+export 'src/sdk/clients/local/database/engine/app.dart' show AppStorage, EncryptionPolicy;
 // The façade below still has its own Tenant, Tunnel and TransferConflict until it is rebuilt on the engine.
 export 'src/sdk/clients/local/database/engine/database.dart' hide Tenant, Tunnel, TransferConflict;
 export 'src/sdk/clients/local/database/engine/schema/schema.dart';
@@ -192,4 +192,5 @@ export 'src/sdk/clients/rest/realtime/socket.dart';
 export 'src/sdk/clients/rest/rest_sdk.dart';
 export 'src/sdk/clients/vendor/vendor_sdk.dart';
 export 'src/sdk/sdk.dart';
+export 'src/security/fingerprint.dart' show Fingerprint, FingerprintError;
 export 'package:injectable/injectable.dart' show singleton;

@@ -42,6 +42,7 @@ import 'dart:io';
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/app.dart' show openAppDatabase;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -140,6 +141,111 @@ void main() {
     });
   });
 
+  group('the fingerprint and the encryption of the app database', () {
+    setUp(() {
+      PackageInfo.setMockInitialValues(
+        appName: 'Fiber',
+        packageName: 'dev.fiber.app',
+        version: '1.0.0',
+        buildNumber: '1',
+        buildSignature: '',
+      );
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      AppStorage.encryption = EncryptionPolicy.off;
+    });
+
+    tearDown(() => GetIt.instance.reset());
+
+    test('the first launch creates the fingerprint and keeps it in the vault', () async {
+      const vault = FlutterSecureStorage();
+      expect(await vault.read(key: Fingerprint.storedName), isNull);
+
+      await GetIt.instance.reset();
+      await configureSdk();
+
+      expect(await vault.read(key: Fingerprint.storedName), isNotNull);
+    });
+
+    test('the next launch finds the same fingerprint instead of making another', () async {
+      await GetIt.instance.reset();
+      await configureSdk();
+      final first = Fingerprint.instance.deriveHex('database');
+      final kept = await const FlutterSecureStorage().read(key: Fingerprint.storedName);
+
+      await GetIt.instance.reset();
+      await configureSdk();
+
+      expect(Fingerprint.instance.deriveHex('database'), first);
+      expect(await const FlutterSecureStorage().read(key: Fingerprint.storedName), kept);
+    });
+
+    test('an invalid record in the vault stops the launch and is left alone', () async {
+      FlutterSecureStorage.setMockInitialValues({Fingerprint.storedName: 'garbage'});
+      await GetIt.instance.reset();
+
+      await expectLater(configureSdk(), throwsA(isA<FingerprintError>()));
+
+      expect(await const FlutterSecureStorage().read(key: Fingerprint.storedName), 'garbage');
+    });
+
+    test('says when the file is not encrypted', () async {
+      await GetIt.instance.reset();
+      await configureSdk();
+
+      expect(AppStorage.isEncrypted, isFalse);
+    });
+
+    test('a database opened with the app fingerprint opens the whole-database mechanism', () async {
+      final fingerprint = Fingerprint.generate();
+      final db = await openAppDatabase(appName: 'Fiber', fingerprint: fingerprint, encryption: EncryptionPolicy.off);
+
+      expect(db.wholeDatabase(fingerprint), isNotNull);
+      expect(() => db.wholeDatabase(Fingerprint.generate()), throwsStateError);
+      await db.dispose();
+    });
+
+    test('a required encryption refuses to run without SQLCipher, and leaves no file in clear', () async {
+      await expectLater(
+        openAppDatabase(
+          appName: 'Fiber',
+          factory: databaseFactoryFfi,
+          fingerprint: Fingerprint.generate(),
+          encryption: EncryptionPolicy.required,
+        ),
+        throwsA(isA<DatabaseEncryptionUnavailableError>()),
+      );
+
+      expect(file('Fiber.db').existsSync(), isFalse);
+    });
+
+    test('never deletes a database in clear to encrypt over it', () async {
+      final clear = await openAppDatabase(appName: 'Fiber');
+      await clear.execute('CREATE TABLE precious (x TEXT)');
+      await clear.dispose();
+      final before = file('Fiber.db').readAsBytesSync();
+
+      await expectLater(
+        openAppDatabase(
+          appName: 'Fiber',
+          factory: databaseFactoryFfi,
+          fingerprint: Fingerprint.generate(),
+          encryption: EncryptionPolicy.required,
+        ),
+        throwsStateError,
+      );
+
+      expect(file('Fiber.db').readAsBytesSync(), before);
+    });
+
+    test('without a fingerprint nothing is encrypted, whatever the policy', () async {
+      final db = await openAppDatabase(appName: 'Fiber', encryption: EncryptionPolicy.required);
+
+      expect(db.isEncrypted, isFalse);
+      await db.dispose();
+    });
+  });
+
   group('AppStorage', () {
     setUp(() async {
       PackageInfo.setMockInitialValues(
@@ -150,6 +256,8 @@ void main() {
         buildSignature: '',
       );
       SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      AppStorage.encryption = EncryptionPolicy.off;
       await GetIt.instance.reset();
       await configureSdk();
     });
