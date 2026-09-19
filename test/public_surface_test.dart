@@ -137,6 +137,24 @@ await token.set('abc');
 print(token());
 print(SecureStorage.fingerprint.derive('purpose'));
 ''', compiles: true),
+  _Program('the app credential through the singleton', '''
+await Credentials.set(const Credential(token: 'abc', refreshToken: 'again'));
+print(Credentials.isHeld);
+print(Credentials.value?.token);
+Credentials.held.stream.listen((held) => print(held));
+Credentials.stream.listen((credential) => print(credential));
+Credentials.renewWith(refresh: (current) async => current, fatalSignals: {Object()});
+Tenant.follow();
+await Credentials.clear();
+''', compiles: true),
+  _Program(
+    'the machinery behind the credential singleton',
+    'CredentialManager<Credential, Object>? manager;',
+    compiles: false,
+  ),
+  _Program('a credential store', 'MemoryCredentialStore<Credential>? store;', compiles: false),
+  _Program('a stored credential', 'StoredCredential<Credential>? store;', compiles: false),
+  _Program('a credential refresher', 'CredentialRefresher<Credential>? refresher;', compiles: false),
   _Program('building a secret entry by hand', "Secure.string_(SecureStorage.fingerprint, 'k', '');", compiles: false),
   _Program('a vault of one\'s own', 'const SecretStore? vault = null;', compiles: false),
   _Program('the fingerprint as bytes', 'SecureStorage.fingerprint.deriveHex(\'x\');', compiles: false),

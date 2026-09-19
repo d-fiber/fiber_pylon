@@ -35,7 +35,7 @@
 // LICENSE file, the LICENSE file governs.
 
 import '../../../../common/fault.dart';
-import '../../../../credential/manager.dart';
+import '../../../../credential/credentials.dart';
 
 /// Wraps a call in the policy that is the same whatever the call is.
 ///
@@ -59,7 +59,6 @@ import '../../../../credential/manager.dart';
 ///
 /// ```dart
 /// final guard = CallGuard<RestSignal>.renewing(
-///   credentials: credentials,
 ///   renewOn: {RestSignal.unauthorized},
 ///   duplicateSignal: RestSignal.duplicateCall,
 /// );
@@ -71,7 +70,7 @@ import '../../../../credential/manager.dart';
 /// ```
 class CallGuard<S extends Object> {
   final S _duplicateSignal;
-  final CredentialManager<Object, S>? _credentials;
+  final bool _renewing;
   final Set<S> _renewOn;
   final Set<String> _inFlight = <String>{};
   final Map<String, Future<Object?>> _shared = <String, Future<Object?>>{};
@@ -85,12 +84,10 @@ class CallGuard<S extends Object> {
   /// flight. It is required because pylon would otherwise have to invent a name
   /// in a vocabulary that is not its own, and the project would have no typed
   /// value to match it against.
-  CallGuard({required S duplicateSignal})
-    : _duplicateSignal = duplicateSignal,
-      _credentials = null,
-      _renewOn = const {};
+  CallGuard({required S duplicateSignal}) : _duplicateSignal = duplicateSignal, _renewing = false, _renewOn = const {};
 
-  /// Guards calls made against [credentials].
+  /// Guards calls made against the app's `Credentials`, which must have been set
+  /// up by `configureSdk`.
   ///
   /// [renewOn] lists the signals for which it is worth renewing the credential
   /// and trying the call again. It is required and has no default: pylon cannot
@@ -99,18 +96,15 @@ class CallGuard<S extends Object> {
   ///
   /// The same set decides revocation. When a replayed call fails with a signal
   /// that is still in [renewOn], the credential could not be made to work and is
-  /// revoked, because every subsequent call would otherwise rediscover that one
+  /// cleared, because every subsequent call would otherwise rediscover that one
   /// at a time.
   ///
   /// [duplicateSignal] names the refusal issued for a duplicate call, as in the
   /// unauthenticated constructor.
-  CallGuard.renewing({
-    required S duplicateSignal,
-    required CredentialManager<Object, S> credentials,
-    required Set<S> renewOn,
-  }) : _duplicateSignal = duplicateSignal,
-       _credentials = credentials,
-       _renewOn = renewOn;
+  CallGuard.renewing({required S duplicateSignal, required Set<S> renewOn})
+    : _duplicateSignal = duplicateSignal,
+      _renewing = true,
+      _renewOn = renewOn;
 
   /// Runs [call] under the policy.
   ///
@@ -182,10 +176,7 @@ class CallGuard<S extends Object> {
   bool isShared(String key) => _shared.containsKey(key);
 
   Future<T> _execute<T>(Future<T> Function() call, {required bool authenticated}) async {
-    final credentials = _credentials;
-    if (authenticated && credentials != null) {
-      await credentials.ensureFresh();
-    }
+    if (authenticated && _renewing) await Credentials.ensureFresh();
     return _attempt(call, authenticated: authenticated);
   }
 
@@ -193,20 +184,17 @@ class CallGuard<S extends Object> {
     try {
       return await call();
     } on Fault<S> catch (fault) {
-      final credentials = _credentials;
-      if (!authenticated || credentials == null || !_renewOn.contains(fault.signal)) {
-        rethrow;
-      }
+      if (!authenticated || !_renewing || !_renewOn.contains(fault.signal)) rethrow;
 
-      final before = credentials.value;
-      await credentials.renew();
-      final after = credentials.value;
+      final before = Credentials.value;
+      await Credentials.renew();
+      final after = Credentials.value;
       if (after == null || identical(after, before)) rethrow;
 
       try {
         return await call();
       } on Fault<S> catch (replayed) {
-        if (_renewOn.contains(replayed.signal)) await credentials.revoke();
+        if (_renewOn.contains(replayed.signal)) await Credentials.clear();
         rethrow;
       }
     }

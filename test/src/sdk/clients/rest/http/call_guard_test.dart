@@ -36,69 +36,56 @@
 
 import 'dart:async';
 
-import 'package:flutter_test/flutter_test.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/credential/store.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 
 enum HouseSignal { stale, rejected, missing, duplicate }
 
-class Ticket {
-  final String value;
-  final DateTime expiresAt;
-
-  const Ticket(this.value, this.expiresAt);
-}
-
-class CountingRefresher implements CredentialRefresher<Ticket> {
+class CountingRefresher {
   final bool succeeds;
   int callCount = 0;
 
   CountingRefresher({this.succeeds = true});
 
-  @override
-  Future<Ticket> refresh(Ticket current) async {
+  Future<Credential> refresh(Credential current) async {
     callCount++;
     if (!succeeds) return current;
-    return Ticket(
-      'renewed-$callCount',
-      DateTime.now().add(const Duration(hours: 1)),
+    return Credential(
+      token: 'renewed-$callCount',
+      refreshToken: 'again',
+      expiresAt: DateTime.now().add(const Duration(hours: 1)),
     );
   }
 }
 
-CredentialManager<Ticket, HouseSignal> managerFor(
-  CredentialRefresher<Ticket> refresher, {
-  Duration lifetime = const Duration(hours: 1),
-}) => CredentialManager<Ticket, HouseSignal>(
-  store: MemoryCredentialStore<Ticket>(
-    Ticket('first', DateTime.now().add(lifetime)),
-  ),
-  refresher: refresher,
-  expiresAt: (ticket) => ticket.expiresAt,
-  fatalSignals: const {HouseSignal.rejected},
-);
+Future<void> holdCredentials(CountingRefresher refresher, {Duration lifetime = const Duration(hours: 1)}) async {
+  final held = Credential(token: 'first', refreshToken: 'again', expiresAt: DateTime.now().add(lifetime));
+  GetIt.instance.registerSingleton<Credentials>(
+    await Credentials.forTesting(MemoryCredentialStore<Credential>(held)),
+    dispose: (credentials) => credentials.dispose(),
+  );
+  Credentials.renewWith(refresh: refresher.refresh, fatalSignals: const {HouseSignal.rejected});
+}
 
-CallGuard<HouseSignal> guardFor(
-  CredentialManager<Ticket, HouseSignal> manager,
-) => CallGuard<HouseSignal>.renewing(
-  duplicateSignal: HouseSignal.duplicate,
-  credentials: manager,
-  renewOn: const {HouseSignal.stale},
-);
+CallGuard<HouseSignal> guardFor() =>
+    CallGuard<HouseSignal>.renewing(duplicateSignal: HouseSignal.duplicate, renewOn: const {HouseSignal.stale});
 
 void main() {
+  setUp(() => GetIt.instance.reset());
+
+  tearDown(() => GetIt.instance.reset());
+
   group('CallGuard', () {
     test('returns what the call produced', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
 
       expect(await guard.run(() async => 'answer'), 'answer');
     });
 
     test('refuses a second call sharing a key with one in flight', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
       final blocked = Completer<int>();
 
       final first = guard.run(() => blocked.future, dedupKey: 'read');
@@ -106,13 +93,7 @@ void main() {
 
       await expectLater(
         guard.run(() async => 2, dedupKey: 'read'),
-        throwsA(
-          isA<Fault<HouseSignal>>().having(
-            (fault) => fault.signal,
-            'signal',
-            HouseSignal.duplicate,
-          ),
-        ),
+        throwsA(isA<Fault<HouseSignal>>().having((fault) => fault.signal, 'signal', HouseSignal.duplicate)),
       );
 
       blocked.complete(1);
@@ -120,9 +101,7 @@ void main() {
     });
 
     test('allows the key again once the call has finished', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
 
       await guard.run(() async => 1, dedupKey: 'read');
 
@@ -131,9 +110,7 @@ void main() {
     });
 
     test('lets calls without a key overlap', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
       final blocked = Completer<int>();
 
       final first = guard.run(() => blocked.future);
@@ -146,45 +123,34 @@ void main() {
 
     test('renews the credential before an authenticated call', () async {
       final refresher = CountingRefresher();
-      final manager = managerFor(
-        refresher,
-        lifetime: const Duration(minutes: 1),
-      );
-      await manager.start();
-      final guard = guardFor(manager);
+      await holdCredentials(refresher, lifetime: const Duration(minutes: 1));
+      final guard = guardFor();
 
       await guard.run(() async => 'ok');
 
       expect(refresher.callCount, 1);
-      await manager.dispose();
     });
 
-    test(
-      'replays a call once after renewing on a signal it was given',
-      () async {
-        final refresher = CountingRefresher();
-        final manager = managerFor(refresher);
-        await manager.start();
-        final guard = guardFor(manager);
-        var attempts = 0;
+    test('replays a call once after renewing on a signal it was given', () async {
+      final refresher = CountingRefresher();
+      await holdCredentials(refresher);
+      final guard = guardFor();
+      var attempts = 0;
 
-        final answer = await guard.run(() async {
-          attempts++;
-          if (attempts == 1) throw const Fault(HouseSignal.stale);
-          return 'ok';
-        });
+      final answer = await guard.run(() async {
+        attempts++;
+        if (attempts == 1) throw const Fault(HouseSignal.stale);
+        return 'ok';
+      });
 
-        expect(answer, 'ok');
-        expect(attempts, 2);
-        expect(refresher.callCount, 1);
-        await manager.dispose();
-      },
-    );
+      expect(answer, 'ok');
+      expect(attempts, 2);
+      expect(refresher.callCount, 1);
+    });
 
     test('does not replay when renewal produced the same credential', () async {
-      final manager = managerFor(CountingRefresher(succeeds: false));
-      await manager.start();
-      final guard = guardFor(manager);
+      await holdCredentials(CountingRefresher(succeeds: false));
+      final guard = guardFor();
       var attempts = 0;
 
       await expectLater(
@@ -196,46 +162,36 @@ void main() {
       );
 
       expect(attempts, 1);
-      await manager.dispose();
     });
 
     test('revokes when the replay fails on the same signal', () async {
-      final manager = managerFor(CountingRefresher());
-      await manager.start();
-      final guard = guardFor(manager);
+      await holdCredentials(CountingRefresher());
+      final guard = guardFor();
 
       await expectLater(
         guard.run(() async => throw const Fault(HouseSignal.stale)),
         throwsA(isA<Fault<HouseSignal>>()),
       );
 
-      expect(manager.isHeld, isFalse);
-      await manager.dispose();
+      expect(Credentials.isHeld, isFalse);
     });
 
     test('leaves an unauthenticated call alone when it is refused', () async {
       final refresher = CountingRefresher();
-      final manager = managerFor(refresher);
-      await manager.start();
-      final guard = guardFor(manager);
+      await holdCredentials(refresher);
+      final guard = guardFor();
 
       await expectLater(
-        guard.run(
-          () async => throw const Fault(HouseSignal.stale),
-          authenticated: false,
-        ),
+        guard.run(() async => throw const Fault(HouseSignal.stale), authenticated: false),
         throwsA(isA<Fault<HouseSignal>>()),
       );
 
       expect(refresher.callCount, 0);
-      expect(manager.isHeld, isTrue);
-      await manager.dispose();
+      expect(Credentials.isHeld, isTrue);
     });
 
     test('hands a shared answer to every caller that joined', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
       final blocked = Completer<int>();
       var runs = 0;
 
@@ -261,9 +217,7 @@ void main() {
     });
 
     test('hands the same failure to every caller that joined', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
       final blocked = Completer<int>();
       var runs = 0;
 
@@ -283,9 +237,7 @@ void main() {
     });
 
     test('releases the key once the shared call has settled', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
       var runs = 0;
 
       Future<int> ask() => guard.share(() async {
@@ -299,9 +251,7 @@ void main() {
     });
 
     test('keeps two different keys apart', () async {
-      final guard = CallGuard<HouseSignal>(
-        duplicateSignal: HouseSignal.duplicate,
-      );
+      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
       var runs = 0;
 
       await Future.wait([
@@ -320,41 +270,25 @@ void main() {
 
     test('renews once for a shared call rather than once per caller', () async {
       final refresher = CountingRefresher();
-      final manager = managerFor(
-        refresher,
-        lifetime: const Duration(minutes: 1),
-      );
-      await manager.start();
-      final guard = guardFor(manager);
+      await holdCredentials(refresher, lifetime: const Duration(minutes: 1));
+      final guard = guardFor();
 
-      await Future.wait([
-        guard.share(() async => 'ok', key: 'brand/7'),
-        guard.share(() async => 'ok', key: 'brand/7'),
-      ]);
+      await Future.wait([guard.share(() async => 'ok', key: 'brand/7'), guard.share(() async => 'ok', key: 'brand/7')]);
 
       expect(refresher.callCount, 1);
-      await manager.dispose();
     });
 
     test('passes a signal outside the renewal set straight through', () async {
       final refresher = CountingRefresher();
-      final manager = managerFor(refresher);
-      await manager.start();
-      final guard = guardFor(manager);
+      await holdCredentials(refresher);
+      final guard = guardFor();
 
       await expectLater(
         guard.run(() async => throw const Fault(HouseSignal.missing)),
-        throwsA(
-          isA<Fault<HouseSignal>>().having(
-            (fault) => fault.signal,
-            'signal',
-            HouseSignal.missing,
-          ),
-        ),
+        throwsA(isA<Fault<HouseSignal>>().having((fault) => fault.signal, 'signal', HouseSignal.missing)),
       );
 
       expect(refresher.callCount, 0);
-      await manager.dispose();
     });
   });
 }
