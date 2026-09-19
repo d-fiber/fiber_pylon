@@ -49,7 +49,7 @@ enum UsersError { signedOut, unknown }
 /// A screen reads `data.value` and follows `data.stream`, which are always what is stored,
 /// and calls `refresh()` to bring it up to date. `status` announces how each
 /// refresh went, and the users stay readable whatever it says.
-final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
+final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
   UsersList() : super(offlineSignals: const {RestSignal.noRoute});
 
   @override

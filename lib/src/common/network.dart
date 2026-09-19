@@ -53,7 +53,7 @@ import 'observable.dart';
 /// It is what the operating system says about the connection: a network
 /// interface that is up, not a server that answers. A device on a wifi that
 /// reaches nothing is reachable here, and a request over it fails on its own,
-/// which is why a `SdkRepository` still lists the signals that mean the network
+/// which is why a `Repository` still lists the signals that mean the network
 /// is out of reach. Pylon does not probe a host of its own choosing, since no
 /// host is the right one for every project.
 ///

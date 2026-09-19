@@ -36,7 +36,7 @@
 
 import 'package:equatable/equatable.dart';
 
-/// What is happening to an [SdkRepository].
+/// What is happening to an [Repository].
 ///
 /// A closed list, so that a screen can `switch` over it and be told by the
 /// compiler about the case it forgot. It holds only what pylon can decide by

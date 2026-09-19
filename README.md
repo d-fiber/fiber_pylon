@@ -556,11 +556,11 @@ answer is reachable: nothing is refused on a guess.
 ## Repositories that read the cache
 
 A screen never reads the network. It reads the local database, and a refresh only brings the
-database up to date. `SdkRepository` is where it reads: a small class a project writes per
+database up to date. `Repository` is where it reads: a small class a project writes per
 piece of data it shows, with its parameters in its own fields.
 
 ```dart
-final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
+final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
   UsersList() : super(offlineSignals: const {RestSignal.noRoute});
 
   @override bool get isAuthenticated => true;

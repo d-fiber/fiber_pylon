@@ -46,7 +46,7 @@ final class UsersGroundSdk {
 
   /// Every user the account can see.
   ///
-  /// Throws a [Fault] naming what went wrong, which is what `SdkRepository.fetch`
+  /// Throws a [Fault] naming what went wrong, which is what `Repository.fetch`
   /// promises.
   Future<List<User>> list() async {
     final response = await _caller.path((p) => p.segment('users')).get().send();

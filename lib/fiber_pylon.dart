@@ -55,7 +55,7 @@
 /// [RealtimePath], [RealtimeParameters] and [RealtimeTopic] for a live one,
 /// [Result] and its two variants, [Fault], [FaultResolver], [Sdk],
 /// [SdkClientKind], [SdkClient], [RestSdkClient], [LocalSdkClient],
-/// [VendorSdkClient], [SdkRepository] and its [Status], [Environments]. This is what a service
+/// [VendorSdkClient], [Repository] and its [Status], [Environments]. This is what a service
 /// layer sees, and it does not
 /// change when the backend does.
 ///
@@ -184,6 +184,6 @@ export 'src/sdk/clients/rest/realtime/socket.dart';
 export 'src/sdk/clients/rest/rest_sdk.dart';
 export 'src/sdk/clients/vendor/vendor_sdk.dart';
 export 'src/sdk/sdk.dart';
-export 'src/sdk/sdk_repository.dart';
+export 'src/sdk/repository.dart';
 export 'src/sdk/status.dart';
 export 'package:injectable/injectable.dart' show singleton;

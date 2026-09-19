@@ -45,7 +45,7 @@ enum HouseSignal { unauthorized, noRoute, unknown }
 
 enum HouseError { signedOut, unknown }
 
-final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseSignal> {
+final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSignal> {
   Shelf({
     this.authenticated = false,
     this.observes = false,
@@ -140,7 +140,7 @@ void main() {
 
   tearDown(() => GetIt.instance.reset());
 
-  group('SdkRepository reading', () {
+  group('Repository reading', () {
     test('holds nothing until the database has answered', () async {
       final shelf = Shelf(stored: [7]);
 
@@ -259,7 +259,7 @@ void main() {
     });
   });
 
-  group('SdkRepository refresh', () {
+  group('Repository refresh', () {
     test('writes what the network answered, which moves the value', () async {
       final shelf = Shelf();
       shelf.data.value;
@@ -401,7 +401,7 @@ void main() {
     });
   });
 
-  group('SdkRepository status', () {
+  group('Repository status', () {
     test('starts loading what the database holds', () async {
       final shelf = Shelf();
 
@@ -519,7 +519,7 @@ void main() {
     });
   });
 
-  group('SdkRepository offline status', () {
+  group('Repository offline status', () {
     Future<StreamController<bool>> reachability({required bool reachable}) async {
       final changes = StreamController<bool>.broadcast();
       await GetIt.instance.reset();
@@ -610,7 +610,7 @@ void main() {
     });
   });
 
-  group('SdkRepository signed in and out', () {
+  group('Repository signed in and out', () {
     const credential = Credential(token: 'abc');
 
     test('does not listen to the database while no credential is held', () async {
@@ -771,7 +771,7 @@ void main() {
     });
   });
 
-  group('SdkRepository disposal', () {
+  group('Repository disposal', () {
     test('does nothing once disposed and answers the status it had', () async {
       final shelf = Shelf();
       await shelf.refresh();

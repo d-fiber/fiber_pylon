@@ -35,7 +35,7 @@
 // LICENSE file, the LICENSE file governs.
 
 // A check against a real SQLite file, through `sqflite_common_ffi`: what an
-// SdkRepository reads is the database's own stream, and only a real one moves with a
+// Repository reads is the database's own stream, and only a real one moves with a
 // write and with a change of tenant.
 
 import 'dart:io';
@@ -96,7 +96,7 @@ final class NotesDatabase extends pylon.Database {
   List<KeyedTable<Object, Object>> get tables => [notes];
 }
 
-final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, HouseSignal> {
+final class NotesList extends Repository<List<Note>, List<Note>, HouseError, HouseSignal> {
   NotesList(this._database, this.answer) : super(offlineSignals: const {HouseSignal.noRoute});
 
   final NotesDatabase _database;
@@ -167,7 +167,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  group('SdkRepository over a real database', () {
+  group('Repository over a real database', () {
     test('follows what a refresh writes', () async {
       final call = NotesList(database, [const Note(id: 'a', title: 'first')]);
       addTearDown(call.dispose);

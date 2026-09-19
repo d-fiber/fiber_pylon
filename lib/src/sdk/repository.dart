@@ -76,7 +76,7 @@ import 'status.dart';
 /// is made, so [data] already holds the stored value by the time a screen asks:
 ///
 /// ```dart
-/// final class AdultsList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
+/// final class AdultsList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
 ///   AdultsList(this._database, this._rest, {required this.minAge})
 ///     : super(offlineSignals: const {RestSignal.noRoute});
 ///
@@ -127,7 +127,7 @@ import 'status.dart';
 /// between a REST call and a vendor's: [response] receives it. `T` is what the
 /// screen reads, `E` the project's own error, and `S` the signal of the adapter
 /// [fetch] fails with.
-abstract base class SdkRepository<R, T, E, S extends Object> {
+abstract base class Repository<R, T, E, S extends Object> {
   /// A repository whose [data] is empty until the database has told what it holds,
   /// which it starts listening to right after it is made.
   ///
@@ -136,7 +136,7 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   /// [StatusFailed]. It is required and has no default: pylon cannot know which of
   /// an adapter's signals means the network rather than the server, and a project
   /// that has none says so with an empty set.
-  SdkRepository({required Set<S> offlineSignals}) : _offlineSignals = offlineSignals {
+  Repository({required Set<S> offlineSignals}) : _offlineSignals = offlineSignals {
     scheduleMicrotask(_follow);
   }
 

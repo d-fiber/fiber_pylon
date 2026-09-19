@@ -138,7 +138,7 @@ print(token());
 print(SecureStorage.fingerprint.derive('purpose'));
 ''', compiles: true),
   _Program('a call that reads the cache and refreshes it', '''
-SdkRepository<int, int, String, int>? call;
+Repository<int, int, String, int>? call;
 call?.status.stream.listen((status) => switch (status) {
   StatusIdle() => 0,
   StatusRunning() => 1,
