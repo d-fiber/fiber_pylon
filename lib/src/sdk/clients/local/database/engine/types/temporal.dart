@@ -38,10 +38,11 @@ part of '../database.dart';
 
 /// Reads a value back the way [Value.timestamp], [Value.date] and [Value.time] wrote it.
 extension TemporalDecoding on Value {
-  /// This value as a UTC [DateTime], the same convention [timestamp] wrote
-  /// it under: milliseconds since the Unix epoch.
+  /// This value as a [DateTime] in UTC.
   ///
-  /// Throws a [StateError] if this is not a [Integer].
+  /// Call [DateTime.toLocal] on it to get the local time.
+  ///
+  /// Throws a [StateError] if this is not an [Integer].
   DateTime get asDateTime {
     if (this case Integer(value: final milliseconds)) {
       return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
@@ -49,10 +50,9 @@ extension TemporalDecoding on Value {
     throw StateError('$this is not a timestamp.');
   }
 
-  /// This value as a [Date], the same convention [date] wrote it
-  /// under: its own midnight, UTC, in milliseconds since the Unix epoch.
+  /// This value as a [Date].
   ///
-  /// Throws a [StateError] if this is not a [Integer].
+  /// Throws a [StateError] if this is not an [Integer].
   Date get asDate {
     if (this case Integer(value: final milliseconds)) {
       return Date.fromDateTime(DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true));
@@ -60,11 +60,11 @@ extension TemporalDecoding on Value {
     throw StateError('$this is not a date.');
   }
 
-  /// This value as a [Time], the same convention [time] wrote it under:
-  /// text such as `09:30:15.500`, or `09:30:15.500+01:00` with an offset.
+  /// This value as a [Time], with an offset only if it was written with one.
   ///
   /// Throws a [StateError] if this is not a [Varchar]. Throws a
-  /// [FormatException] if its text is not of that shape.
+  /// [FormatException] if its text is not a time such as `09:30:15.500` or
+  /// `09:30:15.500+01:00`.
   Time get asTime {
     if (this case Varchar(value: final stored)) return _timeFromText(stored);
     throw StateError('$this is not a time.');
@@ -104,13 +104,14 @@ Time _timeFromText(String text) {
   );
 }
 
-/// A calendar date, with no time of day — [year]-[month]-[day].
+/// A calendar date, with no time of day.
 final class Date extends Equatable implements Comparable<Date> {
   /// The date [year]-[month]-[day].
   ///
-  /// Asserts that [month] is `1` through `12` and that [day] exists in that
-  /// month of that year, leap years included. Without it, [toDateTime] would
-  /// roll 31 February over into March instead of refusing it.
+  /// In a debug build, throws an [AssertionError] if [month] is not `1` through
+  /// `12` or if [day] does not exist in that month of that year, leap years
+  /// included. A release build does not check, and [toDateTime] then rolls 31
+  /// February over into March.
   const Date({required this.year, required this.month, required this.day})
     : assert(month >= 1 && month <= 12, 'month must be 1 through 12.'),
       assert(
@@ -133,36 +134,37 @@ final class Date extends Equatable implements Comparable<Date> {
   /// The day of the month, `1` through however many days [month] has.
   final int day;
 
-  /// [value]'s own date, discarding its time of day.
+  /// The calendar date [value] shows in its own time zone, without its time of
+  /// day.
   factory Date.fromDateTime(DateTime value) => Date(year: value.year, month: value.month, day: value.day);
 
-  /// This date, at midnight UTC.
+  /// This date at midnight UTC.
   DateTime toDateTime() => DateTime.utc(year, month, day);
 
-  /// Orders dates by the calendar, the same order SQLite sorts their stored
-  /// milliseconds in.
+  /// Orders dates by the calendar, which is also the order SQLite sorts a
+  /// stored date column in.
   @override
   int compareTo(Date other) => toDateTime().compareTo(other.toDateTime());
 
-  /// Rebuilds the [Date] [toJson] wrote.
+  /// The date [json] describes, as [toJson] writes it.
   factory Date.fromJson(Map<String, dynamic> json) =>
       Date(year: json['year'] as int, month: json['month'] as int, day: json['day'] as int);
 
-  /// This date's own fields, in the shape [Date.fromJson] rebuilds
-  /// from.
+  /// This date as a JSON map, which [Date.fromJson] turns back into a date.
   Map<String, dynamic> toJson() => {'year': year, 'month': month, 'day': day};
 
   @override
   List<Object?> get props => [year, month, day];
 }
 
-/// A time of day, with no calendar date — [hour]:[minute]:[second], to
-/// [millisecond] precision.
+/// A time of day with no calendar date, to the millisecond, optionally with an
+/// offset from UTC.
 final class Time extends Equatable implements Comparable<Time> {
-  /// The time [hour]:[minute]:[second].[millisecond].
+  /// The time [hour]:[minute]:[second].[millisecond], at [utcOffset] when given.
   ///
-  /// Asserts that every field sits inside the range its own documentation
-  /// gives.
+  /// In a debug build, throws an [AssertionError] if a field is outside the
+  /// range documented on it. [utcOffset] is only checked when the time is
+  /// stored, see [Value.time].
   const Time({required this.hour, required this.minute, this.second = 0, this.millisecond = 0, this.utcOffset})
     : assert(hour >= 0 && hour <= 23, 'hour must be 0 through 23.'),
       assert(minute >= 0 && minute <= 59, 'minute must be 0 through 59.'),
@@ -181,17 +183,24 @@ final class Time extends Equatable implements Comparable<Time> {
   /// The millisecond, `0` through `999`.
   final int millisecond;
 
-  /// This time's own offset from UTC, when it carries one at all —
-  /// Postgres's own `TIME WITH TIME ZONE`. `null` for a bare time of day,
-  /// which is what most columns actually want.
+  /// The offset of this time from UTC, or `null` for a bare time of day.
+  ///
+  /// With an offset a time is like the Postgres `TIME WITH TIME ZONE`, without
+  /// one like `TIME`.
   final Duration? utcOffset;
 
-  /// Orders times by their stored text, the same order SQLite sorts them in,
-  /// which is the order of the clock between two times with the same offset.
+  /// Orders times by their clock reading, which is also the order SQLite sorts a
+  /// stored time column in.
+  ///
+  /// Two times with different offsets are ordered by what their clocks read, not
+  /// by the instant they name.
+  ///
+  /// Throws an [ArgumentError] if either offset cannot be stored, see
+  /// [Value.time].
   @override
   int compareTo(Time other) => _timeToText(this).compareTo(_timeToText(other));
 
-  /// Rebuilds the [Time] [toJson] wrote.
+  /// The time [json] describes, as [toJson] writes it.
   factory Time.fromJson(Map<String, dynamic> json) => Time(
     hour: json['hour'] as int,
     minute: json['minute'] as int,
@@ -200,8 +209,7 @@ final class Time extends Equatable implements Comparable<Time> {
     utcOffset: json['utcOffsetMinutes'] == null ? null : Duration(minutes: json['utcOffsetMinutes'] as int),
   );
 
-  /// This time's own fields, in the shape [Time.fromJson] rebuilds
-  /// from.
+  /// This time as a JSON map, which [Time.fromJson] turns back into a time.
   Map<String, dynamic> toJson() => {
     'hour': hour,
     'minute': minute,

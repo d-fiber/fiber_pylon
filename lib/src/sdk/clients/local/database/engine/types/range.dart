@@ -37,11 +37,16 @@
 part of '../database.dart';
 
 /// Reads a value back the way [Value.range] wrote it.
+///
+/// Use the accessor of the kind the range was written as. Reading it as another
+/// kind throws, or gives bounds that mean nothing.
 extension RangeDecoding on Value {
-  /// This value as [NumberRangeBounds], the same convention [range] wrote a
-  /// [RangeBounds.num] under: both bounds exactly as given.
+  /// This value as a [RangeBounds.num] range.
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// A bound that was a whole-number [double] reads back as an [int].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   NumberRangeBounds get asNumberRange {
     final json = _decodeJson('number range');
     return NumberRangeBounds._(
@@ -53,10 +58,10 @@ extension RangeDecoding on Value {
     );
   }
 
-  /// This value as [DateTimeRangeBounds], the same convention [range] wrote
-  /// a [RangeBounds.datetime] under: each bound, when present, in UTC.
+  /// This value as a [RangeBounds.datetime] range, each bound in UTC.
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   DateTimeRangeBounds get asDateTimeRange {
     final json = _decodeJson('date time range');
     final lower = json['lower'] as int?;
@@ -70,11 +75,10 @@ extension RangeDecoding on Value {
     );
   }
 
-  /// This value as [DateRangeBounds], the same convention [range] wrote a
-  /// [RangeBounds.date] under: each bound, when present, as the calendar date
-  /// of its stored midnight.
+  /// This value as a [RangeBounds.date] range.
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   DateRangeBounds get asDateRange {
     final json = _decodeJson('date range');
     final lower = json['lower'] as int?;
@@ -90,10 +94,8 @@ extension RangeDecoding on Value {
 
 /// Which Postgres range type over numbers a [RangeBounds.num] mirrors.
 ///
-/// Kept for interoperability and self-description: a project's own schema
-/// can say which of the three it means. This package does not read it back,
-/// since [Value.range] already picks the right encoding from the kind
-/// of [RangeBounds] it is given.
+/// A label only: it is saved and read back with the range, and does not change
+/// how the bounds are stored.
 enum NumberRangeSubtype {
   /// Postgres's `int4range`.
   integer,
@@ -107,9 +109,8 @@ enum NumberRangeSubtype {
 
 /// Which Postgres range type over instants a [RangeBounds.datetime] mirrors.
 ///
-/// Kept for interoperability and self-description, like [NumberRangeSubtype].
-/// The two are stored the same way, as milliseconds since the Unix epoch in
-/// UTC.
+/// A label only, like [NumberRangeSubtype]: both values store the bounds the
+/// same way, in UTC.
 enum DateTimeRangeSubtype {
   /// Postgres's `tsrange`.
   timestamp,
@@ -118,20 +119,15 @@ enum DateTimeRangeSubtype {
   timestamptz,
 }
 
-/// A Postgres-style range: bounded by a lower and an upper end, each either
-/// inclusive or exclusive, and either end entirely absent for a range
-/// unbounded on that side. Of exactly one of three kinds: numbers
-/// ([RangeBounds.num]), instants ([RangeBounds.datetime]) or calendar dates
-/// ([RangeBounds.date]), nothing else.
+/// A Postgres-style range over numbers, instants or calendar dates.
 ///
-/// Sealed and built only through those three factories, so a `switch` over a
-/// [RangeBounds] is exhaustive with [NumberRangeBounds],
-/// [DateTimeRangeBounds] and [DateRangeBounds]. Each kind takes the subtype
-/// enum of its own family, so a number range can never be declared
-/// [DateTimeRangeSubtype.timestamp], and the bounds live on the subclasses
-/// with their own type. Postgres's own default shape, `[lower, upper)`, is
-/// the default here too: [lowerInclusive] defaults to `true`,
-/// [upperInclusive] to `false`.
+/// Each end is inclusive or exclusive, and a `null` end leaves the range
+/// unbounded on that side. Without arguments a range is `[lower, upper)`, as in
+/// Postgres: [lowerInclusive] is `true` and [upperInclusive] is `false`.
+///
+/// Built through [RangeBounds.num], [RangeBounds.datetime] or [RangeBounds.date].
+/// A `switch` over a [RangeBounds] is exhaustive with [NumberRangeBounds],
+/// [DateTimeRangeBounds] and [DateRangeBounds], which carry the bounds.
 sealed class RangeBounds extends Equatable {
   const RangeBounds._({required this.lowerInclusive, required this.upperInclusive});
 
@@ -153,17 +149,21 @@ sealed class RangeBounds extends Equatable {
     bool upperInclusive,
   }) = DateTimeRangeBounds._;
 
-  /// The range from [lower] to [upper], both calendar dates. Postgres's
+  /// The range from [lower] to [upper], both calendar dates, like the Postgres
   /// `daterange`.
   const factory RangeBounds.date({Date? lower, Date? upper, bool lowerInclusive, bool upperInclusive}) =
       DateRangeBounds._;
 
-  /// Whether the lower bound itself is part of this range. Meaningless when
-  /// the range is unbounded below.
+  /// Whether the lower bound itself is part of this range.
+  ///
+  /// Ignored when this range is unbounded below, though it still counts in
+  /// equality.
   final bool lowerInclusive;
 
-  /// Whether the upper bound itself is part of this range. Meaningless when
-  /// the range is unbounded above.
+  /// Whether the upper bound itself is part of this range.
+  ///
+  /// Ignored when this range is unbounded above, though it still counts in
+  /// equality.
   final bool upperInclusive;
 }
 
@@ -177,13 +177,13 @@ final class NumberRangeBounds extends RangeBounds {
     super.upperInclusive = false,
   }) : super._();
 
-  /// Which Postgres range type over numbers this mirrors.
+  /// The Postgres range type over numbers this range mirrors.
   final NumberRangeSubtype subtype;
 
-  /// This range's own lower bound. Unbounded below when `null`.
+  /// The lower end of this range, or `null` when it is unbounded below.
   final num? lower;
 
-  /// This range's own upper bound. Unbounded above when `null`.
+  /// The upper end of this range, or `null` when it is unbounded above.
   final num? upper;
 
   @override
@@ -200,13 +200,13 @@ final class DateTimeRangeBounds extends RangeBounds {
     super.upperInclusive = false,
   }) : super._();
 
-  /// Which Postgres range type over instants this mirrors.
+  /// The Postgres range type over instants this range mirrors.
   final DateTimeRangeSubtype subtype;
 
-  /// This range's own lower bound. Unbounded below when `null`.
+  /// The lower end of this range, or `null` when it is unbounded below.
   final DateTime? lower;
 
-  /// This range's own upper bound. Unbounded above when `null`.
+  /// The upper end of this range, or `null` when it is unbounded above.
   final DateTime? upper;
 
   @override
@@ -218,10 +218,10 @@ final class DateRangeBounds extends RangeBounds {
   const DateRangeBounds._({this.lower, this.upper, super.lowerInclusive = true, super.upperInclusive = false})
     : super._();
 
-  /// This range's own lower bound. Unbounded below when `null`.
+  /// The lower end of this range, or `null` when it is unbounded below.
   final Date? lower;
 
-  /// This range's own upper bound. Unbounded above when `null`.
+  /// The upper end of this range, or `null` when it is unbounded above.
   final Date? upper;
 
   @override

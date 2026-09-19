@@ -36,12 +36,13 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [Value.boolean] wrote it.
+/// Reads back a value written by [Value.boolean].
 extension BooleanDecoding on Value {
-  /// This value as a [bool], the same convention [boolean] wrote it under:
-  /// any non-zero [Integer] is `true`, zero is `false`.
+  /// This value as a [bool].
   ///
-  /// Throws a [StateError] if this is not a [Integer].
+  /// Any non-zero [Integer] is `true` and zero is `false`.
+  ///
+  /// Throws a [StateError] if this is not an [Integer].
   bool get asBoolean {
     if (this case Integer(value: final stored)) return stored != 0;
     throw StateError('$this is not a boolean.');

@@ -38,8 +38,7 @@ part of '../database.dart';
 
 /// Reads a value back the way [Value.uuid] and [Value.randomUuid] wrote it.
 extension UuidDecoding on Value {
-  /// This value as a [UuidValue], the same convention [uuid] wrote it under:
-  /// its canonical text form.
+  /// This value as a [UuidValue].
   ///
   /// Throws a [StateError] if this is not a [Varchar]. Throws a
   /// [FormatException] if its text is not a valid UUID.

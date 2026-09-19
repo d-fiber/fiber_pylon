@@ -36,26 +36,18 @@
 
 part of '../database.dart';
 
-/// One value SQLite can actually store.
+/// One value SQLite can store: an [Integer], a [Real], a [Varchar], a [Blob] or
+/// a [Nil].
 ///
-/// SQLite's own type system names exactly five storage classes — this closes
-/// over them rather than accepting `Object?` and finding out only when
-/// sqflite rejects, or silently mangles, something it was never meant to
-/// hold. Everything else a project actually wants to store — a [bool], a
-/// timestamp, a UUID, a shape on a map, a span between two values, a
-/// Postgres-style range, a bare date or time of day, a named enum member,
-/// a whole list — is a convention layered on top of one of these five,
-/// never a sixth kind of its own: [boolean], [timestamp], [uuid], [point],
-/// [line], [segment], [box], [path], [polygon], [circle], [interval],
-/// [range], [date], [time], [enum_] and
-/// [list] below are exactly that, named conventions rather than new
-/// storage classes.
+/// Sealed, so that a value sqflite would reject or silently mangle cannot be
+/// handed to it.
 ///
-/// Each of those is written here, as a static method, because Dart offers
-/// no way to add a static member to a class from another file. Reading one
-/// back is the mirror image and has no such limit: `asBoolean`,
-/// `asDateTime`, `asPoint` and the rest live beside the model each one
-/// returns, as an extension on this class.
+/// Anything else a project stores is written into one of those five by a static
+/// method of this class: [boolean], [timestamp], [date], [time], [uuid],
+/// [randomUuid], [enum_], [list], [interval], [range], and [point], [line],
+/// [segment], [box], [path], [polygon] and [circle] for shapes on a map. Read it
+/// back with the matching getter on [Value], such as `asBoolean`, `asDateTime`
+/// or `asPoint`.
 sealed class Value extends Equatable {
   const Value();
 
@@ -63,12 +55,14 @@ sealed class Value extends Equatable {
   const factory Value.integer(int value) = Integer;
 
   /// A floating point value.
+  ///
+  /// A NaN cannot be stored, see [Real].
   const factory Value.real(double value) = Real;
 
-  /// UTF-8 text. Named after `VARCHAR` rather than `TEXT`, the keyword
-  /// [ColumnType.text] itself renders, so the value a project writes and
-  /// the type a column declares read as two different words rather than
-  /// the same one used for two different things.
+  /// UTF-8 text.
+  ///
+  /// Named after `VARCHAR` rather than `TEXT`, so that it is not mistaken for
+  /// [ColumnType.text], which is the type a column declares.
   const factory Value.varchar(String value) = Varchar;
 
   /// Raw bytes, stored exactly as given.
@@ -79,94 +73,78 @@ sealed class Value extends Equatable {
 
   /// [value] encoded by [encode], or [nil] when [value] is `null`.
   ///
-  /// The write side of a nullable column, so that a nullable field does not
-  /// need a conditional at every call site:
-  /// `Value.nullable(note, Value.varchar)`. Read the column
-  /// back with [RowReading.nullable].
+  /// The write side of a nullable column, so that a nullable field needs no
+  /// conditional at each call site: `Value.nullable(note, Value.varchar)`. Read
+  /// the column back with [RowReading.nullable].
   static Value nullable<T extends Object>(T? value, Value Function(T value) encode) =>
       value == null ? const Nil() : encode(value);
 
-  /// [value] as an [Integer] of `1` or `0` — the convention every SQLite
-  /// driver uses for a [bool], this one included, since SQLite has no
-  /// boolean storage class of its own.
+  /// [value] as an [Integer] of `1` or `0`, since SQLite has no boolean.
+  ///
+  /// Read one back with `asBoolean`.
   static Integer boolean(bool value) => Integer(value ? 1 : 0);
 
-  /// [milliseconds] since the Unix epoch, stored as an [Integer] exactly as
-  /// given.
+  /// [milliseconds] since the Unix epoch, as an [Integer].
   ///
-  /// Takes the millisecond count itself rather than a [DateTime], so nothing
-  /// here converts or guesses a time zone: the epoch is UTC by definition,
-  /// and two devices in two time zones can never disagree on what a stored
-  /// value means. Pass [DateTime.millisecondsSinceEpoch] to store a
-  /// [DateTime]. Read one back with `asDateTime`, which hands back a UTC
-  /// [DateTime]; call [DateTime.toLocal] on it if a caller needs local time.
+  /// Takes the millisecond count rather than a [DateTime] so that no time zone
+  /// is ever guessed: the epoch is UTC, so devices in different time zones agree
+  /// on what a stored value means. Pass [DateTime.millisecondsSinceEpoch] to
+  /// store a [DateTime]. Read one back with `asDateTime`, which returns a
+  /// [DateTime] in UTC.
   static Integer timestamp(int milliseconds) => Integer(milliseconds);
 
-  /// [value] as an [Integer] holding its own midnight, UTC, in milliseconds
-  /// since the Unix epoch.
+  /// [value] as an [Integer] holding its midnight UTC, in milliseconds since the
+  /// Unix epoch.
   ///
-  /// [Date] carries no time of day at all, so unlike [timestamp] there is
-  /// nothing to lose or disagree about in converting it: the same calendar
-  /// date reads back on every device, in every time zone. Read one back
-  /// with `asDate`.
+  /// A [Date] has no time of day, so the same date reads back on every device in
+  /// every time zone. Read one back with `asDate`.
   static Integer date(Date value) => Integer(value.toDateTime().millisecondsSinceEpoch);
 
   /// [value] as a [Varchar] holding its text form, `09:30:15.500`, or
   /// `09:30:15.500+01:00` when [Time.utcOffset] is set.
   ///
-  /// Fixed-width and zero-padded, so comparing two of them as text compares
-  /// the times of day: an ordering filter works on a column of them. That
-  /// holds between times with no offset, or with the same one. It does not
-  /// hold across two different offsets, which compare by their clock reading
-  /// and not by the instant they name. Read one back with `asTime`.
+  /// An ordering filter on a column of these compares the times of day. Two
+  /// times with different offsets compare by what their clocks read, not by the
+  /// instant they name. Read one back with `asTime`.
   ///
-  /// Throws an [ArgumentError] when [Time.utcOffset] is not a whole number of
-  /// minutes, or is a day or more in either direction, since the text form has
-  /// room for neither and would read back as a different offset or not at all.
+  /// Throws an [ArgumentError] if [Time.utcOffset] is not a whole number of
+  /// minutes, or is a day or more away from UTC in either direction, since the
+  /// stored text could not read it back.
   static Varchar time(Time value) => Varchar(_timeToText(value));
 
-  /// [value] as a [Varchar] holding its own name.
+  /// [value] as a [Varchar] holding its name.
   ///
-  /// The same convention [PreferencesStorage] already uses for its own
-  /// [Preference.enum_]: stored by name rather than by index, so reordering a
-  /// project's own enum never silently changes what an existing row reads
-  /// back as. Read one back with `asEnum`, given the same enum's own
-  /// `values`.
+  /// Stored by name rather than by index, so reordering an enum never changes
+  /// what an existing row reads back as. Read one back with `asEnum`, given the
+  /// `values` of the same enum.
   ///
-  /// Comparing two of them with an ordering filter compares the names
-  /// alphabetically, not the declaration order.
+  /// An ordering filter on a column of these compares the names alphabetically,
+  /// not in declaration order.
   static Varchar enum_(Enum value) => Varchar(value.name);
 
-  /// [value] as a [Varchar] holding its JSON form — meant for a list whose
-  /// elements are already native JSON values: an [int], a [double], a
-  /// [String], a [bool], a `Map<String, dynamic>`, or `null`.
+  /// [value] as a [Varchar] holding its JSON form.
   ///
-  /// For a list of a project's own type instead, one that knows its own
-  /// `toJson`, reach for [ListJson] — the same way [Json] covers a single
-  /// value of one.
+  /// Meant for a list whose elements are already JSON values: an [int], a
+  /// [double], a [String], a [bool], a `Map<String, dynamic>` or `null`. For a
+  /// list of a project's own type, use [ListJson].
   static Varchar list<T>(List<T> value) => Varchar(jsonEncode(value));
 
-  /// [value] as a [Varchar] holding its canonical lower-case text form.
+  /// [value] as a [Varchar] holding its text form.
   ///
-  /// Read one back with `asUuid`, which validates the text instead of handing
-  /// back whatever the column held.
+  /// The text is lower-case unless [value] was built with [UuidValue.raw].
+  /// Read one back with `asUuid`, which validates the text.
   static Varchar uuid(UuidValue value) => Varchar(value.uuid);
 
-  /// A new, randomly generated UUID (version 4), as a [Varchar].
+  /// A new random UUID (version 4), as a [Varchar].
   ///
-  /// Backed by [Uuid]'s own default random source, cryptographically strong
-  /// rather than [Random]'s: two calls landing in the same millisecond,
-  /// across however many concurrent inserts, still practically never
-  /// collide, which a hand-rolled generator seeded from the clock could not
-  /// promise. Call `asUuid` on the result to keep the identifier it holds.
+  /// The identifier comes from a cryptographically strong random source, so two
+  /// inserts in the same millisecond practically never collide. Call `asUuid` on
+  /// the result to keep the identifier it holds.
   static Varchar randomUuid() => Varchar(_uuidGenerator.v4());
 
   /// [value] as a [Varchar] holding its JSON form, `{"lat": ..., "lng": ...}`.
   ///
-  /// SQLite has no geometric storage class either — unlike a timestamp or a
-  /// UUID, a point has no single native representation any driver already
-  /// agrees on, so this picks the plainest one rather than a binary format
-  /// only this package could read back.
+  /// Read one back with `asPoint`.
   static Varchar point(Location value) => Varchar(jsonEncode(value.toJson()));
 
   /// [value] as a [Varchar] holding its JSON form.
@@ -187,11 +165,11 @@ sealed class Value extends Equatable {
   /// [value] as a [Varchar] holding its JSON form.
   static Varchar circle(LocationCircle value) => Varchar(jsonEncode(value.toJson()));
 
-  /// [value] as a [Varchar] holding its two bounds: an [IntervalBounds.num]
-  /// stores them exactly as given, an [IntervalBounds.datetime] stores each
-  /// as its millisecond offset from the Unix epoch, in UTC.
+  /// [value] as a [Varchar] holding its two bounds.
   ///
-  /// Read one back with `asNumberBounds` or `asDateTimeBounds`, whichever
+  /// A bound of an [IntervalBounds.num] that is a whole-number [double] reads
+  /// back as an [int]. The bounds of an [IntervalBounds.datetime] read back in
+  /// UTC. Read one back with `asNumberBounds` or `asDateTimeBounds`, whichever
   /// kind it was written as.
   static Varchar interval(IntervalBounds value) => switch (value) {
     NumberBounds(:final start, :final end) => Varchar(
@@ -202,13 +180,13 @@ sealed class Value extends Equatable {
     ),
   };
 
-  /// [value] as a [Varchar] holding its subtype, bounds and inclusivity.
+  /// [value] as a [Varchar] holding its bounds, their inclusivity and its
+  /// subtype.
   ///
-  /// A [RangeBounds.num] stores its two ends exactly as given, a
-  /// [RangeBounds.datetime] stores each as its millisecond offset from the
-  /// Unix epoch in UTC, and a [RangeBounds.date] stores each as the midnight,
-  /// UTC, [date] would. [DateTimeRangeSubtype.timestamp] and
-  /// [DateTimeRangeSubtype.timestamptz] are not told apart beyond their name.
+  /// A bound of a [RangeBounds.num] that is a whole-number [double] reads back
+  /// as an [int]. The bounds of a [RangeBounds.datetime] read back in UTC.
+  /// [DateTimeRangeSubtype.timestamp] and [DateTimeRangeSubtype.timestamptz] are
+  /// stored alike, apart from their name.
   ///
   /// Read one back with `asNumberRange`, `asDateTimeRange` or `asDateRange`,
   /// whichever kind it was written as.
@@ -242,7 +220,7 @@ sealed class Value extends Equatable {
     ),
   };
 
-  /// This value in the native shape sqflite itself accepts and hands back.
+  /// This value in the shape sqflite accepts and hands back.
   Object? _toNative();
 
   Map<String, dynamic> _decodeJson(String shape) {
@@ -258,9 +236,9 @@ final Uuid _uuidGenerator = const Uuid();
 /// The largest integer a [double] holds without rounding, `2^53`.
 const int _largestExactInteger = 9007199254740992;
 
-/// [number] as an [int] when it is a whole number a [double] holds exactly,
-/// so that `3` and `3.0` are written as the same text and an equality filter
-/// treats them as the one value they are. Left as it is otherwise.
+/// [number] as an [int] when it is a whole number a [double] holds exactly, so
+/// that `3` and `3.0` are written as the same text and an equality filter
+/// treats them as the one value they are, and [number] unchanged otherwise.
 num? _canonicalNumber(num? number) =>
     number != null &&
         number is! int &&
@@ -270,9 +248,9 @@ num? _canonicalNumber(num? number) =>
     ? number.toInt()
     : number;
 
-/// The absence of a value — SQL `NULL`.
+/// The absence of a value, SQL `NULL`.
 final class Nil extends Value {
-  /// SQL `NULL`. Prefer [Value.nil] over calling this directly.
+  /// The absence of a value. Prefer [Value.nil] over calling this directly.
   const Nil();
 
   @override
@@ -287,12 +265,12 @@ final class Nil extends Value {
 
 /// A signed integer, up to 64 bits.
 final class Integer extends Value {
-  /// Wraps [value]. Prefer [Value.integer] over calling this
-  /// directly, except where a signature asks for an [Integer] itself, such as
+  /// Wraps [value]. Prefer [Value.integer] over calling this directly, except
+  /// where a signature asks for an [Integer] itself, such as
   /// [IntegerColumnBuilder.default_].
   const Integer(this.value);
 
-  /// The wrapped integer.
+  /// The integer this value wraps.
   final int value;
 
   @override
@@ -306,13 +284,16 @@ final class Integer extends Value {
 }
 
 /// A floating point value.
+///
+/// A NaN cannot be stored, since SQLite writes it as `NULL`: writing a row that
+/// holds one throws an [ArgumentError].
 final class Real extends Value {
-  /// Wraps [value]. Prefer [Value.real] over calling this directly,
-  /// except where a signature asks for a [Real] itself, such as
+  /// Wraps [value]. Prefer [Value.real] over calling this directly, except
+  /// where a signature asks for a [Real] itself, such as
   /// [RealColumnBuilder.default_].
   const Real(this.value);
 
-  /// The wrapped floating point value.
+  /// The floating point value this value wraps.
   final double value;
 
   @override
@@ -329,12 +310,12 @@ final class Real extends Value {
 
 /// UTF-8 text.
 final class Varchar extends Value {
-  /// Wraps [value]. Prefer [Value.varchar] over calling this
-  /// directly, except where a signature asks for a [Varchar] itself, such as
+  /// Wraps [value]. Prefer [Value.varchar] over calling this directly, except
+  /// where a signature asks for a [Varchar] itself, such as
   /// [TextColumnBuilder.default_].
   const Varchar(this.value);
 
-  /// The wrapped text.
+  /// The text this value wraps.
   final String value;
 
   @override
@@ -349,12 +330,12 @@ final class Varchar extends Value {
 
 /// Raw bytes, stored exactly as given.
 final class Blob extends Value {
-  /// Wraps [value]. Prefer [Value.blob] over calling this directly,
-  /// except where a signature asks for a [Blob] itself, such as
+  /// Wraps [value]. Prefer [Value.blob] over calling this directly, except
+  /// where a signature asks for a [Blob] itself, such as
   /// [BlobColumnBuilder.default_].
   const Blob(this.value);
 
-  /// The wrapped bytes.
+  /// The bytes this value wraps.
   final Uint8List value;
 
   @override
@@ -367,20 +348,18 @@ final class Blob extends Value {
   String toString() => 'Value.blob(${value.length} byte(s))';
 }
 
-/// One row, exactly as [LocalDatabase] reads one back or writes one out:
-/// column name to [Value]. What a column holds, and what its name
-/// means, is entirely the caller's own schema.
+/// A row as [LocalDatabase] reads and writes it, from column name to [Value].
 ///
-/// Read a column with [RowReading.required] or
-/// [RowReading.nullable] rather than by indexing the map, which
-/// answers `null` for a missing column without naming it.
+/// What a column holds is up to the schema of the project. Read a column with
+/// [RowReading.required] or [RowReading.nullable] rather than by indexing the
+/// map, which answers `null` for a missing column without naming it.
 typedef RawRow = Map<String, Value>;
 
-/// Wraps whatever sqflite itself already handed back for one column.
+/// The [Value] for whatever sqflite handed back for one column.
 ///
-/// Throws an [ArgumentError] if [native] is not one of the native types
-/// sqflite hands back — which should never happen for a value this same
-/// library wrote through `_toNative` in the first place.
+/// Throws an [ArgumentError] if [native] is not one of the types sqflite hands
+/// back, which should never happen for a value this library wrote through
+/// [Value._toNative].
 Value _fromNative(Object? native) => switch (native) {
   null => const Nil(),
   final int value => Integer(value),
@@ -393,7 +372,6 @@ Value _fromNative(Object? native) => switch (native) {
 Map<String, Object?> _toNativeRow(RawRow row) =>
     row.map((column, value) => MapEntry(_quotedIdentifier(column), value._toNative()));
 
-RawRow _fromNativeRow(Map<String, Object?> row) =>
-    row.map((column, value) => MapEntry(column, _fromNative(value)));
+RawRow _fromNativeRow(Map<String, Object?> row) => row.map((column, value) => MapEntry(column, _fromNative(value)));
 
 List<Object?>? _toNativeArgs(List<Value>? arguments) => arguments?.map((value) => value._toNative()).toList();

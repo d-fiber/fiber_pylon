@@ -36,15 +36,17 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [Value.list] wrote it.
+/// Reads back a value written by [Value.list].
 extension ListDecoding on Value {
-  /// This value as a `List<T>`, the same convention [list] wrote it under.
+  /// This value as a `List<T>`.
   ///
-  /// [T] must already be a native JSON value — the same requirement [list]
-  /// itself has; a list of a project's own type is [ListJson]'s to
-  /// decode, not this one's. Throws a [StateError] if this is not a
-  /// [Varchar]. Throws a [TypeError] here, at the decoding, and not later at
-  /// the first element read, if an element is not a [T].
+  /// [T] must be a native JSON type, as [Value.list] requires. A list of a
+  /// project's own type is read with [ListJson.decode] instead.
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException]
+  /// if its text is not JSON. Throws a [TypeError] if the text is not a list, or
+  /// if an element is not a [T], at this call rather than when the element is
+  /// first read.
   List<T> asList<T>() {
     if (this case Varchar(value: final stored)) return List<T>.from(jsonDecode(stored) as List<dynamic>);
     throw StateError('$this is not a list.');

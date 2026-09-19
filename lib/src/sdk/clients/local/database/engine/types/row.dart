@@ -36,15 +36,14 @@
 
 part of '../database.dart';
 
-/// Reads a column out of a [RawRow] by name, and says in the type
-/// whether it may be NULL.
+/// Reads a column out of a [RawRow] by name, and says in the type whether it
+/// may be NULL.
 ///
 /// `row['title']!` fails with a null check that names nothing, and a NULL
-/// column read with `asString` fails deep inside the decoder. These two
-/// methods fail at the column instead, naming it, and split the two cases so
-/// the compiler holds the difference: [required] never answers a [Nil], and
-/// [nullable] answers a `Value?`, so forgetting the `?.` before a
-/// decoder does not compile.
+/// column read with [NativeDecoding.asString] fails deep inside the decoder.
+/// These two methods fail at the column instead, naming it. [required] never
+/// answers a [Nil] and [nullable] answers a `Value?`, so forgetting the `?.`
+/// before a decoder does not compile.
 ///
 /// ```dart
 /// static Todo fromRow(RawRow row) => Todo(
@@ -55,11 +54,10 @@ part of '../database.dart';
 extension RowReading on RawRow {
   /// The value of [column], for a column that is never NULL.
   ///
-  /// Throws a [StateError] naming [column] and the columns the row does carry
+  /// Throws a [StateError] naming [column] and the columns this row does carry
   /// when it has no such column, which is a typo or a `select` that left it
-  /// out. Throws a [StateError] naming [column] when it is NULL, in which
-  /// case the column is [nullable], and the decoder would only have failed
-  /// later with a message that names no column.
+  /// out. Throws a [StateError] naming [column] when it is NULL, in which case
+  /// read it with [nullable].
   Value required(String column) {
     final value = _lookup(column);
     if (value is Nil) {
@@ -70,7 +68,7 @@ extension RowReading on RawRow {
 
   /// The value of [column], or `null` when it is NULL.
   ///
-  /// Throws a [StateError] naming [column] and the columns the row does carry
+  /// Throws a [StateError] naming [column] and the columns this row does carry
   /// when it has no such column: a missing column is a mistake, not a NULL.
   Value? nullable(String column) {
     final value = _lookup(column);

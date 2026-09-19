@@ -36,91 +36,99 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [Value.point], [Value.line] and the other shape factories wrote it.
+/// Reads back a value written by [Value.point], [Value.line] or one of the other shape factories.
 extension LocationDecoding on Value {
-  /// This value as a [Location], the same convention [point] wrote it
-  /// under: its JSON form.
+  /// This value as a [Location].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.point].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   Location get asPoint => _asJson(Location.fromJson, 'point');
 
-  /// This value as a [LocationLine], the same convention [line] wrote it
-  /// under: its JSON form.
+  /// This value as a [LocationLine].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.line].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   LocationLine get asLine => _asJson(LocationLine.fromJson, 'line');
 
-  /// This value as a [LocationSegment], the same convention [segment] wrote
-  /// it under: its JSON form.
+  /// This value as a [LocationSegment].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.segment].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   LocationSegment get asSegment => _asJson(LocationSegment.fromJson, 'segment');
 
-  /// This value as a [LocationBox], the same convention [box] wrote it
-  /// under: its JSON form.
+  /// This value as a [LocationBox].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.box].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   LocationBox get asBox => _asJson(LocationBox.fromJson, 'box');
 
-  /// This value as a [LocationPath], the same convention [path] wrote it
-  /// under: its JSON form.
+  /// This value as a [LocationPath].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.path].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   LocationPath get asPath => _asJson(LocationPath.fromJson, 'path');
 
-  /// This value as a [LocationPolygon], the same convention [polygon] wrote
-  /// it under: its JSON form.
+  /// This value as a [LocationPolygon].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.polygon].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   LocationPolygon get asPolygon => _asJson(LocationPolygon.fromJson, 'polygon');
 
-  /// This value as a [LocationCircle], the same convention [circle] wrote
-  /// it under: its JSON form.
+  /// This value as a [LocationCircle].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written by [Value.circle].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   LocationCircle get asCircle => _asJson(LocationCircle.fromJson, 'circle');
 }
 
-/// A point on a map, the shape [Value.point] and [Value.asPoint]
-/// read and write.
+/// A point on a map, as [Value.point] writes it and [LocationDecoding.asPoint] reads it.
 final class Location extends Equatable {
-  /// A point at [lat] degrees of latitude, [lng] degrees of longitude.
+  /// Creates a point at [lat] degrees of latitude and [lng] degrees of longitude.
   ///
-  /// Asserts that both sit inside the range their own documentation gives,
-  /// which also refuses a `NaN`.
+  /// Asserts that both are inside the range given on their fields, which also
+  /// refuses a `NaN`.
   const Location({required this.lat, required this.lng})
     : assert(lat >= -90 && lat <= 90, 'lat must be -90 through 90.'),
       assert(lng >= -180 && lng <= 180, 'lng must be -180 through 180.');
 
-  /// Degrees of latitude, from -90 at the South Pole to 90 at the North
-  /// Pole.
+  /// The latitude in degrees, from -90 at the South Pole to 90 at the North Pole.
   final double lat;
 
-  /// Degrees of longitude, from -180 to 180, wrapping around the
-  /// antimeridian.
+  /// The longitude in degrees, from -180 to 180.
   final double lng;
 
-  /// Rebuilds the [Location] [toJson] wrote.
+  /// Creates a [Location] from the JSON object [Location.toJson] returns.
   factory Location.fromJson(Map<String, dynamic> json) =>
       Location(lat: (json['lat'] as num).toDouble(), lng: (json['lng'] as num).toDouble());
 
-  /// This point's own fields, in the shape [Location.fromJson] rebuilds
-  /// from.
+  /// The JSON object that [Location.fromJson] reads back.
   Map<String, dynamic> toJson() => {'lat': lat, 'lng': lng};
 
   @override
   List<Object?> get props => [lat, lng];
 }
 
-/// A straight line, extending infinitely in both directions through the
-/// points [a] and [b].
+/// A straight line extending infinitely in both directions through the points [a] and [b].
 ///
-/// Stored as exactly the two points that define it — the same shape
-/// [LocationSegment] stores its own endpoints in. What tells the two apart
-/// is only ever which meaning a project reads into them, since neither
-/// SQLite nor this package enforces one over the other.
+/// A line and a [LocationSegment] through the same two points are stored
+/// identically, so only the accessor a project reads a value with, either
+/// [LocationDecoding.asLine] or [LocationDecoding.asSegment], tells them apart.
 final class LocationLine extends Equatable {
-  /// The line through [a] and [b].
+  /// Creates the line through [a] and [b].
   const LocationLine({required this.a, required this.b});
 
   /// One of the two points this line passes through.
@@ -129,24 +137,24 @@ final class LocationLine extends Equatable {
   /// The other point this line passes through.
   final Location b;
 
-  /// Rebuilds the [LocationLine] [toJson] wrote.
+  /// Creates a [LocationLine] from the JSON object [LocationLine.toJson] returns.
   factory LocationLine.fromJson(Map<String, dynamic> json) => LocationLine(
     a: Location.fromJson(json['a'] as Map<String, dynamic>),
     b: Location.fromJson(json['b'] as Map<String, dynamic>),
   );
 
-  /// This line's own fields, in the shape [LocationLine.fromJson] rebuilds
-  /// from.
+  /// The JSON object that [LocationLine.fromJson] reads back.
   Map<String, dynamic> toJson() => {'a': a.toJson(), 'b': b.toJson()};
 
   @override
   List<Object?> get props => [a, b];
 }
 
-/// A straight segment, bounded by its two endpoints [a] and [b] — unlike
-/// [LocationLine], it stops there rather than continuing past them.
+/// A straight segment that stops at its two endpoints [a] and [b].
+///
+/// Unlike a [LocationLine], it does not continue past them.
 final class LocationSegment extends Equatable {
-  /// The segment from [a] to [b].
+  /// Creates the segment from [a] to [b].
   const LocationSegment({required this.a, required this.b});
 
   /// One end of this segment.
@@ -155,14 +163,13 @@ final class LocationSegment extends Equatable {
   /// The other end of this segment.
   final Location b;
 
-  /// Rebuilds the [LocationSegment] [toJson] wrote.
+  /// Creates a [LocationSegment] from the JSON object [LocationSegment.toJson] returns.
   factory LocationSegment.fromJson(Map<String, dynamic> json) => LocationSegment(
     a: Location.fromJson(json['a'] as Map<String, dynamic>),
     b: Location.fromJson(json['b'] as Map<String, dynamic>),
   );
 
-  /// This segment's own fields, in the shape [LocationSegment.fromJson]
-  /// rebuilds from.
+  /// The JSON object that [LocationSegment.fromJson] reads back.
   Map<String, dynamic> toJson() => {'a': a.toJson(), 'b': b.toJson()};
 
   @override
@@ -171,37 +178,34 @@ final class LocationSegment extends Equatable {
 
 /// An axis-aligned rectangle, spanning from [low] to [high].
 ///
-/// Nothing here requires [low] to actually be the lesser corner: a project
-/// that always normalises its own corners gets a predictable box back, one
-/// that never does gets exactly the two points it gave.
+/// Nothing requires [low] to be the lesser corner, and nothing reorders the
+/// corners: they read back as they were given.
 final class LocationBox extends Equatable {
-  /// The rectangle spanning [low] to [high].
+  /// Creates the rectangle spanning [low] to [high].
   const LocationBox({required this.low, required this.high});
 
-  /// One corner of this rectangle.
+  /// The first corner of this rectangle.
   final Location low;
 
-  /// The opposite corner of this rectangle.
+  /// The corner opposite [low].
   final Location high;
 
-  /// Rebuilds the [LocationBox] [toJson] wrote.
+  /// Creates a [LocationBox] from the JSON object [LocationBox.toJson] returns.
   factory LocationBox.fromJson(Map<String, dynamic> json) => LocationBox(
     low: Location.fromJson(json['low'] as Map<String, dynamic>),
     high: Location.fromJson(json['high'] as Map<String, dynamic>),
   );
 
-  /// This box's own fields, in the shape [LocationBox.fromJson] rebuilds
-  /// from.
+  /// The JSON object that [LocationBox.fromJson] reads back.
   Map<String, dynamic> toJson() => {'low': low.toJson(), 'high': high.toJson()};
 
   @override
   List<Object?> get props => [low, high];
 }
 
-/// An ordered sequence of [points], [closed] to loop the last one back to
-/// the first or left open otherwise.
+/// An ordered sequence of [points], either open or [closed] back to its first point.
 final class LocationPath extends Equatable {
-  /// The path through [points], [closed] or not.
+  /// Creates a path through [points], closed or open according to [closed].
   const LocationPath({required this.points, this.closed = false});
 
   /// The points this path passes through, in order.
@@ -210,66 +214,62 @@ final class LocationPath extends Equatable {
   /// Whether this path loops its last point back to its first.
   final bool closed;
 
-  /// Rebuilds the [LocationPath] [toJson] wrote.
+  /// Creates a [LocationPath] from the JSON object [LocationPath.toJson] returns.
   factory LocationPath.fromJson(Map<String, dynamic> json) => LocationPath(
     points: (json['points'] as List<dynamic>).map((point) => Location.fromJson(point as Map<String, dynamic>)).toList(),
     closed: json['closed'] as bool,
   );
 
-  /// This path's own fields, in the shape [LocationPath.fromJson] rebuilds
-  /// from.
+  /// The JSON object that [LocationPath.fromJson] reads back.
   Map<String, dynamic> toJson() => {'points': points.map((point) => point.toJson()).toList(), 'closed': closed};
 
   @override
   List<Object?> get props => [points, closed];
 }
 
-/// A closed shape bounded by [points], its last point implicitly joined
-/// back to its first.
+/// A closed shape bounded by [points], its last point joined back to its first.
 final class LocationPolygon extends Equatable {
-  /// The polygon bounded by [points].
+  /// Creates a polygon bounded by [points].
   const LocationPolygon({required this.points});
 
   /// The points this polygon's boundary passes through, in order.
   final List<Location> points;
 
-  /// Rebuilds the [LocationPolygon] [toJson] wrote.
+  /// Creates a [LocationPolygon] from the JSON object [LocationPolygon.toJson] returns.
   factory LocationPolygon.fromJson(Map<String, dynamic> json) => LocationPolygon(
     points: (json['points'] as List<dynamic>).map((point) => Location.fromJson(point as Map<String, dynamic>)).toList(),
   );
 
-  /// This polygon's own fields, in the shape [LocationPolygon.fromJson]
-  /// rebuilds from.
+  /// The JSON object that [LocationPolygon.fromJson] reads back.
   Map<String, dynamic> toJson() => {'points': points.map((point) => point.toJson()).toList()};
 
   @override
   List<Object?> get props => [points];
 }
 
-/// A circle, centred on [center], [radius] wide in whatever unit a
-/// project's own [Location] coordinates already use.
+/// A circle around a [center] point with a given [radius].
 final class LocationCircle extends Equatable {
-  /// The circle centred on [center], [radius] wide.
+  /// Creates a circle around [center] with the given [radius].
   ///
   /// Asserts that [radius] is not negative.
   const LocationCircle({required this.center, required this.radius})
     : assert(radius >= 0, 'radius must not be negative.');
 
-  /// This circle's own centre.
+  /// The point at the middle of this circle.
   final Location center;
 
-  /// This circle's own radius, in whatever unit [center]'s coordinates
-  /// already use.
+  /// The radius of this circle, in a unit the project chooses.
+  ///
+  /// Nothing converts it from or to the degrees of [center].
   final double radius;
 
-  /// Rebuilds the [LocationCircle] [toJson] wrote.
+  /// Creates a [LocationCircle] from the JSON object [LocationCircle.toJson] returns.
   factory LocationCircle.fromJson(Map<String, dynamic> json) => LocationCircle(
     center: Location.fromJson(json['center'] as Map<String, dynamic>),
     radius: (json['radius'] as num).toDouble(),
   );
 
-  /// This circle's own fields, in the shape [LocationCircle.fromJson]
-  /// rebuilds from.
+  /// The JSON object that [LocationCircle.fromJson] reads back.
   Map<String, dynamic> toJson() => {'center': center.toJson(), 'radius': radius};
 
   @override

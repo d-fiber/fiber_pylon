@@ -36,10 +36,11 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [Value.enum_] wrote it.
+/// Reads back a value written by [Value.enum_].
 extension EnumDecoding on Value {
-  /// This value as one of [values], matched by the name [enum_] wrote it
-  /// under.
+  /// This value as the member of [values] whose name it holds.
+  ///
+  /// Pass the `values` of the same enum that was given to [Value.enum_].
   ///
   /// Throws an [ArgumentError] if no member of [values] has that name.
   /// Throws a [StateError] if this is not a [Varchar].

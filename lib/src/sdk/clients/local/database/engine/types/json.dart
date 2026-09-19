@@ -36,13 +36,14 @@
 
 part of '../database.dart';
 
-/// Encodes a [T] into a JSON-backed [Value.varchar] and decodes it
-/// back, the same convention [PreferencesStorage] already uses for its own
-/// [Preference.json_] — a column holds one [T] exactly the way a preference
-/// entry does, through a [fromJson] and [toJson] a project supplies once.
-/// [Value.point] is this same convention, already applied to
-/// [Location]; reach for [Json] for every other shape a project
-/// wants a column to hold as JSON.
+/// A codec that stores one [T] in a text column as JSON and reads it back.
+///
+/// The project supplies [fromJson] and [toJson] once, as it does for
+/// [Preference.json_]. Use this for any project type a column must
+/// hold. The location shapes have their own factories, such as [Value.point].
+///
+/// A list of [T] is handled by [ListJson], and a list of native JSON values by
+/// [Value.list].
 ///
 /// ```dart
 /// final class CartItem {
@@ -62,26 +63,26 @@ part of '../database.dart';
 /// final item = cartItem.decode(row.required('item'));
 /// ```
 ///
-/// Nothing here validates what [fromJson] does with a shape that no longer
-/// matches: a stored value from an older version of a project's own [T] is
-/// exactly the situation [fromJson] itself is responsible for handling, the
-/// same as [PreferenceJson] leaves it.
+/// A row written by an older version of [T] reaches [fromJson] as it was
+/// stored, and nothing here checks it, so [fromJson] must tolerate the shapes
+/// earlier versions wrote.
 final class Json<T> {
-  /// Codes a [T] through [fromJson] and [toJson].
+  /// Creates a codec that stores a [T] through [toJson] and reads it back through [fromJson].
   const Json({required this.fromJson, required this.toJson});
 
-  /// Rebuilds a [T] from the JSON [decode] reads back.
+  /// Builds a [T] from the JSON object [decode] reads.
   final T Function(Map<String, dynamic> json) fromJson;
 
-  /// This [T]'s own fields, in the shape [fromJson] rebuilds from.
+  /// The JSON object that [encode] stores for a [T].
   final Map<String, dynamic> Function(T value) toJson;
 
-  /// Encodes [value] into a [Value.varchar] holding its JSON form.
+  /// The [Varchar] holding [value] as JSON, ready to write to a column.
   Value encode(T value) => Value.varchar(jsonEncode(toJson(value)));
 
-  /// Decodes [value], read back from a column [encode] wrote.
+  /// The [T] that [value] holds, read from a column written through [encode].
   ///
-  /// Throws a [StateError] if [value] is not a [Varchar].
+  /// Throws a [StateError] if [value] is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what [encode] wrote.
   T decode(Value value) {
     if (value case Varchar(value: final stored)) {
       return fromJson(jsonDecode(stored) as Map<String, dynamic>);
@@ -90,32 +91,28 @@ final class Json<T> {
   }
 }
 
-/// Encodes a `List<T>` into a JSON-backed [Value.varchar] and
-/// decodes it back, each element read and written through a [fromJson] and
-/// [toJson] a project supplies once for its own [T] — [Json]'s own
-/// convention, applied once per element rather than once for a whole value.
+/// A codec that stores a `List<T>` in a text column as JSON and reads it back.
 ///
-/// [Value.list] already covers a list whose elements are native
-/// JSON values on their own — an [int], a [double], a [String], a [bool],
-/// a `Map<String, dynamic>` — with no [fromJson]/[toJson] to write. Reach
-/// for this only when [T] is a project's own type instead.
+/// It works like [Json], with [fromJson] and [toJson] applied to each element.
+/// A list of native JSON values needs no codec, use [Value.list] for it. Use
+/// this one only when [T] is a project type.
 final class ListJson<T> {
-  /// Codes a `List<T>` through [fromJson] and [toJson], applied once per
-  /// element.
+  /// Creates a codec that stores each element through [toJson] and reads it back through [fromJson].
   const ListJson({required this.fromJson, required this.toJson});
 
-  /// Rebuilds one element from the JSON [decode] reads back.
+  /// Builds one element from the JSON object [decode] reads.
   final T Function(Map<String, dynamic> json) fromJson;
 
-  /// One element's own fields, in the shape [fromJson] rebuilds from.
+  /// The JSON object that [encode] stores for one element.
   final Map<String, dynamic> Function(T value) toJson;
 
-  /// Encodes [value] into a [Value.varchar] holding its JSON form.
+  /// The [Varchar] holding [value] as a JSON array, ready to write to a column.
   Value encode(List<T> value) => Value.varchar(jsonEncode(value.map(toJson).toList()));
 
-  /// Decodes [value], read back from a column [encode] wrote.
+  /// The list that [value] holds, read from a column written through [encode].
   ///
-  /// Throws a [StateError] if [value] is not a [Varchar].
+  /// Throws a [StateError] if [value] is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what [encode] wrote.
   List<T> decode(Value value) {
     if (value case Varchar(value: final stored)) {
       return (jsonDecode(stored) as List<dynamic>).map((json) => fromJson(json as Map<String, dynamic>)).toList();

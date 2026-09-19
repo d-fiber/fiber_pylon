@@ -36,21 +36,26 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [Value.interval] wrote it.
+/// Reads back a value written by [Value.interval].
 extension IntervalDecoding on Value {
-  /// This value as [NumberBounds], the same convention [interval] wrote a
-  /// [IntervalBounds.num] under: both bounds exactly as given.
+  /// This value as [NumberBounds].
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written from an [IntervalBounds.num]. A bound that was a
+  /// whole-number [double] comes back as an [int] of the same value.
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   NumberBounds get asNumberBounds {
     final json = _decodeJson('number interval');
     return NumberBounds._(start: json['start'] as num, end: json['end'] as num);
   }
 
-  /// This value as [DateTimeBounds], the same convention [interval] wrote a
-  /// [IntervalBounds.datetime] under: each bound in UTC.
+  /// This value as [DateTimeBounds], each bound in UTC.
   ///
-  /// Throws a [StateError] if this is not a [Varchar].
+  /// Use it on a value written from an [IntervalBounds.datetime].
+  ///
+  /// Throws a [StateError] if this is not a [Varchar]. Throws a [FormatException] or a
+  /// [TypeError] if its text is not what was written.
   DateTimeBounds get asDateTimeBounds {
     final json = _decodeJson('date interval');
     return DateTimeBounds._(
@@ -60,18 +65,12 @@ extension IntervalDecoding on Value {
   }
 }
 
-/// The two ends of an interval, of exactly one of two kinds: two numbers
-/// ([IntervalBounds.num]) or two dates ([IntervalBounds.datetime]), nothing
-/// else.
+/// The two ends of an interval, either two numbers or two dates.
 ///
-/// Sealed and built only through those two factories, so a `switch` over an
-/// [IntervalBounds] is exhaustive with [NumberBounds] and [DateTimeBounds]
-/// and nothing here can be handed a third kind. The ends live on those two
-/// subclasses, each with its own type, so reading one never yields an
-/// `Object` to cast. Neither end is required to be numerically or
-/// chronologically the lesser of the two: a project that always normalises
-/// its own bounds gets a predictable interval back, one that never does gets
-/// exactly the two values it gave.
+/// Build one with [IntervalBounds.num] or [IntervalBounds.datetime], then
+/// `switch` over [NumberBounds] and [DateTimeBounds] to read the ends with
+/// their own type. Nothing requires the first end to be the lesser one, and
+/// nothing reorders them: the two values read back in the order they were given.
 sealed class IntervalBounds extends Equatable {
   const IntervalBounds._();
 
@@ -86,10 +85,10 @@ sealed class IntervalBounds extends Equatable {
 final class NumberBounds extends IntervalBounds {
   const NumberBounds._({required this.start, required this.end}) : super._();
 
-  /// One end of this interval.
+  /// The first end of this interval.
   final num start;
 
-  /// The other end of this interval.
+  /// The second end of this interval.
   final num end;
 
   @override
@@ -100,10 +99,10 @@ final class NumberBounds extends IntervalBounds {
 final class DateTimeBounds extends IntervalBounds {
   const DateTimeBounds._({required this.start, required this.end}) : super._();
 
-  /// One end of this interval.
+  /// The first end of this interval.
   final DateTime start;
 
-  /// The other end of this interval.
+  /// The second end of this interval.
   final DateTime end;
 
   @override
