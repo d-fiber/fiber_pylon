@@ -42,63 +42,86 @@ part of 'database.dart';
 /// ```dart
 /// final batch = db.batch()
 ///   ..set(db.users.doc('u1'), user)
-///   ..update(db.items.doc('i1'), (u) => [u(Item.stock_).increment(-1)])
+///   ..update(db.items.doc('i1'), [db.itemsTable.stock.incrementBy(-1)])
 ///   ..delete(db.items.doc('i2'));
 /// await batch.commit();
 /// ```
+///
+/// It commits on the tenant that was current when [commit] began.
 final class WriteBatch {
   WriteBatch._();
 
-  final List<Future<void> Function(_Executor executor)> _operations = [];
-  final Set<Collection<Model>> _collections = {};
+  final List<Future<void> Function(DatabaseSession session, String? tenant)> _operations = [];
   bool _committed = false;
 
   /// Queues [DocumentReference.set].
-  void set<T extends Model>(DocumentReference<T> reference, T data, {bool merge = false}) =>
-      _queue(reference, (executor, tenant) => reference._set(executor, tenant, data, merge));
+  void set<R extends Object, K extends Object>(DocumentReference<R, K> reference, R record) =>
+      _queue((session, tenant) => reference._set(reference._table.onHeldTenant(session, tenant), record));
 
   /// Queues [DocumentReference.update].
-  void update<T extends Model>(DocumentReference<T> reference, List<FieldChange> Function(UpdateBuilder u) build) {
-    final changes = _changesOf(build);
-    _queue(reference, (executor, tenant) => reference._update(executor, tenant, changes));
-  }
+  void update<R extends Object, K extends Object>(
+    DocumentReference<R, K> reference,
+    List<DatabaseAssignment> assignments,
+  ) => _queue((session, tenant) => reference._update(reference._table.onHeldTenant(session, tenant), assignments));
 
   /// Queues [DocumentReference.delete].
-  void delete<T extends Model>(DocumentReference<T> reference) => _queue(reference, reference._delete);
+  void delete<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
+      _queue((session, tenant) => reference._delete(reference._table.onHeldTenant(session, tenant)));
 
   /// Applies every queued write in one transaction.
   ///
-  /// A batch commits once: queuing into it, or committing it, afterwards
-  /// throws a [StateError].
-  Future<void> commit() async {
+  /// A batch commits once: queuing into it, or committing it, afterwards throws
+  /// a [StateError].
+  Future<void> commit() {
     _checkOpen();
     _committed = true;
-    for (final collection in _collections) {
-      await collection._ensure();
-    }
-    await _atomically((executor) async {
+    final tenant = Tenant.current;
+    return AppStorage.database.transaction((txn) async {
       for (final operation in _operations) {
-        await operation(executor);
+        await operation(txn, tenant);
       }
     });
-    for (final collection in _collections) {
-      _ChangeBus.notify(collection.name);
-    }
   }
 
-  /// Queues [operation] on the tenant [reference] reaches right now, not the
-  /// one that happens to be current when [commit] runs.
-  void _queue<T extends Model>(
-    DocumentReference<T> reference,
-    Future<void> Function(_Executor executor, String tenant) operation,
-  ) {
+  void _queue(Future<void> Function(DatabaseSession session, String? tenant) operation) {
     _checkOpen();
-    final tenant = reference._tenant;
-    _collections.add(reference.parent);
-    _operations.add((executor) => operation(executor, tenant));
+    _operations.add(operation);
   }
 
   void _checkOpen() {
     if (_committed) throw StateError('This WriteBatch was already committed.');
   }
+}
+
+/// The reads and writes of one [Database.runTransaction].
+///
+/// Every call below runs inside that transaction, so a read sees the writes
+/// made before it, and all of them commit together or not at all. Each call
+/// must be awaited before the next starts.
+final class Transaction {
+  Transaction._(this._session, this._tenant);
+
+  final DatabaseSession _session;
+  final String? _tenant;
+
+  DatabaseKeyedAccess<R, K> _access<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
+      reference._table.onHeldTenant(_session, _tenant);
+
+  /// Reads [reference], which need not exist.
+  Future<DocumentSnapshot<R, K>> get<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
+      reference._read(_access(reference));
+
+  /// Does what [DocumentReference.set] does, inside this transaction.
+  Future<void> set<R extends Object, K extends Object>(DocumentReference<R, K> reference, R record) =>
+      reference._set(_access(reference), record);
+
+  /// Does what [DocumentReference.update] does, inside this transaction.
+  Future<void> update<R extends Object, K extends Object>(
+    DocumentReference<R, K> reference,
+    List<DatabaseAssignment> assignments,
+  ) => reference._update(_access(reference), assignments);
+
+  /// Does what [DocumentReference.delete] does, inside this transaction.
+  Future<void> delete<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
+      reference._delete(_access(reference));
 }

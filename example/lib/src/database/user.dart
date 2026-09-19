@@ -36,31 +36,47 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-/// A stored user: the shape [OwnDatabase.users] keeps.
-///
-/// The [Field]s are declared next to the fields they name, once, so a query
-/// reads `w(User.age_).isGreaterThan(18)` rather than repeating `'age'` as a
-/// string at every call site.
-final class User implements Model {
-  const User({this.id = '', required this.name, required this.age, this.tags = const []});
+/// A stored user.
+final class User {
+  const User({required this.id, required this.name, required this.age, this.city});
 
-  static const name_ = Field<String>('name');
-  static const age_ = Field<int>('age');
-  static const tags_ = ListField<String>('tags');
-
-  @override
   final String id;
   final String name;
   final int age;
-  final List<String> tags;
+  final String? city;
+}
 
-  factory User.fromJson(String id, Map<String, Object?> json) => User(
-    id: id,
-    name: json['name']! as String,
-    age: json['age']! as int,
-    tags: (json['tags'] as List? ?? const []).cast<String>().toList(),
-  );
+/// The table [User]s live in. It is declared once, and the project writes
+/// every query with its columns — `usersTable.age.isGreaterThan(18)` — so a
+/// misspelled name or a value of the wrong type does not compile.
+final class UsersTable extends DatabaseKeyedTable<User, String> {
+  UsersTable() : super('users');
+
+  late final id = column.text('id').primaryKey();
+  late final name = column.text('name');
+  late final age = column.integer('age');
+  late final city = column.text('city').nullable();
+
+  /// Every account has users of its own, and never sees another's.
+  @override
+  Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  Map<String, Object?> toJson() => {'name': name, 'age': age, 'tags': tags};
+  List<DatabaseField<Object?>> get columns => [id, name, age, city];
+
+  @override
+  List<List<DatabaseField<Object?>>> get indexes => [
+    [age],
+  ];
+
+  @override
+  User read(DatabaseReader row) => User(id: row(id), name: row(name), age: row(age), city: row(city));
+
+  @override
+  List<DatabaseAssignment> write(User user) => [
+    id.to(user.id),
+    name.to(user.name),
+    age.to(user.age),
+    city.to(user.city),
+  ];
 }

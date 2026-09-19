@@ -36,119 +36,44 @@
 
 part of 'database.dart';
 
-/// One document as it was when it was read.
-class DocumentSnapshot<T extends Model> {
-  DocumentSnapshot._(
-    this.reference, {
-    String? raw,
-    Map<String, Object?>? json,
-    T? data,
-    this.tenant,
-    this.createTime,
-    this.updateTime,
-  }) : _raw = raw,
-       _json = json,
-       _data = data;
-
-  /// The document this was read from.
-  final DocumentReference<T> reference;
-
-  /// The tenant this document belongs to, or `null` for the anonymous
-  /// documents, for a shared collection's, and for a document that does not
-  /// exist. What tells apart the copies of one id [Query.acrossTenants]
-  /// brings back.
-  final String? tenant;
-
-  /// When the document was first written, or `null` when it does not exist.
-  final DateTime? createTime;
-
-  /// When the document was last written, or `null` when it does not exist.
-  final DateTime? updateTime;
-
-  final String? _raw;
-  final Map<String, Object?>? _json;
-  final T? _data;
+/// One document as it was when it was read: the record a row holds, and the key
+/// it is held under.
+class DocumentSnapshot<R extends Object, K extends Object> {
+  DocumentSnapshot._(this.id, this._data);
 
   /// The document's key in its [Collection].
-  String get id => reference.id;
+  final K id;
+
+  final R? _data;
 
   /// Whether the document exists.
-  bool get exists => _json != null;
+  bool get exists => _data != null;
 
-  /// The document as a [T], or `null` when it does not exist.
-  T? data() => _data;
-
-  /// The value of [field], read out of the stored JSON as the [V] it is
-  /// declared to hold, or `null` when the document or the field is missing.
-  ///
-  /// A [DateTime] is read back from its stored text, and a [double] from a
-  /// number written as a whole one. Throws a [StateError] when what is stored
-  /// is not a [V]: the field's declaration and the data disagree.
-  V? get<V extends Object>(Field<V> field) {
-    final stored = _valueAt(field);
-    if (stored == null) return null;
-    if (stored is V) return stored;
-    if (V == double && stored is int) return stored.toDouble() as V;
-    if (V == DateTime && stored is String) {
-      return (DateTime.tryParse(stored) ?? _mismatch(field, stored)) as V;
-    }
-    return _mismatch(field, stored);
-  }
-
-  /// The elements of [field], read out of the stored JSON, or `null` when the
-  /// document or the field is missing.
-  ///
-  /// Throws a [StateError] when what is stored is not a list of [E].
-  List<E>? getList<E extends Object>(ListField<E> field) {
-    final stored = _valueAt(field);
-    if (stored == null) return null;
-    if (stored is List && stored.every((element) => element is E)) return stored.cast<E>();
-    return _mismatch(field, stored);
-  }
-
-  Never _mismatch(FieldReference field, Object stored) => throw StateError(
-    '${field.name} of ${reference.id} holds $stored (${stored.runtimeType}), which does not fit $field',
-  );
-
-  /// The raw stored value at [field], or `null` when there is none.
-  Object? _valueAt(FieldReference field) {
-    if (_isDocumentId(field)) return id;
-    Object? current = _json;
-    for (final segment in _segmentsOf(field)) {
-      if (current is! Map<String, Object?>) return null;
-      current = current[segment];
-    }
-    return current;
-  }
+  /// The record, or `null` when the document does not exist.
+  R? data() => _data;
 }
 
 /// A [DocumentSnapshot] a [QuerySnapshot] holds: it exists by definition, so
 /// [data] never answers `null`.
-class QueryDocumentSnapshot<T extends Model> extends DocumentSnapshot<T> {
-  QueryDocumentSnapshot._(
-    super.reference, {
-    super.raw,
-    super.json,
-    super.data,
-    super.tenant,
-    super.createTime,
-    super.updateTime,
-  }) : super._();
+final class QueryDocumentSnapshot<R extends Object, K extends Object> extends DocumentSnapshot<R, K> {
+  QueryDocumentSnapshot._(super.id, R super._data) : super._();
 
   @override
-  T data() => _data as T;
+  R data() => _data as R;
 }
 
 /// What a [Query] matched, at the moment it ran.
-final class QuerySnapshot<T extends Model> {
+final class QuerySnapshot<R extends Object, K extends Object> {
   QuerySnapshot._(this.docs, this.docChanges);
 
   /// The matching documents, in the query's own order.
-  final List<QueryDocumentSnapshot<T>> docs;
+  final List<QueryDocumentSnapshot<R, K>> docs;
 
   /// What changed since the previous snapshot of the same [Query.snapshots]
-  /// stream — every document as added on the first one.
-  final List<DocumentChange<T>> docChanges;
+  /// stream — every document as added on the first one, and again on the first
+  /// one after [Tenant.use] or [Tenant.leave], since the previous tenant's
+  /// documents are never carried over.
+  final List<DocumentChange<R, K>> docChanges;
 
   /// How many documents matched.
   int get size => docs.length;
@@ -156,8 +81,8 @@ final class QuerySnapshot<T extends Model> {
   /// Whether nothing matched.
   bool get isEmpty => docs.isEmpty;
 
-  /// The matching documents as [T]s.
-  List<T> get items => [for (final doc in docs) doc.data()];
+  /// The matching documents as records.
+  List<R> get items => [for (final doc in docs) doc.data()];
 }
 
 /// How a document differs between two snapshots of the same query.
@@ -173,14 +98,14 @@ enum DocumentChangeType {
 }
 
 /// One document that differs between two snapshots of the same query.
-final class DocumentChange<T extends Model> {
+final class DocumentChange<R extends Object, K extends Object> {
   DocumentChange._(this.type, this.doc, this.oldIndex, this.newIndex);
 
   /// How the document changed.
   final DocumentChangeType type;
 
   /// The document, as of the newer snapshot — or the older one for a removal.
-  final QueryDocumentSnapshot<T> doc;
+  final QueryDocumentSnapshot<R, K> doc;
 
   /// The document's position in the older snapshot, or `-1` for an addition.
   final int oldIndex;
@@ -189,40 +114,51 @@ final class DocumentChange<T extends Model> {
   final int newIndex;
 }
 
-List<DocumentChange<T>> _diff<T extends Model>(
-  List<QueryDocumentSnapshot<T>>? before,
-  List<QueryDocumentSnapshot<T>> after,
+List<QueryDocumentSnapshot<R, K>> _documentsOf<R extends Object, K extends Object>(
+  DatabaseKeyedTable<R, K> table,
+  List<R> records,
+) => [
+  for (final record in records)
+    QueryDocumentSnapshot<R, K>._(
+      table.keyOf(record) ?? (throw StateError('A record read from ${table.tableName} carries no key.')),
+      record,
+    ),
+];
+
+List<DocumentChange<R, K>> _diff<R extends Object, K extends Object>(
+  DatabaseKeyedTable<R, K> table,
+  List<QueryDocumentSnapshot<R, K>>? before,
+  List<QueryDocumentSnapshot<R, K>> after,
 ) {
   if (before == null) {
     return [for (var i = 0; i < after.length; i++) DocumentChange._(DocumentChangeType.added, after[i], -1, i)];
   }
 
-  (String, String) keyOf(QueryDocumentSnapshot<T> doc) => (doc.tenant ?? '', doc.id);
-  final oldIndex = {for (var i = 0; i < before.length; i++) keyOf(before[i]): i};
-  final newIds = {for (final doc in after) keyOf(doc)};
+  final oldIndex = {for (var i = 0; i < before.length; i++) before[i].id: i};
+  final newIds = {for (final doc in after) doc.id};
 
   // A document that merely shifted because another one appeared or went away
-  // has not moved: among the documents both lists hold, the largest group
-  // that kept its relative order is left alone, and only the rest — the ones
-  // that jumped over them — are reported as moved.
+  // has not moved: among the documents both lists hold, the largest group that
+  // kept its relative order is left alone, and only the rest — the ones that
+  // jumped over them — are reported as moved.
   final kept = [
     for (var i = 0; i < after.length; i++)
-      if (oldIndex.containsKey(keyOf(after[i]))) i,
+      if (oldIndex.containsKey(after[i].id)) i,
   ];
-  final stable = _longestIncreasing([for (final i in kept) oldIndex[keyOf(after[i])]!]).map((k) => kept[k]).toSet();
+  final stable = _longestIncreasing([for (final i in kept) oldIndex[after[i].id]!]).map((k) => kept[k]).toSet();
 
-  final changes = <DocumentChange<T>>[];
+  final changes = <DocumentChange<R, K>>[];
   for (var i = 0; i < before.length; i++) {
-    if (!newIds.contains(keyOf(before[i]))) {
+    if (!newIds.contains(before[i].id)) {
       changes.add(DocumentChange._(DocumentChangeType.removed, before[i], i, -1));
     }
   }
   for (var i = 0; i < after.length; i++) {
     final doc = after[i];
-    final old = oldIndex[keyOf(doc)];
+    final old = oldIndex[doc.id];
     if (old == null) {
       changes.add(DocumentChange._(DocumentChangeType.added, doc, -1, i));
-    } else if (before[old]._raw != doc._raw || !stable.contains(i)) {
+    } else if (!table.isSameRecord(before[old].data(), doc.data()) || !stable.contains(i)) {
       changes.add(DocumentChange._(DocumentChangeType.modified, doc, old, i));
     }
   }

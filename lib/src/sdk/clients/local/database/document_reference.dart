@@ -36,17 +36,17 @@
 
 part of 'database.dart';
 
-/// A document that no longer — or never did — exist, reached by an operation
+/// A document that never existed, or no longer does, reached by an operation
 /// that needs one, such as [DocumentReference.update].
 final class DocumentNotFoundError implements Exception {
   /// The document [id] of [collection] that was not found.
   const DocumentNotFoundError(this.collection, this.id);
 
-  /// The collection that was searched.
+  /// The table that was searched.
   final String collection;
 
-  /// The id that was not there.
-  final String id;
+  /// The key that was not there.
+  final Object id;
 
   @override
   String toString() => 'DocumentNotFoundError(no document "$id" in "$collection")';
@@ -55,231 +55,68 @@ final class DocumentNotFoundError implements Exception {
 /// One document of a [Collection], which may or may not exist yet.
 ///
 /// Holds nothing but where the document lives: [get], [set], [update],
-/// [delete] and [snapshots] are what actually reach the database.
-///
-/// On an isolated collection the same id names one document per tenant. Each
-/// operation reaches the tenant that is current when it starts — or the one
-/// [Collection.inTenant] pinned — and finishes on it even if [Tenant.use] is
-/// called meanwhile.
-final class DocumentReference<T extends Model> {
+/// [delete] and [snapshots] are what actually reach the database, on the
+/// tenant that is current when each one starts.
+final class DocumentReference<R extends Object, K extends Object> {
   const DocumentReference._(this.parent, this.id);
 
   /// The collection this document belongs to.
-  final Collection<T> parent;
+  final Collection<R, K> parent;
 
   /// This document's key in [parent].
-  final String id;
+  final K id;
 
-  /// Which partition of [parent] this reference reaches, resolved now. Every
-  /// operation reads it once, synchronously, before it awaits anything, so it
-  /// finishes on the tenant that was current when it started.
-  String get _tenant => parent._scope.reach(parent).tenant!;
+  DatabaseKeyedTable<R, K> get _table => parent.table;
 
   /// Reads the document, which need not exist: check [DocumentSnapshot.exists].
-  Future<DocumentSnapshot<T>> get() async {
-    final tenant = _tenant;
-    await parent._ensure();
-    return _read(const _StorageExecutor(), tenant);
-  }
+  Future<DocumentSnapshot<R, K>> get() async => _read(_table.on(AppStorage.database));
 
-  /// Writes [data] as this document, replacing what it held — or, with
-  /// [merge], laying [data]'s fields over it, maps merged all the way down.
+  /// Writes [record] as this document, replacing what it held.
   ///
-  /// [Model.id] is ignored: the document's key is this reference's own.
-  Future<void> set(T data, {bool merge = false}) {
-    final tenant = _tenant;
-    return _run((executor) => _set(executor, tenant, data, merge));
-  }
+  /// Throws an [ArgumentError] when the record carries another key than this
+  /// reference's: a document is written under its own key.
+  Future<void> set(R record) => _set(_table.on(AppStorage.database), record);
 
-  /// Changes only the fields [build] names, leaving the rest as they are.
+  /// Changes only the columns [assignments] name, leaving the rest as they are:
+  /// `users.doc('ada').update([usersTable.age.incrementBy(1), usersTable.city.to('Paris')])`.
   ///
-  /// [build] returns the changes, composed from an [UpdateBuilder] and typed
-  /// on what each field holds:
-  ///
-  /// ```dart
-  /// await users.doc('ada').update((u) => [u(User.age_).increment(1), u(User.city_).set('Paris')]);
-  /// ```
-  ///
-  /// Throws a [DocumentNotFoundError] when the document does not exist, and an
-  /// [ArgumentError] when [build] returns nothing.
-  Future<void> update(List<FieldChange> Function(UpdateBuilder u) build) {
-    final tenant = _tenant;
-    final changes = _changesOf(build);
-    return _run((executor) => _update(executor, tenant, changes));
-  }
+  /// Throws a [DocumentNotFoundError] when the document does not exist.
+  Future<void> update(List<DatabaseAssignment> assignments) => _update(_table.on(AppStorage.database), assignments);
 
   /// Removes the document. Removing one that does not exist is not an error.
-  Future<void> delete() {
-    final tenant = _tenant;
-    return _run((executor) => _delete(executor, tenant));
-  }
+  Future<void> delete() => _delete(_table.on(AppStorage.database));
 
   /// Reads the document now, then again after every write to it, emitting a
   /// [DocumentSnapshot] each time it differs. Nothing runs until the stream is
-  /// listened to.
-  ///
-  /// On an isolated collection it follows [Tenant]: after [Tenant.use] it
-  /// emits the new tenant's document, never the previous one's.
-  Stream<DocumentSnapshot<T>> snapshots() {
-    late final StreamController<DocumentSnapshot<T>> controller;
-    StreamSubscription<void>? subscription;
-    StreamSubscription<void>? tenantSubscription;
-    DocumentSnapshot<T>? previous;
-    var running = false;
-    var dirty = false;
-    var startOver = false;
+  /// listened to. On an isolated collection it follows [Tenant]: after
+  /// [Tenant.use] it emits the new tenant's document, never the previous one's.
+  Stream<DocumentSnapshot<R, K>> snapshots() =>
+      _table.on(AppStorage.database).watchOne(id).map((record) => DocumentSnapshot<R, K>._(id, record));
 
-    Future<void> refresh() async {
-      if (running) {
-        dirty = true;
-        return;
-      }
-      running = true;
-      try {
-        do {
-          dirty = false;
-          final tenant = _tenant;
-          final current = await get();
-          if (controller.isClosed) return;
-          if (tenant != _tenant) {
-            // the tenant changed while reading: what came back is not theirs
-            startOver = dirty = true;
-            continue;
-          }
-          if (startOver) previous = null;
-          startOver = false;
-          if (previous == null || previous!._raw != current._raw) {
-            controller.add(current);
-          }
-          previous = current;
-        } while (dirty && !controller.isClosed);
-      } catch (error, stackTrace) {
-        if (!controller.isClosed) controller.addError(error, stackTrace);
-      } finally {
-        running = false;
-      }
+  Future<DocumentSnapshot<R, K>> _read(DatabaseKeyedAccess<R, K> access) async =>
+      DocumentSnapshot<R, K>._(id, await access.get(id));
+
+  Future<void> _set(DatabaseKeyedAccess<R, K> access, R record) {
+    final key = _table.keyOf(record);
+    if (key != null && key != id) {
+      throw ArgumentError.value(record, 'record', 'carries the key $key, but this document is $id');
     }
-
-    controller = StreamController<DocumentSnapshot<T>>(
-      onListen: () {
-        subscription = _ChangeBus.changes(parent.name).listen((_) => unawaited(refresh()));
-        if (parent._scope is _CurrentScope && parent.tunnel == Tunnel.isolated) {
-          tenantSubscription = Tenant.changes.listen((_) {
-            startOver = true;
-            unawaited(refresh());
-          });
-        }
-        unawaited(refresh());
-      },
-      onCancel: () async {
-        await subscription?.cancel();
-        await tenantSubscription?.cancel();
-      },
-    );
-    return controller.stream;
+    return access.upsert(record);
   }
+
+  Future<void> _update(DatabaseKeyedAccess<R, K> access, List<DatabaseAssignment> assignments) async {
+    final changed = await access.where(_table.keyField.isEqualTo(id)).update(assignments);
+    if (changed == 0) throw DocumentNotFoundError(_table.tableName, id);
+  }
+
+  Future<void> _delete(DatabaseKeyedAccess<R, K> access) => access.remove(id);
 
   @override
-  bool operator ==(Object other) =>
-      other is DocumentReference &&
-      other.parent.name == parent.name &&
-      other.id == id &&
-      other.parent._scope == parent._scope;
+  bool operator ==(Object other) => other is DocumentReference && other.parent.table == parent.table && other.id == id;
 
   @override
-  int get hashCode => Object.hash(parent.name, id);
+  int get hashCode => Object.hash(parent.table, id);
 
   @override
-  String toString() => 'DocumentReference(${parent.name}/$id)';
-
-  /// Prepares the table, runs [write] in one transaction, then tells every
-  /// listener on the collection.
-  Future<void> _run(Future<void> Function(_Executor executor) write) async {
-    await parent._ensure();
-    await _atomically(write);
-    _ChangeBus.notify(parent.name);
-  }
-
-  Future<DocumentSnapshot<T>> _read(_Executor executor, String tenant) async {
-    final rows = await executor.rawQuery(
-      'SELECT tenant, id, data, created_at, updated_at FROM "${parent.name}" WHERE tenant = ? AND id = ?',
-      [DatabaseType.varchar(tenant), DatabaseType.varchar(id)],
-    );
-    return rows.isEmpty ? DocumentSnapshot._(this) : parent._documentOf(rows.first);
-  }
-
-  Future<Map<String, Object?>?> _load(_Executor executor, String tenant) async {
-    final rows = await executor.rawQuery('SELECT data FROM "${parent.name}" WHERE tenant = ? AND id = ?', [
-      DatabaseType.varchar(tenant),
-      DatabaseType.varchar(id),
-    ]);
-    return rows.isEmpty ? null : jsonDecode(rows.first['data']!.asString) as Map<String, Object?>;
-  }
-
-  Map<String, Object?> _encode(T data, [Map<String, Object?>? existing]) {
-    try {
-      final fields = _resolveFieldValues(data.toJson(), existing);
-      return jsonDecode(jsonEncode(fields, toEncodable: _toEncodable)) as Map<String, Object?>;
-    } catch (error) {
-      throw ArgumentError('${data.runtimeType}.toJson() holds a value that cannot be stored: $error');
-    }
-  }
-
-  int get _now => DateTime.now().millisecondsSinceEpoch;
-
-  Future<void> _create(_Executor executor, String tenant, T data) {
-    final now = _now;
-    return executor
-        .execute('INSERT INTO "${parent.name}" (tenant, id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [
-          DatabaseType.varchar(tenant),
-          DatabaseType.varchar(id),
-          DatabaseType.varchar(jsonEncode(_encode(data))),
-          DatabaseType.integer(now),
-          DatabaseType.integer(now),
-        ]);
-  }
-
-  Future<void> _set(_Executor executor, String tenant, T data, bool merge) async {
-    final existing = merge ? await _load(executor, tenant) : null;
-    var fields = _encode(data, existing);
-    if (existing != null) fields = _deepMerge(existing, fields);
-    final now = _now;
-    await executor.execute(
-      'INSERT OR IGNORE INTO "${parent.name}" (tenant, id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-      [
-        DatabaseType.varchar(tenant),
-        DatabaseType.varchar(id),
-        DatabaseType.varchar(jsonEncode(fields)),
-        DatabaseType.integer(now),
-        DatabaseType.integer(now),
-      ],
-    );
-    await _replace(executor, tenant, fields, now);
-  }
-
-  Future<void> _update(_Executor executor, String tenant, List<FieldChange> changes) async {
-    final existing = await _load(executor, tenant) ?? (throw DocumentNotFoundError(parent.name, id));
-    _applyUpdates(existing, changes);
-    await _replace(executor, tenant, existing, _now);
-  }
-
-  Future<void> _replace(_Executor executor, String tenant, Map<String, Object?> fields, int now) =>
-      executor.execute('UPDATE "${parent.name}" SET data = ?, updated_at = ? WHERE tenant = ? AND id = ?', [
-        DatabaseType.varchar(jsonEncode(fields)),
-        DatabaseType.integer(now),
-        DatabaseType.varchar(tenant),
-        DatabaseType.varchar(id),
-      ]);
-
-  Future<void> _delete(_Executor executor, String tenant) => executor.execute(
-    'DELETE FROM "${parent.name}" WHERE tenant = ? AND id = ?',
-    [DatabaseType.varchar(tenant), DatabaseType.varchar(id)],
-  );
-}
-
-/// The changes [build] composes, which must not be none at all.
-List<FieldChange> _changesOf(List<FieldChange> Function(UpdateBuilder u) build) {
-  final changes = build(const UpdateBuilder._());
-  if (changes.isEmpty) throw ArgumentError.value(changes, 'changes', 'cannot be empty');
-  return changes;
+  String toString() => 'DocumentReference(${_table.tableName}/$id)';
 }

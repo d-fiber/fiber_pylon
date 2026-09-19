@@ -434,6 +434,18 @@ abstract class DatabaseTable<R extends Object> {
     }
   }
 
+  /// Whether [a] and [b] write the same value to every column, which is what
+  /// tells a record that changed from one that did not.
+  bool isSameRecord(R a, R b) {
+    final left = _valuesOf(write(a));
+    final right = _valuesOf(write(b));
+    if (left.length != right.length) return false;
+    for (final entry in left.entries) {
+      if (!right.containsKey(entry.key) || right[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
   Map<String, DatabaseType> _rowOf(R record, {required bool generateKey}) {
     final row = _valuesOf(write(record));
     final key = _keyField;
@@ -507,6 +519,32 @@ abstract class DatabaseKeyedTable<R extends Object, K extends Object> extends Da
 
   @override
   DatabaseField<Object?>? get _keyField => _key;
+
+  /// The column that is the key of this table, so a filter can name it.
+  DatabaseField<K> get keyField => _key;
+
+  /// The key [record] carries, or null when it carries none yet — a record
+  /// whose key the engine will assign on insert.
+  K? keyOf(R record) {
+    final value = _rowOf(record, generateKey: false)[_key.name];
+    return value == null ? null : _key._decode(value) as K?;
+  }
+
+  /// This table as [session] reaches it, on [tenant] — `null` for the anonymous
+  /// rows — whichever tenant is current: how an operation that spans several
+  /// calls, a batch or a transaction, keeps to the tenant it started on.
+  ///
+  /// Not for a project: the tenant mechanism never names a tenant. Only the
+  /// package holds one, and only the one that was current when it began.
+  @internal
+  DatabaseKeyedAccess<R, K> onHeldTenant(DatabaseSession session, String? tenant) {
+    session._database._requireDeclared(this);
+    return DatabaseKeyedAccess<R, K>._(
+      session,
+      this,
+      tunnel == Tunnel.isolated ? _PinnedScope(tenant ?? '') : const _CurrentScope(),
+    );
+  }
 
   late final DatabaseField<K> _key = _findKey();
 

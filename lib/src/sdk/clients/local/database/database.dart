@@ -35,72 +35,61 @@
 // LICENSE file, the LICENSE file governs.
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
 
+import '../../../../security/fingerprint.dart';
+import '../../client.dart';
+import '../../environments.dart';
+import '../local_sdk.dart';
 import 'engine/app.dart' show AppStorage;
 import 'engine/database.dart';
-import 'engine/sort_order.dart';
-import '../../environments.dart';
-import '../../client.dart';
-import '../local_sdk.dart';
 
-part 'changes.dart';
 part 'collection.dart';
 part 'document_reference.dart';
-part 'field.dart';
-part 'field_value.dart';
-part 'filter.dart';
-part 'model.dart';
-part 'order.dart';
 part 'query.dart';
 part 'snapshot.dart';
-part 'sql.dart';
-part 'tenant.dart';
-part 'transaction.dart';
-part 'update_builder.dart';
 part 'write_batch.dart';
 
-/// A project's own typed, document-style database, kept in the app's own
-/// [AppStorage] file.
+/// A project's own database: the collections it declares, each on a table the
+/// engine creates and keeps in the app's own database file.
 ///
-/// A project subclasses this and declares one [Collection] per kind of
-/// document, each tied to the [Model] it stores:
+/// A project declares one table per kind of record, the way `LocalDatabase`
+/// documents it, and one [Collection] over each:
 ///
 /// ```dart
 /// final class OwnDatabase extends Database {
-///   final users = Collection<User>('users', User.fromJson);
-///   final items = Collection<Item>('items', Item.fromJson, indexes: [Item.price_]);
+///   final usersTable = UsersTable();
+///   late final users = Collection(usersTable);
+///
+///   @override
+///   List<Collection<Object, Object>> get collections => [users];
 /// }
 ///
 /// await OwnDatabase().initialize(); // once, after configureSdk()
 ///
 /// final db = Database.instance<OwnDatabase>(); // from anywhere afterwards
-/// await db.users.doc('u1').set(User(id: 'u1', name: 'Ada', age: 36));
+/// await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
 /// final adults = await db.users
-///     .where((w) => w(User.age_).isGreaterThanOrEqualTo(18))
-///     .orderBy((o) => [o.asc(User.name_)])
+///     .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
+///     .orderBy([db.usersTable.name.asc()])
 ///     .get();
 /// db.users.snapshots().listen((snapshot) => print(snapshot.items));
 /// ```
 ///
-/// The shape follows Firestore's own Flutter API — collections, documents,
-/// queries, snapshots, batches, transactions — with everything typed on the
-/// project's own models instead of `Map<String, dynamic>`, and everything
-/// stored locally, one SQLite table per collection.
+/// The vocabulary is Firestore's — collections, documents, queries, snapshots,
+/// batches, transactions — over typed tables: a filter, an order or an update
+/// is written with the table's own columns, so a misspelled name or a value of
+/// the wrong type does not compile. There is no query language of its own here:
+/// everything is the engine's.
+///
+/// Whose rows a collection holds is its table's tunnel: isolated per [Tenant] by
+/// default for a table that says so, so that two accounts on one device never
+/// see each other's data, or shared. Reading the whole database is another
+/// mechanism, opened only by the app's [Fingerprint].
 ///
 /// A [Database] is a [LocalSdkClient], so it gets [initialize], [dispose] and
 /// [Database.instance] the way every pylon client does, and is `base`: a
-/// project's subclass is `final` or `base` too.
-///
-/// Whose documents a collection holds is its own `Tunnel`'s call: each
-/// [Collection] is isolated per [Tenant] by default, so two accounts on one
-/// device never see each other's data, or [Tunnel.shared] when everyone should.
-///
-/// It only works once `configureSdk` has run, since it stores everything in
-/// [AppStorage]. A write made straight through [AppStorage] instead of through
-/// a [Collection] cannot tell a [Query.snapshots] listener that anything
-/// changed.
+/// project's subclass is `final` or `base` too. It needs `configureSdk` to have
+/// run, since it lives in [AppStorage].
 abstract base class Database extends LocalSdkClient {
   /// The [T] that last reached the end of [initialize].
   ///
@@ -111,40 +100,29 @@ abstract base class Database extends LocalSdkClient {
   @override
   Environments? get environments => null;
 
-  /// Checks that [AppStorage] is ready and that its SQLite has the JSON
-  /// functions every query here is built on, then registers this database
-  /// under its own type so [Database.instance] can hand it back.
+  /// Every collection this database has, which [initialize] declares — the
+  /// tables are created, and what a table gained since the file was written is
+  /// added — before anything is registered.
   ///
-  /// Throws a [StateError] when `configureSdk` has not run yet, and one
-  /// naming the missing functions when the SQLite in use lacks them — some
-  /// older Android system versions do, and the fix is to open the database
-  /// through a SQLite that bundles them rather than through the system's.
+  /// A collection missing from this list has no table: reading it fails.
+  List<Collection<Object, Object>> get collections;
+
+  /// Checks that [AppStorage] is ready, declares the tables of [collections],
+  /// then registers this database under its own type so [Database.instance] can
+  /// hand it back.
+  ///
+  /// Throws a [StateError] when `configureSdk` has not run yet, and the
+  /// engine's own error when a table cannot be declared.
   @override
   Future<void> initialize() async {
     if (isInitialized) return;
     try {
-      await AppStorage.database.tableNames();
+      AppStorage.database;
     } on StateError catch (error) {
       throw StateError('$runtimeType needs configureSdk() to have run first: ${error.message}');
     }
-    await _requireJsonFunctions();
+    await AppStorage.declare([for (final collection in collections) collection.table]);
     await super.initialize();
-  }
-
-  Future<void> _requireJsonFunctions() async {
-    try {
-      final rows = await AppStorage.database.rawQuery(
-        "SELECT json_extract('{\"a\":1}', '\$.a') AS value, (SELECT count(*) FROM json_each('[1]')) AS each",
-      );
-      if (rows.single['value']!.asInt == 1 && rows.single['each']!.asInt == 1) return;
-    } on DatabaseError {
-      // falls through to the same message: a missing function is one of these
-    }
-    throw StateError(
-      "$runtimeType needs SQLite's JSON functions (json_extract, json_each), which the SQLite in use does not "
-      'have. Open the app database through a SQLite that bundles them, such as a factory from sqflite_sqlcipher '
-      'or a sqlite3-based one.',
-    );
   }
 
   /// Starts a [WriteBatch]: writes queued here, none of which touch the
@@ -155,18 +133,28 @@ abstract base class Database extends LocalSdkClient {
   /// [Transaction] it is given commits together, or none of them do if
   /// [action] throws.
   ///
-  /// [action] only ever reaches the database through that [Transaction] —
-  /// calling a [Collection] or [DocumentReference] directly from inside it
-  /// waits on the transaction it is already inside, and never returns. Unlike
-  /// Firestore's own, a write applies at once rather than when [action] ends,
-  /// and nothing is retried: SQLite runs one transaction at a time, so there
-  /// is no conflict to retry.
-  Future<R> runTransaction<R>(Future<R> Function(Transaction transaction) action) async {
-    final touched = <Collection<Model>>{};
-    final result = await AppStorage.database.transaction((txn) => action(Transaction._(_TransactionExecutor(txn), touched)));
-    for (final collection in touched) {
-      _ChangeBus.notify(collection.name);
-    }
-    return result;
+  /// It runs on the tenant that was current when it began, however long it
+  /// takes. [action] only ever reaches the database through that
+  /// [Transaction]: calling a collection directly from inside it waits on the
+  /// transaction it is already inside, and never returns. Nothing is retried:
+  /// SQLite runs one transaction at a time, so there is no conflict to retry.
+  Future<R> runTransaction<R>(Future<R> Function(Transaction transaction) action) {
+    final tenant = Tenant.current;
+    return AppStorage.database.transaction((txn) => action(Transaction._(txn, tenant)));
   }
+
+  /// Moves every anonymous row — what was saved before anyone signed in — to
+  /// the current [Tenant], in every isolated table, and answers how many moved.
+  /// See [LocalDatabaseTenants.adoptAnonymousRows].
+  Future<int> adoptAnonymousRows({TransferConflict onConflict = TransferConflict.keepTarget}) =>
+      AppStorage.database.adoptAnonymousRows(onConflict: onConflict);
+
+  /// Removes every row of the current [Tenant], in every isolated table: the
+  /// account is deleted. See [LocalDatabaseTenants.purgeCurrentTenant].
+  Future<void> purgeCurrentTenant() => AppStorage.database.purgeCurrentTenant();
+
+  /// The whole-database mechanism: listing the tenants, removing one's rows,
+  /// moving rows from one tenant to another. Opened only by the app's
+  /// [Fingerprint]; a [StateError] answers any other.
+  DatabaseWholeAccess wholeDatabase(Fingerprint fingerprint) => AppStorage.database.wholeDatabase(fingerprint);
 }

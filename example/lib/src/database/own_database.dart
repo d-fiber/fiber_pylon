@@ -38,24 +38,27 @@ import 'package:fiber_pylon/fiber_pylon.dart';
 
 import 'user.dart';
 
-/// The project's own local database: one [Collection] per kind of document,
-/// each tied to the [Model] it stores.
+/// The project's own local database: one [Collection] per kind of record, each
+/// over the table that describes it.
 ///
 /// Needs `configureSdk()` to have run, since it lives in the app's own
-/// [AppStorage] file. After `await OwnDatabase().initialize()` it is
-/// reachable from anywhere:
+/// [AppStorage] file. After `await OwnDatabase().initialize()` it is reachable
+/// from anywhere:
 ///
 /// ```dart
 /// final db = OwnDatabase.I;
-/// await db.users.doc('ada').set(const User(name: 'Ada', age: 36));
+/// await db.users.doc('ada').set(const User(id: 'ada', name: 'Ada', age: 36));
 /// final adults = await db.users
-///     .where((w) => w(User.age_).isGreaterThanOrEqualTo(18))
-///     .orderBy((o) => [o.asc(User.name_)])
+///     .where(db.usersTable.age.isGreaterThanOrEqualTo(18))
+///     .orderBy([db.usersTable.name.asc()])
 ///     .get();
-/// db.users.snapshots().listen((snapshot) => print(snapshot.items));
 /// ```
 final class OwnDatabase extends Database {
   static OwnDatabase get I => Database.instance<OwnDatabase>();
 
-  final users = Collection<User>('users', User.fromJson, indexes: [User.age_]);
+  final usersTable = UsersTable();
+  late final users = Collection(usersTable);
+
+  @override
+  List<Collection<Object, Object>> get collections => [users];
 }

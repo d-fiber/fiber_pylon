@@ -36,238 +36,49 @@
 
 part of 'database.dart';
 
-/// The table [Collection]s record themselves in, so [Tenant] can find the
-/// isolated ones without a project listing them.
-const _registryTable = 'pylon_collections';
-
-/// Every document of one kind, stored in one SQLite table named [name].
+/// Every document of one kind: the rows of one table, and the [Query] that
+/// matches all of them, so everything a [Query] offers is available on it
+/// directly.
 ///
-/// Declared once, as a field of a project's own [Database]:
+/// Declared once, as a field of a project's own [Database], over the table
+/// that describes it:
 ///
 /// ```dart
-/// final users = Collection<User>('users', User.fromJson);
-/// final catalogue = Collection<Product>('catalogue', Product.fromJson, tunnel: Tunnel.shared);
+/// final usersTable = UsersTable();
+/// late final users = Collection(usersTable);
 /// ```
 ///
-/// [fromJson] rebuilds a [T] from a document's id and stored fields; [T]'s own
-/// [Model.toJson] writes it back. The table is created the first time the
-/// collection is used, with `CREATE TABLE IF NOT EXISTS` — a table of that
-/// name that already exists but was not made by a [Collection] fails with a
-/// [StateError] rather than being written over.
-///
-/// Whose documents it holds is its [tunnel]'s call: by default those of the
-/// current [Tenant] only, so two accounts on one device never see each
-/// other's data.
-///
-/// A [Collection] is also the [Query] that matches all of its documents, so
-/// everything a [Query] offers is available on it directly.
-final class Collection<T extends Model> extends Query<T> {
-  /// The collection called [name], whose documents [fromJson] rebuilds.
-  ///
-  /// [name] is the table's own name: letters, digits and `_`, not starting
-  /// with a digit, `sqlite_` or `pylon_`. Each of [indexes] is a [Field] or
-  /// [ListField] to keep an index on,
-  /// which is what makes filtering or ordering on it fast in a large
-  /// collection. [tunnel] says whose documents it holds.
-  Collection(
-    this.name,
-    T Function(String id, Map<String, Object?> json) fromJson, {
-    this.indexes = const [],
-    this.tunnel = Tunnel.isolated,
-  }) : _fromJson = fromJson,
-       super._(null, const _QuerySpec(), const _CurrentScope()) {
-    final lower = name.toLowerCase();
-    if (!_collectionName.hasMatch(name) || lower.startsWith('sqlite_') || lower.startsWith('pylon_')) {
-      throw ArgumentError.value(
-        name,
-        'name',
-        'must be letters, digits and "_", not starting with a digit, "sqlite_" or "pylon_"',
-      );
-    }
-    for (final index in indexes) {
-      _segmentsOf(index);
-    }
-  }
+/// Whose documents it holds is its table's `tunnel`: the current [Tenant]'s
+/// only, on an isolated table, or everyone's on a shared one.
+final class Collection<R extends Object, K extends Object> extends Query<R, K> {
+  /// The collection of the records [table] holds.
+  Collection(super._table) : super._();
 
-  Collection._view(Collection<T> base, _Scope scope)
-    : name = base.name,
-      indexes = base.indexes,
-      tunnel = base.tunnel,
-      _fromJson = base._fromJson,
-      super._(null, const _QuerySpec(), scope);
-
-  /// The collection's name, and the name of the table behind it.
-  final String name;
-
-  /// The fields this collection keeps an index on, as given.
-  final List<FieldReference> indexes;
-
-  /// Whose documents this collection holds.
-  final Tunnel tunnel;
-
-  final T Function(String id, Map<String, Object?> json) _fromJson;
-
-  static final _random = Random.secure();
-  static const _idAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-
-  Object? _preparedFor;
-  Future<void>? _prepared;
-
-  /// This collection as [tenant] sees it, whichever tenant is current: the
-  /// same documents a [Tenant.use] of [tenant] would show, read and written
-  /// directly.
-  ///
-  /// The way to reach one account's documents on purpose — a background sync
-  /// of an account that is not the one on screen, say. Throws a [StateError]
-  /// on a [Tunnel.shared] collection, which has no tenants.
-  @override
-  Collection<T> inTenant(String tenant) {
-    _checkTenantId(tenant);
-    _requireIsolated(this, 'inTenant');
-    return Collection._view(this, _PinnedScope(tenant));
-  }
+  /// The table this collection is on: its columns are what a query is written
+  /// with, and what [Database.initialize] declares.
+  DatabaseKeyedTable<R, K> get table => _table;
 
   /// The document [id] of this collection.
   ///
   /// Reads and writes nothing until asked to: the document need not exist.
-  /// Which tenant's it is is decided by each operation, when it starts.
-  DocumentReference<T> doc(String id) {
-    if (id.isEmpty || id == '.' || id == '..' || id.contains('/')) {
-      throw ArgumentError.value(id, 'id', 'must be non-empty, not "." or "..", and without "/"');
-    }
-    return DocumentReference._(this, id);
-  }
+  DocumentReference<R, K> doc(K id) => DocumentReference._(this, id);
 
-  /// A fresh, random, 20-character id, the way Firestore makes one.
-  String newId() =>
-      String.fromCharCodes(Iterable.generate(20, (_) => _idAlphabet.codeUnitAt(_random.nextInt(_idAlphabet.length))));
-
-  /// Stores [data] as a new document, under [Model.id] — or under a fresh
-  /// [newId] when that is empty — and answers its reference.
+  /// Stores [record] as a new document and answers its reference, under the key
+  /// the record carries — or the one the engine assigns when it carries none.
   ///
-  /// Throws a `DatabaseUniqueConstraintError` when a document already has
-  /// that id: use [DocumentReference.set] to overwrite one.
-  Future<DocumentReference<T>> add(T data) async {
-    final reference = doc(data.id.isEmpty ? newId() : data.id);
-    final tenant = reference._tenant;
-    await reference._run((executor) => reference._create(executor, tenant, data));
-    return reference;
+  /// Throws a `DatabaseUniqueConstraintError` when a document already has that
+  /// key: use [DocumentReference.set] to overwrite one.
+  Future<DocumentReference<R, K>> add(R record) async {
+    final saved = await _table.on(AppStorage.database).insert(record);
+    return doc(_table.keyOf(saved) ?? (throw StateError('${_table.tableName} kept a record with no key.')));
   }
 
-  /// Removes every document of the tenant this collection reaches, keeping
-  /// the table, its indexes, and every other tenant's documents.
-  Future<void> clear() async {
-    final tenant = _scope.reach(this).tenant!;
-    await _ensure();
-    await AppStorage.database.execute('DELETE FROM "$name" WHERE tenant = ?', [DatabaseType.varchar(tenant)]);
-    _ChangeBus.notify(name);
-  }
+  /// Removes every document of the current tenant, keeping the table.
+  Future<void> clear() => _table.on(AppStorage.database).deleteAll();
 
-  /// Removes the table and everything in it, indexes included — **for every
-  /// tenant**, not only the current one.
-  ///
-  /// The collection stays usable: the next read or write creates the table
-  /// again, empty, and a [Query.snapshots] listener hears the collection
-  /// empty out.
-  Future<void> drop() async {
-    await _ensure();
-    await AppStorage.database.execute('DROP TABLE IF EXISTS "$name"');
-    await AppStorage.database.execute('DELETE FROM "$_registryTable" WHERE name = ?', [DatabaseType.varchar(name)]);
-    _prepared = null;
-    _preparedFor = null;
-    _ChangeBus.notify(name);
-  }
-
-  /// Creates the table and its indexes once per [AppStorage], checking first
-  /// that a table already there is one of ours.
-  Future<void> _ensure() {
-    final generation = AppStorage.generation;
-    final held = _prepared;
-    if (held != null && identical(_preparedFor, generation)) return held;
-
-    _preparedFor = generation;
-    final prepared = _prepare();
-    _prepared = prepared;
-    unawaited(
-      prepared.catchError((Object _) {
-        if (identical(_prepared, prepared)) _prepared = null;
-      }),
-    );
-    return prepared;
-  }
-
-  static const _columns = {'tenant', 'id', 'data', 'created_at', 'updated_at'};
-  static const _legacyColumns = {'id', 'data', 'created_at', 'updated_at'};
-
-  Future<void> _prepare() async {
-    final columns = {for (final column in await AppStorage.database.columns(name)) column.name};
-    if (columns.length == _legacyColumns.length && columns.containsAll(_legacyColumns)) {
-      await _migrateLegacyTable();
-    } else if (columns.isNotEmpty && !(columns.length == _columns.length && columns.containsAll(_columns))) {
-      throw StateError(
-        'A table named "$name" already exists and is not a Collection\'s: it has the columns '
-        '${columns.join(', ')}, where a Collection needs ${_columns.join(', ')}.',
-      );
-    }
-    await _createTable(const _StorageExecutor());
-  }
-
-  /// Rebuilds a table made before tenants existed — no `tenant` column — with
-  /// every document in the anonymous partition, which is what they were.
-  Future<void> _migrateLegacyTable() => _atomically((executor) async {
-    await executor.execute(_tableSql('${name}__new'));
-    await executor.execute(
-      'INSERT INTO "${name}__new" (tenant, id, data, created_at, updated_at) '
-      "SELECT '', id, data, created_at, updated_at FROM \"$name\"",
-    );
-    await executor.execute('DROP TABLE "$name"');
-    await executor.execute('ALTER TABLE "${name}__new" RENAME TO "$name"');
-  });
-
-  String _tableSql(String table) =>
-      'CREATE TABLE IF NOT EXISTS "$table" ('
-      "tenant TEXT NOT NULL DEFAULT '', "
-      'id TEXT NOT NULL, '
-      'data TEXT NOT NULL, '
-      'created_at INTEGER NOT NULL, '
-      'updated_at INTEGER NOT NULL, '
-      'PRIMARY KEY (tenant, id))';
-
-  /// Creates the table, its indexes and its registry entry when missing, on
-  /// [executor].
-  Future<void> _createTable(_Executor executor) async {
-    await executor.execute(_tableSql(name));
-    for (final index in indexes) {
-      await executor.execute(
-        'CREATE INDEX IF NOT EXISTS "${name}_${_segmentsOf(index).join('_')}_idx" '
-        'ON "$name" (tenant, ${_fieldExpression(index)})',
-      );
-    }
-    await executor.execute(
-      'CREATE TABLE IF NOT EXISTS "$_registryTable" (name TEXT PRIMARY KEY NOT NULL, tunnel TEXT NOT NULL)',
-    );
-    await executor.execute('INSERT OR REPLACE INTO "$_registryTable" (name, tunnel) VALUES (?, ?)', [
-      DatabaseType.varchar(name),
-      DatabaseType.varchar(tunnel.name),
-    ]);
-  }
-
-  /// Decodes [row]. With [pinRows], the reference of the snapshot is pinned
-  /// to the tenant the row belongs to, so writing through it lands on that
-  /// tenant whatever is current.
-  QueryDocumentSnapshot<T> _documentOf(DatabaseRow row, {bool pinRows = false}) {
-    final id = row['id']!.asString;
-    final raw = row['data']!.asString;
-    final tenant = row['tenant']!.asString;
-    final json = jsonDecode(raw) as Map<String, Object?>;
-    return QueryDocumentSnapshot._(
-      (pinRows ? Collection._view(this, _PinnedScope(tenant)) : this).doc(id),
-      raw: raw,
-      json: json,
-      data: _fromJson(id, json),
-      tenant: tenant.isEmpty ? null : tenant,
-      createTime: DateTime.fromMillisecondsSinceEpoch(row['created_at']!.asInt, isUtc: true),
-      updateTime: DateTime.fromMillisecondsSinceEpoch(row['updated_at']!.asInt, isUtc: true),
-    );
-  }
+  /// This collection across every tenant: the whole-database mechanism, opened
+  /// only by the app's [Fingerprint]. It reads, and edits or removes what a
+  /// filter keeps; see [DatabaseWholeRows].
+  DatabaseWholeRows<R> onWholeDatabase(Fingerprint fingerprint) =>
+      _table.onWholeDatabase(AppStorage.database, fingerprint);
 }
