@@ -213,7 +213,7 @@ final class TodoStore {
       .orderBy([todos.title.asc()])
       .limit(size)
       .offset(page * size)
-      .list();
+      .select();
 
   Future<int> markDone(int id) => todos.on(db).where(todos.id.isEqualTo(id)).update([todos.done.to(true)]);
 
@@ -236,13 +236,13 @@ final class TodoStore {
       .where(
         todos.id.isInSelect(todoTags.todoId.where(todoTags.tagId.isInSelect(tags.id.where(tags.name.isEqualTo(name))))),
       )
-      .list();
+      .select();
 
   Future<List<Todo>> addAll(List<Todo> list) => todos.on(db).insertAll(list);
 
   Future<Note> addNote(Note note) => notes.on(db).insert(note);
 
-  Future<List<Note>> notesOf(int todoId) => notes.on(db).where(notes.todoId.isEqualTo(todoId)).list();
+  Future<List<Note>> notesOf(int todoId) => notes.on(db).where(notes.todoId.isEqualTo(todoId)).select();
 
   Future<int> tagLinks() => todoTags.on(db).count();
 }
