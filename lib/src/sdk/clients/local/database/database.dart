@@ -38,9 +38,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import '../../../../storage/local_storage/app.dart' show AppStorage;
-import '../../../../storage/local_storage/database.dart';
-import '../../../../storage/local_storage/sort_order.dart';
+import 'engine/app.dart' show AppStorage;
+import 'engine/database.dart';
+import 'engine/sort_order.dart';
 import '../../environments.dart';
 import '../../client.dart';
 import '../local_sdk.dart';

@@ -41,7 +41,7 @@ import 'dart:io';
 
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
-import 'package:fiber_pylon/src/storage/local_storage/app.dart' show openAppDatabase;
+import 'package:fiber_pylon/src/sdk/clients/local/database/engine/app.dart' show openAppDatabase;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:package_info_plus/package_info_plus.dart';
