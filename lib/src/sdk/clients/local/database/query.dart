@@ -56,20 +56,20 @@ part of 'database.dart';
 class Query<R extends Object, K extends Object> {
   const Query._(this._table, [this._filters = const [], this._orders = const [], this._limit, this._offset]);
 
-  final DatabaseKeyedTable<R, K> _table;
-  final List<DatabaseFilter> _filters;
+  final KeyedTable<R, K> _table;
+  final List<Filter> _filters;
   final List<DatabaseOrder> _orders;
   final int? _limit;
   final int? _offset;
 
-  Query<R, K> _copy({List<DatabaseFilter>? filters, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+  Query<R, K> _copy({List<Filter>? filters, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
       Query._(_table, filters ?? _filters, orders ?? _orders, limit ?? _limit, offset ?? _offset);
 
   /// Keeps the documents [filter] matches, and those of every earlier [where].
   ///
   /// [filter] is built from the columns of this collection's table, which is
   /// checked: one that reads another table throws an [ArgumentError].
-  Query<R, K> where(DatabaseFilter filter) => _copy(filters: [..._filters, filter]);
+  Query<R, K> where(Filter filter) => _copy(filters: [..._filters, filter]);
 
   /// Sorts by [orders], after any earlier [orderBy], each later one breaking
   /// the ties of the one before it.
@@ -81,8 +81,8 @@ class Query<R extends Object, K extends Object> {
   /// Skips the first [count] documents.
   Query<R, K> offset(int count) => _copy(offset: RangeError.checkNotNegative(count, 'count'));
 
-  DatabaseRows<R> _rows(DatabaseSession session) {
-    DatabaseRows<R> rows = _table.on(session);
+  Rows<R> _rows(DatabaseSession session) {
+    Rows<R> rows = _table.on(session);
     for (final filter in _filters) {
       rows = rows.where(filter);
     }

@@ -66,7 +66,7 @@ final class DocumentReference<R extends Object, K extends Object> {
   /// This document's key in [parent].
   final K id;
 
-  DatabaseKeyedTable<R, K> get _table => parent.table;
+  KeyedTable<R, K> get _table => parent.table;
 
   /// Reads the document, which need not exist: check [DocumentSnapshot.exists].
   Future<DocumentSnapshot<R, K>> get() async => _read(_table.on(AppStorage.database));
@@ -81,7 +81,7 @@ final class DocumentReference<R extends Object, K extends Object> {
   /// `users.doc('ada').update([usersTable.age.incrementBy(1), usersTable.city.to('Paris')])`.
   ///
   /// Throws a [DocumentNotFoundError] when the document does not exist.
-  Future<void> update(List<DatabaseAssignment> assignments) => _update(_table.on(AppStorage.database), assignments);
+  Future<void> update(List<Assignment> assignments) => _update(_table.on(AppStorage.database), assignments);
 
   /// Removes the document. Removing one that does not exist is not an error.
   Future<void> delete() => _delete(_table.on(AppStorage.database));
@@ -93,10 +93,10 @@ final class DocumentReference<R extends Object, K extends Object> {
   Stream<DocumentSnapshot<R, K>> snapshots() =>
       _table.on(AppStorage.database).watchOne(id).map((record) => DocumentSnapshot<R, K>._(id, record));
 
-  Future<DocumentSnapshot<R, K>> _read(DatabaseKeyedAccess<R, K> access) async =>
+  Future<DocumentSnapshot<R, K>> _read(KeyedAccess<R, K> access) async =>
       DocumentSnapshot<R, K>._(id, await access.get(id));
 
-  Future<void> _set(DatabaseKeyedAccess<R, K> access, R record) {
+  Future<void> _set(KeyedAccess<R, K> access, R record) {
     final key = _table.keyOf(record);
     if (key != null && key != id) {
       throw ArgumentError.value(record, 'record', 'carries the key $key, but this document is $id');
@@ -104,12 +104,12 @@ final class DocumentReference<R extends Object, K extends Object> {
     return access.upsert(record);
   }
 
-  Future<void> _update(DatabaseKeyedAccess<R, K> access, List<DatabaseAssignment> assignments) async {
+  Future<void> _update(KeyedAccess<R, K> access, List<Assignment> assignments) async {
     final changed = await access.where(_table.keyField.isEqualTo(id)).update(assignments);
     if (changed == 0) throw DocumentNotFoundError(_table.tableName, id);
   }
 
-  Future<void> _delete(DatabaseKeyedAccess<R, K> access) => access.remove(id);
+  Future<void> _delete(KeyedAccess<R, K> access) => access.remove(id);
 
   @override
   bool operator ==(Object other) => other is DocumentReference && other.parent.table == parent.table && other.id == id;

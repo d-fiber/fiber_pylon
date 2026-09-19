@@ -59,7 +59,7 @@ final class Item extends Equatable {
   List<Object?> get props => [id, title, done, due, rank];
 }
 
-final class Items extends DatabaseKeyedTable<Item, int> {
+final class Items extends KeyedTable<Item, int> {
   Items() : super('items');
 
   late final id = column.key();
@@ -69,14 +69,14 @@ final class Items extends DatabaseKeyedTable<Item, int> {
   late final rank = column.integer('rank').defaultsTo(0);
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title, done, due, rank];
+  List<Field<Object?>> get columns => [id, title, done, due, rank];
 
   @override
-  Item read(DatabaseReader row) =>
+  Item read(Reader row) =>
       Item(id: row(id), title: row(title), done: row(done), due: row(due), rank: row(rank));
 
   @override
-  List<DatabaseAssignment> write(Item item) => [
+  List<Assignment> write(Item item) => [
     id.toOrGenerate(item.id),
     title.to(item.title),
     done.to(item.done),
@@ -95,20 +95,20 @@ final class Label extends Equatable {
   List<Object?> get props => [id, name];
 }
 
-final class Labels extends DatabaseKeyedTable<Label, UuidValue> {
+final class Labels extends KeyedTable<Label, UuidValue> {
   Labels() : super('labels');
 
   late final id = column.uuidKey();
   late final name = column.text('name').unique();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name];
+  List<Field<Object?>> get columns => [id, name];
 
   @override
-  Label read(DatabaseReader row) => Label(id: row(id), name: row(name));
+  Label read(Reader row) => Label(id: row(id), name: row(name));
 
   @override
-  List<DatabaseAssignment> write(Label label) => [id.toOrGenerate(label.id), name.to(label.name)];
+  List<Assignment> write(Label label) => [id.toOrGenerate(label.id), name.to(label.name)];
 }
 
 final class Link {
@@ -125,21 +125,21 @@ final class Links extends DatabaseTable<Link> {
   late final labelId = column.uuid('label_id').references(labels.id, onDelete: ReferentialAction.cascade);
 
   @override
-  List<DatabaseField<Object?>> get columns => [itemId, labelId];
+  List<Field<Object?>> get columns => [itemId, labelId];
 
   @override
-  List<DatabaseField<Object?>> get primaryKey => [itemId, labelId];
+  List<Field<Object?>> get primaryKey => [itemId, labelId];
 
   @override
-  List<List<DatabaseField<Object?>>> get indexes => [
+  List<List<Field<Object?>>> get indexes => [
     [labelId],
   ];
 
   @override
-  Link read(DatabaseReader row) => Link(itemId: row(itemId), labelId: row(labelId));
+  Link read(Reader row) => Link(itemId: row(itemId), labelId: row(labelId));
 
   @override
-  List<DatabaseAssignment> write(Link link) => [itemId.to(link.itemId), labelId.to(link.labelId)];
+  List<Assignment> write(Link link) => [itemId.to(link.itemId), labelId.to(link.labelId)];
 }
 
 final class Sample extends Equatable {
@@ -186,7 +186,7 @@ final class Detail extends Equatable {
 
 Map<String, dynamic> _detailToJson(Detail detail) => detail.toJson();
 
-final class Samples extends DatabaseKeyedTable<Sample, int> {
+final class Samples extends KeyedTable<Sample, int> {
   Samples() : super('samples');
 
   late final id = column.key();
@@ -201,10 +201,10 @@ final class Samples extends DatabaseKeyedTable<Sample, int> {
   late final note = column.text('note').nullable();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, kind, ratio, at, day, clock, tags, blob, detail, note];
+  List<Field<Object?>> get columns => [id, kind, ratio, at, day, clock, tags, blob, detail, note];
 
   @override
-  Sample read(DatabaseReader row) => Sample(
+  Sample read(Reader row) => Sample(
     id: row(id),
     kind: row(kind),
     ratio: row(ratio),
@@ -218,7 +218,7 @@ final class Samples extends DatabaseKeyedTable<Sample, int> {
   );
 
   @override
-  List<DatabaseAssignment> write(Sample sample) => [
+  List<Assignment> write(Sample sample) => [
     id.toOrGenerate(sample.id),
     kind.to(sample.kind),
     ratio.to(sample.ratio),
@@ -232,20 +232,20 @@ final class Samples extends DatabaseKeyedTable<Sample, int> {
   ];
 }
 
-final class Reserved extends DatabaseKeyedTable<String, int> {
+final class Reserved extends KeyedTable<String, int> {
   Reserved() : super('order');
 
   late final id = column.key();
   late final group = column.text('group');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, group];
+  List<Field<Object?>> get columns => [id, group];
 
   @override
-  String read(DatabaseReader row) => row(group);
+  String read(Reader row) => row(group);
 
   @override
-  List<DatabaseAssignment> write(String record) => [id.toOrGenerate(null), group.to(record)];
+  List<Assignment> write(String record) => [id.toOrGenerate(null), group.to(record)];
 }
 
 final class Forgetful extends DatabaseTable<String> {
@@ -255,46 +255,46 @@ final class Forgetful extends DatabaseTable<String> {
   late final lost = column.text('lost');
 
   @override
-  List<DatabaseField<Object?>> get columns => [kept];
+  List<Field<Object?>> get columns => [kept];
 
   @override
-  String read(DatabaseReader row) => row(kept);
+  String read(Reader row) => row(kept);
 
   @override
-  List<DatabaseAssignment> write(String record) => [kept.to(record), lost.to(record)];
+  List<Assignment> write(String record) => [kept.to(record), lost.to(record)];
 }
 
-final class WrongKey extends DatabaseKeyedTable<String, String> {
+final class WrongKey extends KeyedTable<String, String> {
   WrongKey() : super('wrong_key');
 
   late final id = column.key();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id];
+  List<Field<Object?>> get columns => [id];
 
   @override
-  String read(DatabaseReader row) => '${row(id)}';
+  String read(Reader row) => '${row(id)}';
 
   @override
-  List<DatabaseAssignment> write(String record) => [id.toOrGenerate(null)];
+  List<Assignment> write(String record) => [id.toOrGenerate(null)];
 }
 
 final class ItemsV2 extends DatabaseTable<String> {
   ItemsV2({required this.gainedColumn}) : super('items');
 
-  final DatabaseField<Object?> Function(DatabaseColumns column) gainedColumn;
+  final Field<Object?> Function(Columns column) gainedColumn;
 
   late final title = column.text('title');
   late final gained = gainedColumn(column);
 
   @override
-  List<DatabaseField<Object?>> get columns => [title, gained];
+  List<Field<Object?>> get columns => [title, gained];
 
   @override
-  String read(DatabaseReader row) => row(title);
+  String read(Reader row) => row(title);
 
   @override
-  List<DatabaseAssignment> write(String record) => [title.to(record)];
+  List<Assignment> write(String record) => [title.to(record)];
 }
 
 final class People extends DatabaseTable<String> {
@@ -303,13 +303,13 @@ final class People extends DatabaseTable<String> {
   late final name = column.text('name').unique().collatedBy(Collation.noCase);
 
   @override
-  List<DatabaseField<Object?>> get columns => [name];
+  List<Field<Object?>> get columns => [name];
 
   @override
-  String read(DatabaseReader row) => row(name);
+  String read(Reader row) => row(name);
 
   @override
-  List<DatabaseAssignment> write(String record) => [name.to(record)];
+  List<Assignment> write(String record) => [name.to(record)];
 }
 
 final class Money extends Equatable {
@@ -340,13 +340,13 @@ final class Prices extends DatabaseTable<Price> {
   );
 
   @override
-  List<DatabaseField<Object?>> get columns => [amount];
+  List<Field<Object?>> get columns => [amount];
 
   @override
-  Price read(DatabaseReader row) => Price(row(amount));
+  Price read(Reader row) => Price(row(amount));
 
   @override
-  List<DatabaseAssignment> write(Price price) => [amount.to(price.amount)];
+  List<Assignment> write(Price price) => [amount.to(price.amount)];
 }
 
 final class Setting extends Equatable {
@@ -359,35 +359,35 @@ final class Setting extends Equatable {
   List<Object?> get props => [key, value];
 }
 
-final class Settings extends DatabaseKeyedTable<Setting, String> {
+final class Settings extends KeyedTable<Setting, String> {
   Settings() : super('settings');
 
   late final key = column.text('key').primaryKey();
   late final value = column.text('value');
 
   @override
-  List<DatabaseField<Object?>> get columns => [key, value];
+  List<Field<Object?>> get columns => [key, value];
 
   @override
-  Setting read(DatabaseReader row) => Setting(row(key), row(value));
+  Setting read(Reader row) => Setting(row(key), row(value));
 
   @override
-  List<DatabaseAssignment> write(Setting setting) => [key.to(setting.key), value.to(setting.value)];
+  List<Assignment> write(Setting setting) => [key.to(setting.key), value.to(setting.value)];
 }
 
-final class Bare extends DatabaseKeyedTable<int, int> {
+final class Bare extends KeyedTable<int, int> {
   Bare() : super('bare');
 
   late final id = column.key();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id];
+  List<Field<Object?>> get columns => [id];
 
   @override
-  int read(DatabaseReader row) => row(id);
+  int read(Reader row) => row(id);
 
   @override
-  List<DatabaseAssignment> write(int record) => [id.toOrGenerate(null)];
+  List<Assignment> write(int record) => [id.toOrGenerate(null)];
 }
 
 final items = Items();
@@ -513,7 +513,7 @@ void main() {
       await expectLater(
         newer.open(),
         throwsA(
-          isA<DatabaseMigrationRequiredError>().having((error) => error.message, 'message', contains('items.rank')),
+          isA<MigrationRequiredError>().having((error) => error.message, 'message', contains('items.rank')),
         ),
       );
       expect(newer.isOpen, isFalse);
@@ -610,7 +610,7 @@ void main() {
       await newer.dispose();
       final older = LocalDatabase.declared(name: 'too_new.db', tables: [items]);
 
-      await expectLater(older.open(), throwsA(isA<DatabaseSchemaTooNewError>()));
+      await expectLater(older.open(), throwsA(isA<SchemaTooNewError>()));
       expect(older.isOpen, isFalse);
     });
 
@@ -753,7 +753,7 @@ void main() {
       final db = await _open('collide.db');
       await labels.on(db).insert(const Label(name: 'work'));
 
-      await expectLater(labels.on(db).insert(const Label(name: 'work')), throwsA(isA<DatabaseUniqueConstraintError>()));
+      await expectLater(labels.on(db).insert(const Label(name: 'work')), throwsA(isA<UniqueConstraintError>()));
       await db.dispose();
     });
 
@@ -772,7 +772,7 @@ void main() {
 
       await expectLater(
         labels.on(db).insertAll(const [Label(name: 'a'), Label(name: 'b'), Label(name: 'a')]),
-        throwsA(isA<DatabaseUniqueConstraintError>()),
+        throwsA(isA<UniqueConstraintError>()),
       );
 
       expect(await labels.on(db).count(), 0);
@@ -968,7 +968,7 @@ void main() {
       return db;
     }
 
-    Future<List<String>> titles(DatabaseRows<Item> rows) async => [for (final item in await rows.list()) item.title];
+    Future<List<String>> titles(Rows<Item> rows) async => [for (final item in await rows.list()) item.title];
 
     test('where keeps the rows a typed filter matches', () async {
       final db = await seeded('where.db');
@@ -1009,14 +1009,14 @@ void main() {
       final db = await seeded('all_any.db');
 
       expect(
-        await titles(items.on(db).where(DatabaseFilter.all([items.done.isEqualTo(true), items.rank.isLessThan(3)]))),
+        await titles(items.on(db).where(Filter.all([items.done.isEqualTo(true), items.rank.isLessThan(3)]))),
         ['beta'],
       );
-      expect(await titles(items.on(db).where(DatabaseFilter.any([items.rank.isEqualTo(1), items.rank.isEqualTo(4)]))), [
+      expect(await titles(items.on(db).where(Filter.any([items.rank.isEqualTo(1), items.rank.isEqualTo(4)]))), [
         'alpha',
         'delta',
       ]);
-      expect(await items.on(db).where(DatabaseFilter.any(const [])).count(), 0);
+      expect(await items.on(db).where(Filter.any(const [])).count(), 0);
       await db.dispose();
     });
 
@@ -1075,7 +1075,7 @@ void main() {
 
       final rows = items
           .on(db)
-          .where(DatabaseFilter.raw('rank % 2 = ?', const [DatabaseType.integer(0)]) & items.done.isEqualTo(true));
+          .where(Filter.raw('rank % 2 = ?', const [DatabaseType.integer(0)]) & items.done.isEqualTo(true));
 
       expect(await titles(rows), ['beta', 'delta']);
       await db.dispose();
@@ -1096,7 +1096,7 @@ void main() {
       await db.open();
       await people.on(db).insert('Ada');
 
-      await expectLater(people.on(db).insert('ADA'), throwsA(isA<DatabaseUniqueConstraintError>()));
+      await expectLater(people.on(db).insert('ADA'), throwsA(isA<UniqueConstraintError>()));
       expect(await people.on(db).where(people.name.startsWith('a')).count(), 1);
       await db.dispose();
     });
@@ -1337,11 +1337,11 @@ final class _ForeignRead extends DatabaseTable<String> {
   late final own = column.text('own');
 
   @override
-  List<DatabaseField<Object?>> get columns => [own];
+  List<Field<Object?>> get columns => [own];
 
   @override
-  String read(DatabaseReader row) => row(items.title);
+  String read(Reader row) => row(items.title);
 
   @override
-  List<DatabaseAssignment> write(String record) => [own.to(record)];
+  List<Assignment> write(String record) => [own.to(record)];
 }

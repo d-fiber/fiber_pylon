@@ -178,7 +178,7 @@ export 'src/sdk/clients/local/database/engine/app.dart' show AppStorage, Encrypt
 // The database class itself, the migrations, the drift report and the schema DSL
 // stay inside.
 export 'src/sdk/clients/local/database/engine/database.dart'
-    hide LocalDatabase, LocalDatabaseTenants, DatabaseSession, DatabaseMigration, SchemaDifference, DifferenceKind;
+    hide LocalDatabase, LocalDatabaseTenants, DatabaseSession, Migration, SchemaDifference, DifferenceKind;
 export 'src/sdk/clients/local/database/engine/schema/schema.dart' show ReferentialAction, Collation, ColumnType;
 export 'src/sdk/clients/local/database/engine/query/sort_order.dart';
 export 'src/sdk/clients/local/local_sdk.dart';

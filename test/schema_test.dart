@@ -421,7 +421,7 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO people (name) VALUES (?)', const [DatabaseType.varchar('ADA')]),
-        throwsA(isA<DatabaseUniqueConstraintError>()),
+        throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
     });
@@ -441,7 +441,7 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO people (email) VALUES (?)', const [DatabaseType.varchar('ada@example.com')]),
-        throwsA(isA<DatabaseUniqueConstraintError>()),
+        throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
     });

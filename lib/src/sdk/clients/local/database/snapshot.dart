@@ -115,7 +115,7 @@ final class DocumentChange<R extends Object, K extends Object> {
 }
 
 List<QueryDocumentSnapshot<R, K>> _documentsOf<R extends Object, K extends Object>(
-  DatabaseKeyedTable<R, K> table,
+  KeyedTable<R, K> table,
   List<R> records,
 ) => [
   for (final record in records)
@@ -126,7 +126,7 @@ List<QueryDocumentSnapshot<R, K>> _documentsOf<R extends Object, K extends Objec
 ];
 
 List<DocumentChange<R, K>> _diff<R extends Object, K extends Object>(
-  DatabaseKeyedTable<R, K> table,
+  KeyedTable<R, K> table,
   List<QueryDocumentSnapshot<R, K>>? before,
   List<QueryDocumentSnapshot<R, K>> after,
 ) {

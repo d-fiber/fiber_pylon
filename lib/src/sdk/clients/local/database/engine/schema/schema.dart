@@ -315,11 +315,11 @@ final class DeclaredTable extends Equatable {
 ///   }
 /// }
 /// ```
-sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Columns>, Columns extends ColumnFactory> {
+sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Factory>, Factory extends ColumnFactory> {
   TableBuilderBase._(this._name, this._columns);
 
   final String _name;
-  final Columns _columns;
+  final Factory _columns;
   PrimaryKeyConstraint? _primaryKey;
   List<UniqueConstraint> _uniques = const [];
   List<CheckConstraint> _checks = const [];
@@ -406,7 +406,7 @@ sealed class TableBuilderBase<Self extends TableBuilderBase<Self, Columns>, Colu
   /// key and only [StrictColumnFactory] offers [StrictColumnFactory.any]. Every problem found is listed in the one
   /// error. What SQLite already refuses clearly at `CREATE TABLE` is left to
   /// it.
-  DeclaredTable columns(ColumnMap Function(Columns c) build) {
+  DeclaredTable columns(ColumnMap Function(Factory c) build) {
     final resolved = <String, ColumnDefinition>{
       for (final entry in build(_columns).entries) entry.key: entry.value.build(),
     };

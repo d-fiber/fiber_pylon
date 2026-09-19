@@ -48,20 +48,20 @@ final class Author {
   final String name;
 }
 
-final class Authors extends DatabaseKeyedTable<Author, int> {
+final class Authors extends KeyedTable<Author, int> {
   Authors() : super('authors');
 
   late final id = column.key();
   late final name = column.text('name').unique();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name];
+  List<Field<Object?>> get columns => [id, name];
 
   @override
-  Author read(DatabaseReader row) => Author(id: row(id), name: row(name));
+  Author read(Reader row) => Author(id: row(id), name: row(name));
 
   @override
-  List<DatabaseAssignment> write(Author author) => [id.toOrGenerate(author.id), name.to(author.name)];
+  List<Assignment> write(Author author) => [id.toOrGenerate(author.id), name.to(author.name)];
 }
 
 final class Book {
@@ -73,7 +73,7 @@ final class Book {
   final int pages;
 }
 
-final class Books extends DatabaseKeyedTable<Book, int> {
+final class Books extends KeyedTable<Book, int> {
   Books() : super('books');
 
   late final id = column.key();
@@ -85,19 +85,19 @@ final class Books extends DatabaseKeyedTable<Book, int> {
   late final pages = column.integer('pages').defaultsTo(0);
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title, authorId, pages];
+  List<Field<Object?>> get columns => [id, title, authorId, pages];
 
   @override
-  List<List<DatabaseField<Object?>>> get indexes => [
+  List<List<Field<Object?>>> get indexes => [
     [title],
     [authorId, pages],
   ];
 
   @override
-  Book read(DatabaseReader row) => Book(id: row(id), title: row(title), authorId: row(authorId), pages: row(pages));
+  Book read(Reader row) => Book(id: row(id), title: row(title), authorId: row(authorId), pages: row(pages));
 
   @override
-  List<DatabaseAssignment> write(Book book) => [
+  List<Assignment> write(Book book) => [
     id.toOrGenerate(book.id),
     title.to(book.title),
     authorId.to(book.authorId),
@@ -113,13 +113,13 @@ final class Reviews extends DatabaseTable<Author> {
       .references(column.integer('id'), onDelete: ReferentialAction.setNull);
 
   @override
-  List<DatabaseField<Object?>> get columns => [authorId];
+  List<Field<Object?>> get columns => [authorId];
 
   @override
-  Author read(DatabaseReader row) => Author(id: row(authorId), name: '');
+  Author read(Reader row) => Author(id: row(authorId), name: '');
 
   @override
-  List<DatabaseAssignment> write(Author author) => [authorId.to(author.id!)];
+  List<Assignment> write(Author author) => [authorId.to(author.id!)];
 }
 
 void main() {

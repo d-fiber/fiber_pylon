@@ -53,7 +53,7 @@ final class Counter {
   final double balance;
 }
 
-final class Counters extends DatabaseKeyedTable<Counter, int> {
+final class Counters extends KeyedTable<Counter, int> {
   Counters() : super('counters');
 
   late final id = column.key();
@@ -66,14 +66,14 @@ final class Counters extends DatabaseKeyedTable<Counter, int> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name, hits, score, balance];
+  List<Field<Object?>> get columns => [id, name, hits, score, balance];
 
   @override
-  Counter read(DatabaseReader row) =>
+  Counter read(Reader row) =>
       Counter(id: row(id), name: row(name), hits: row(hits), score: row(score), balance: row(balance));
 
   @override
-  List<DatabaseAssignment> write(Counter c) => [
+  List<Assignment> write(Counter c) => [
     id.toOrGenerate(c.id),
     name.to(c.name),
     hits.to(c.hits),
@@ -83,7 +83,7 @@ final class Counters extends DatabaseKeyedTable<Counter, int> {
 }
 
 /// Writes an increment where only a set is possible.
-final class Wrong extends DatabaseKeyedTable<Counter, int> {
+final class Wrong extends KeyedTable<Counter, int> {
   Wrong(this.counters) : super('counters');
 
   final Counters counters;
@@ -93,13 +93,13 @@ final class Wrong extends DatabaseKeyedTable<Counter, int> {
   late final hits = column.integer('hits').defaultsTo(0);
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name, hits];
+  List<Field<Object?>> get columns => [id, name, hits];
 
   @override
-  Counter read(DatabaseReader row) => Counter(id: row(id), name: row(name), hits: row(hits));
+  Counter read(Reader row) => Counter(id: row(id), name: row(name), hits: row(hits));
 
   @override
-  List<DatabaseAssignment> write(Counter c) => [id.toOrGenerate(c.id), name.to(c.name), hits.incrementBy(1)];
+  List<Assignment> write(Counter c) => [id.toOrGenerate(c.id), name.to(c.name), hits.incrementBy(1)];
 }
 
 void main() {

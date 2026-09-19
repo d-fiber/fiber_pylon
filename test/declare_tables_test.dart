@@ -51,24 +51,24 @@ final class Note {
   final bool? pinned;
 }
 
-final class Notes extends DatabaseKeyedTable<Note, int> {
+final class Notes extends KeyedTable<Note, int> {
   Notes() : super('notes');
 
   late final id = column.key();
   late final title = column.text('title');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title];
+  List<Field<Object?>> get columns => [id, title];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), title: row(title));
+  Note read(Reader row) => Note(id: row(id), title: row(title));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title)];
+  List<Assignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title)];
 }
 
 /// The same table, with a nullable column more: what a later version declares.
-final class NotesV2 extends DatabaseKeyedTable<Note, int> {
+final class NotesV2 extends KeyedTable<Note, int> {
   NotesV2() : super('notes');
 
   late final id = column.key();
@@ -76,18 +76,18 @@ final class NotesV2 extends DatabaseKeyedTable<Note, int> {
   late final pinned = column.boolean('pinned').nullable();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title, pinned];
+  List<Field<Object?>> get columns => [id, title, pinned];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), title: row(title), pinned: row(pinned));
+  Note read(Reader row) => Note(id: row(id), title: row(title), pinned: row(pinned));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title), pinned.to(note.pinned)];
+  List<Assignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title), pinned.to(note.pinned)];
 }
 
 /// A column that is neither nullable nor defaulted: it cannot be added to a
 /// table that already holds rows.
-final class NotesBroken extends DatabaseKeyedTable<Note, int> {
+final class NotesBroken extends KeyedTable<Note, int> {
   NotesBroken() : super('notes');
 
   late final id = column.key();
@@ -95,13 +95,13 @@ final class NotesBroken extends DatabaseKeyedTable<Note, int> {
   late final owner = column.text('owner');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title, owner];
+  List<Field<Object?>> get columns => [id, title, owner];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), title: row(title));
+  Note read(Reader row) => Note(id: row(id), title: row(title));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title), owner.to('x')];
+  List<Assignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title), owner.to('x')];
 }
 
 final class Tag {
@@ -112,7 +112,7 @@ final class Tag {
   final String label;
 }
 
-final class Tags extends DatabaseKeyedTable<Tag, int> {
+final class Tags extends KeyedTable<Tag, int> {
   Tags(this.notes) : super('tags');
 
   final Notes notes;
@@ -122,13 +122,13 @@ final class Tags extends DatabaseKeyedTable<Tag, int> {
   late final label = column.text('label');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, noteId, label];
+  List<Field<Object?>> get columns => [id, noteId, label];
 
   @override
-  Tag read(DatabaseReader row) => Tag(id: row(id), noteId: row(noteId), label: row(label));
+  Tag read(Reader row) => Tag(id: row(id), noteId: row(noteId), label: row(label));
 
   @override
-  List<DatabaseAssignment> write(Tag tag) => [id.toOrGenerate(tag.id), noteId.to(tag.noteId), label.to(tag.label)];
+  List<Assignment> write(Tag tag) => [id.toOrGenerate(tag.id), noteId.to(tag.noteId), label.to(tag.label)];
 }
 
 final class Private {
@@ -138,7 +138,7 @@ final class Private {
   final String text;
 }
 
-final class Privates extends DatabaseKeyedTable<Private, int> {
+final class Privates extends KeyedTable<Private, int> {
   Privates() : super('privates');
 
   late final id = column.key();
@@ -148,13 +148,13 @@ final class Privates extends DatabaseKeyedTable<Private, int> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, text];
+  List<Field<Object?>> get columns => [id, text];
 
   @override
-  Private read(DatabaseReader row) => Private(id: row(id), text: row(text));
+  Private read(Reader row) => Private(id: row(id), text: row(text));
 
   @override
-  List<DatabaseAssignment> write(Private value) => [id.toOrGenerate(value.id), text.to(value.text)];
+  List<Assignment> write(Private value) => [id.toOrGenerate(value.id), text.to(value.text)];
 }
 
 void main() {
@@ -220,7 +220,7 @@ void main() {
       await tags.on(db).insert(Tag(noteId: note.id!, label: 'x'));
       await expectLater(
         tags.on(db).insert(const Tag(noteId: 999, label: 'orphan')),
-        throwsA(isA<DatabaseForeignKeyConstraintError>()),
+        throwsA(isA<ForeignKeyConstraintError>()),
       );
       await db.dispose();
     });
@@ -273,7 +273,7 @@ void main() {
       await first.dispose();
 
       final second = await plain();
-      await expectLater(second.declare([NotesBroken()]), throwsA(isA<DatabaseMigrationRequiredError>()));
+      await expectLater(second.declare([NotesBroken()]), throwsA(isA<MigrationRequiredError>()));
 
       expect(await second.columns('notes').then((c) => c.map((x) => x.name)), ['id', 'title']);
       await second.dispose();

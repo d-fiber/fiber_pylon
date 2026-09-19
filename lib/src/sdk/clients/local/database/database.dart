@@ -156,5 +156,5 @@ abstract base class Database extends LocalSdkClient {
   /// The whole-database mechanism: listing the tenants, removing one's rows,
   /// moving rows from one tenant to another. Opened only by the app's
   /// [Fingerprint]; a [StateError] answers any other.
-  DatabaseWholeAccess wholeDatabase(Fingerprint fingerprint) => AppStorage.database.wholeDatabase(fingerprint);
+  WholeAccess wholeDatabase(Fingerprint fingerprint) => AppStorage.database.wholeDatabase(fingerprint);
 }

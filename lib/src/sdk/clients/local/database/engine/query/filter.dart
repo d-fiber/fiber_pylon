@@ -37,39 +37,39 @@
 part of '../database.dart';
 
 /// One condition a `WHERE` clause can hold, built through
-/// [DatabaseFilterBuilder] rather than written as a raw SQL string. Never
-/// implemented outside this file: [DatabaseQueryFrom.where],
-/// [DatabaseUpdateSet.where] and [DatabaseDeleteFrom.where] each read one
+/// [FilterBuilder] rather than written as a raw SQL string. Never
+/// implemented outside this file: [QueryFrom.where],
+/// [UpdateSet.where] and [DeleteFrom.where] each read one
 /// back into the raw `WHERE` clause and bound arguments sqflite itself
 /// takes.
-sealed class DatabaseFilter {
-  const DatabaseFilter();
+sealed class Filter {
+  const Filter();
 
   /// Rows every one of [filters] matches, and every row when [filters] is
   /// empty. Meant for a list of conditions assembled at run time, where the
   /// `&` operator would need a loop.
-  factory DatabaseFilter.all(List<DatabaseFilter> filters) => _DatabaseFilterCombination(_Connector.and, filters);
+  factory Filter.all(List<Filter> filters) => _FilterCombination(_Connector.and, filters);
 
   /// Rows at least one of [filters] matches, and no row when [filters] is
   /// empty.
-  factory DatabaseFilter.any(List<DatabaseFilter> filters) => _DatabaseFilterCombination(_Connector.or, filters);
+  factory Filter.any(List<Filter> filters) => _FilterCombination(_Connector.or, filters);
 
   /// A raw SQL predicate, every `?` in it bound to [arguments] in order.
   ///
   /// Nothing here validates it, and a raw filter is not checked against the
   /// table a query reads from.
-  factory DatabaseFilter.raw(String sql, [List<DatabaseType>? arguments]) =>
-      _DatabaseFilterRaw(sql, arguments ?? const []);
+  factory Filter.raw(String sql, [List<DatabaseType>? arguments]) =>
+      _FilterRaw(sql, arguments ?? const []);
 
   /// Rows both this filter and [other] match.
-  DatabaseFilter operator &(DatabaseFilter other) => _DatabaseFilterCombination(_Connector.and, [this, other]);
+  Filter operator &(Filter other) => _FilterCombination(_Connector.and, [this, other]);
 
   /// Rows this filter or [other] matches.
-  DatabaseFilter operator |(DatabaseFilter other) => _DatabaseFilterCombination(_Connector.or, [this, other]);
+  Filter operator |(Filter other) => _FilterCombination(_Connector.or, [this, other]);
 
   /// Rows this filter does not match, the rows it cannot decide on included,
-  /// the same way [DatabaseFilterBuilder.not] reads it.
-  DatabaseFilter operator ~() => _DatabaseFilterNot(this);
+  /// the same way [FilterBuilder.not] reads it.
+  Filter operator ~() => _FilterNot(this);
 
   Set<String> get _tables => const {};
 }
@@ -98,66 +98,66 @@ enum _Connector {
   final String whenEmpty;
 }
 
-final class _DatabaseFilterComparison extends DatabaseFilter {
-  const _DatabaseFilterComparison(this.column, this.comparison, this.value);
+final class _FilterComparison extends Filter {
+  const _FilterComparison(this.column, this.comparison, this.value);
 
   final String column;
   final _Comparison comparison;
   final DatabaseType value;
 }
 
-final class _DatabaseFilterLike extends DatabaseFilter {
-  const _DatabaseFilterLike(this.column, this.pattern);
+final class _FilterLike extends Filter {
+  const _FilterLike(this.column, this.pattern);
 
   final String column;
   final String pattern;
 }
 
-final class _DatabaseFilterIn extends DatabaseFilter {
-  const _DatabaseFilterIn(this.column, this.values);
+final class _FilterIn extends Filter {
+  const _FilterIn(this.column, this.values);
 
   final String column;
   final List<DatabaseType> values;
 }
 
-final class _DatabaseFilterNull extends DatabaseFilter {
-  const _DatabaseFilterNull(this.column, this.isNull);
+final class _FilterNull extends Filter {
+  const _FilterNull(this.column, this.isNull);
 
   final String column;
   final bool isNull;
 }
 
-final class _DatabaseFilterNot extends DatabaseFilter {
-  const _DatabaseFilterNot(this.filter);
+final class _FilterNot extends Filter {
+  const _FilterNot(this.filter);
 
-  final DatabaseFilter filter;
+  final Filter filter;
 
   @override
   Set<String> get _tables => filter._tables;
 }
 
-final class _DatabaseFilterOfTable extends DatabaseFilter {
-  const _DatabaseFilterOfTable(this.filter, this.table);
+final class _FilterOfTable extends Filter {
+  const _FilterOfTable(this.filter, this.table);
 
-  final DatabaseFilter filter;
+  final Filter filter;
   final String table;
 
   @override
   Set<String> get _tables => {table};
 }
 
-final class _DatabaseFilterCombination extends DatabaseFilter {
-  const _DatabaseFilterCombination(this.connector, this.filters);
+final class _FilterCombination extends Filter {
+  const _FilterCombination(this.connector, this.filters);
 
   final _Connector connector;
-  final List<DatabaseFilter> filters;
+  final List<Filter> filters;
 
   @override
   Set<String> get _tables => {for (final filter in filters) ...filter._tables};
 }
 
-final class _DatabaseFilterRaw extends DatabaseFilter {
-  const _DatabaseFilterRaw(this.sql, this.arguments);
+final class _FilterRaw extends Filter {
+  const _FilterRaw(this.sql, this.arguments);
 
   final String sql;
   final List<DatabaseType> arguments;
@@ -175,18 +175,18 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
     ? throw ArgumentError.value(value, 'value', 'NULL has no order to compare against. Use isNull or isNotNull.')
     : value;
 
-(String, List<DatabaseType>) _renderDatabaseFilter(DatabaseFilter filter) {
+(String, List<DatabaseType>) _renderDatabaseFilter(Filter filter) {
   switch (filter) {
-    case _DatabaseFilterComparison(:final column, :final comparison, :final value):
+    case _FilterComparison(:final column, :final comparison, :final value):
       final name = _quotedIdentifier(column);
       return switch ((comparison, value)) {
         (_Comparison.equal, Nil()) => ('$name IS NULL', const []),
         (_Comparison.notEqual, Nil()) => ('$name IS NOT NULL', const []),
         _ => ('$name ${comparison.sql} ?', [value]),
       };
-    case _DatabaseFilterLike(:final column, :final pattern):
+    case _FilterLike(:final column, :final pattern):
       return ("${_quotedIdentifier(column)} LIKE ? ESCAPE '\\'", [DatabaseType.varchar(pattern)]);
-    case _DatabaseFilterIn(:final column, :final values):
+    case _FilterIn(:final column, :final values):
       final name = _quotedIdentifier(column);
       final present = values.where((value) => value is! Nil).toList();
       final clauses = [
@@ -198,14 +198,14 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
         [final single] => (single, present),
         _ => ('(${clauses.join(' OR ')})', present),
       };
-    case _DatabaseFilterNull(:final column, :final isNull):
+    case _FilterNull(:final column, :final isNull):
       return ('${_quotedIdentifier(column)} IS ${isNull ? '' : 'NOT '}NULL', const []);
-    case _DatabaseFilterOfTable(:final filter):
+    case _FilterOfTable(:final filter):
       return _renderDatabaseFilter(filter);
-    case _DatabaseFilterNot(:final filter):
+    case _FilterNot(:final filter):
       final (clause, arguments) = _renderDatabaseFilter(filter);
       return ('NOT COALESCE(($clause), 0)', arguments);
-    case _DatabaseFilterCombination(:final connector, :final filters):
+    case _FilterCombination(:final connector, :final filters):
       if (filters.isEmpty) return (connector.whenEmpty, const []);
       final clauses = <String>[];
       final arguments = <DatabaseType>[];
@@ -215,15 +215,15 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
         arguments.addAll(filterArguments);
       }
       return (clauses.join(' ${connector.sql} '), arguments);
-    case _DatabaseFilterRaw(:final sql, :final arguments):
+    case _FilterRaw(:final sql, :final arguments):
       return (sql, arguments);
   }
 }
 
-/// Composes one [DatabaseFilter], handed to the callback
-/// [DatabaseQueryFrom.where], [DatabaseUpdateSet.where] and
-/// [DatabaseDeleteFrom.where] each take. Every method answers a leaf
-/// [DatabaseFilter]; [and], [or] and [not] combine several into one.
+/// Composes one [Filter], handed to the callback
+/// [QueryFrom.where], [UpdateSet.where] and
+/// [DeleteFrom.where] each take. Every method answers a leaf
+/// [Filter]; [and], [or] and [not] combine several into one.
 ///
 /// ```dart
 /// db.query<Todo>(
@@ -241,48 +241,48 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
 /// range is stored as JSON text, so equality holds only for the exact same
 /// text, and anything finer, such as whether a range contains a value, goes
 /// through [raw].
-final class DatabaseFilterBuilder {
+final class FilterBuilder {
   /// Builds no filter on its own; each of its methods does.
-  const DatabaseFilterBuilder();
+  const FilterBuilder();
 
   /// Rows where [key] equals [value]. Rows where [key] is null when [value] is
   /// a [Nil], which a plain SQL `=` would never match.
-  DatabaseFilter isEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, _Comparison.equal, value);
+  Filter isEqualTo({required String key, required DatabaseType value}) =>
+      _FilterComparison(key, _Comparison.equal, value);
 
   /// Rows where [key] differs from [value], the rows where [key] is null
   /// included: a null differs from every value. Rows where [key] is not null
   /// when [value] is a [Nil].
-  DatabaseFilter isNotEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, _Comparison.notEqual, value);
+  Filter isNotEqualTo({required String key, required DatabaseType value}) =>
+      _FilterComparison(key, _Comparison.notEqual, value);
 
   /// Rows where [key] is strictly greater than [value].
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  DatabaseFilter isGreaterThan({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, _Comparison.greaterThan, _orderable(value));
+  Filter isGreaterThan({required String key, required DatabaseType value}) =>
+      _FilterComparison(key, _Comparison.greaterThan, _orderable(value));
 
   /// Rows where [key] is greater than [value], or equal to it.
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  DatabaseFilter isGreaterThanOrEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, _Comparison.greaterThanOrEqual, _orderable(value));
+  Filter isGreaterThanOrEqualTo({required String key, required DatabaseType value}) =>
+      _FilterComparison(key, _Comparison.greaterThanOrEqual, _orderable(value));
 
   /// Rows where [key] is strictly less than [value].
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  DatabaseFilter isLessThan({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, _Comparison.lessThan, _orderable(value));
+  Filter isLessThan({required String key, required DatabaseType value}) =>
+      _FilterComparison(key, _Comparison.lessThan, _orderable(value));
 
   /// Rows where [key] is less than [value], or equal to it.
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  DatabaseFilter isLessThanOrEqualTo({required String key, required DatabaseType value}) =>
-      _DatabaseFilterComparison(key, _Comparison.lessThanOrEqual, _orderable(value));
+  Filter isLessThanOrEqualTo({required String key, required DatabaseType value}) =>
+      _FilterComparison(key, _Comparison.lessThanOrEqual, _orderable(value));
 
   /// Rows where [key] matches [pattern], where `%` stands for any run of
   /// characters and `_` for exactly one.
@@ -294,62 +294,62 @@ final class DatabaseFilterBuilder {
   ///
   /// Throws an [ArgumentError] when [pattern] holds a NUL character, which
   /// SQLite reads as the end of the pattern.
-  DatabaseFilter isLike({required String key, required String pattern}) =>
-      _DatabaseFilterComparison(key, _Comparison.like, DatabaseType.varchar(_likeText(pattern, 'pattern')));
+  Filter isLike({required String key, required String pattern}) =>
+      _FilterComparison(key, _Comparison.like, DatabaseType.varchar(_likeText(pattern, 'pattern')));
 
   /// Rows where [key] holds [text] somewhere in it, `%` and `_` in [text]
   /// matching themselves. SQLite ignores the case of ASCII letters here.
   ///
   /// Throws an [ArgumentError] when [text] holds a NUL character, which SQLite
   /// reads as the end of a pattern and would match every row.
-  DatabaseFilter contains({required String key, required String text}) =>
-      _DatabaseFilterLike(key, '%${_escapeLike(_likeText(text, 'text'))}%');
+  Filter contains({required String key, required String text}) =>
+      _FilterLike(key, '%${_escapeLike(_likeText(text, 'text'))}%');
 
   /// Rows where [key] begins with [text], `%` and `_` in [text] matching
   /// themselves. SQLite ignores the case of ASCII letters here.
   ///
   /// Throws an [ArgumentError] when [text] holds a NUL character, as [contains]
   /// does.
-  DatabaseFilter startsWith({required String key, required String text}) =>
-      _DatabaseFilterLike(key, '${_escapeLike(_likeText(text, 'text'))}%');
+  Filter startsWith({required String key, required String text}) =>
+      _FilterLike(key, '${_escapeLike(_likeText(text, 'text'))}%');
 
   /// Rows where [key] ends with [text], `%` and `_` in [text] matching
   /// themselves. SQLite ignores the case of ASCII letters here.
   ///
   /// Throws an [ArgumentError] when [text] holds a NUL character, as [contains]
   /// does.
-  DatabaseFilter endsWith({required String key, required String text}) =>
-      _DatabaseFilterLike(key, '%${_escapeLike(_likeText(text, 'text'))}');
+  Filter endsWith({required String key, required String text}) =>
+      _FilterLike(key, '%${_escapeLike(_likeText(text, 'text'))}');
 
   /// Rows where [key] is one of [values]. A [Nil] among them matches the rows
   /// where [key] is null.
-  DatabaseFilter isIn({required String key, required List<DatabaseType> values}) => _DatabaseFilterIn(key, values);
+  Filter isIn({required String key, required List<DatabaseType> values}) => _FilterIn(key, values);
 
   /// Rows where [key] carries no value.
-  DatabaseFilter isNull(String key) => _DatabaseFilterNull(key, true);
+  Filter isNull(String key) => _FilterNull(key, true);
 
   /// Rows where [key] carries a value.
-  DatabaseFilter isNotNull(String key) => _DatabaseFilterNull(key, false);
+  Filter isNotNull(String key) => _FilterNull(key, false);
 
   /// Rows every one of [filters] matches. `AND`s nothing, and matches every
   /// row, when [filters] is empty.
-  DatabaseFilter and(List<DatabaseFilter> filters) => _DatabaseFilterCombination(_Connector.and, filters);
+  Filter and(List<Filter> filters) => _FilterCombination(_Connector.and, filters);
 
   /// Rows at least one of [filters] matches. Matches no row when [filters]
   /// is empty.
-  DatabaseFilter or(List<DatabaseFilter> filters) => _DatabaseFilterCombination(_Connector.or, filters);
+  Filter or(List<Filter> filters) => _FilterCombination(_Connector.or, filters);
 
   /// Rows [filter] does not match.
   ///
   /// That includes the rows [filter] cannot decide on. A row where a column
   /// is null is matched by neither [isEqualTo] nor [isGreaterThan] against a
   /// value, so it is matched by [not] of either.
-  DatabaseFilter not(DatabaseFilter filter) => _DatabaseFilterNot(filter);
+  Filter not(Filter filter) => _FilterNot(filter);
 
   /// A raw SQL predicate, every `?` in it bound to [arguments] in order, for
   /// a condition the rest of this builder cannot express.
   ///
   /// Nothing here validates it, the same choice pylon makes for every other
   /// raw SQL fragment a caller supplies.
-  DatabaseFilter raw(String sql, [List<DatabaseType>? arguments]) => _DatabaseFilterRaw(sql, arguments ?? const []);
+  Filter raw(String sql, [List<DatabaseType>? arguments]) => _FilterRaw(sql, arguments ?? const []);
 }

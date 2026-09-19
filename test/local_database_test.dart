@@ -401,12 +401,12 @@ void main() {
       final results = await batch.commit();
 
       expect(results, [
-        const DatabaseBatchInserted(1),
-        const DatabaseBatchInserted(2),
-        const DatabaseBatchChanged(1),
-        const DatabaseBatchChanged(0),
-        const DatabaseBatchExecuted(),
-        const DatabaseBatchRows([
+        const BatchInserted(1),
+        const BatchInserted(2),
+        const BatchChanged(1),
+        const BatchChanged(0),
+        const BatchExecuted(),
+        const BatchRows([
           {'id': Integer(1), 'title': Varchar('First'), 'done': Integer(1)},
         ]),
       ]);
@@ -425,12 +425,12 @@ void main() {
       final results = await batch.commit(continueOnError: true);
 
       expect(results, hasLength(3));
-      expect(results[0], const DatabaseBatchInserted(1));
+      expect(results[0], const BatchInserted(1));
       expect(
         results[1],
-        isA<DatabaseBatchFailed>().having((failed) => failed.error, 'error', isA<DatabaseUniqueConstraintError>()),
+        isA<BatchFailed>().having((failed) => failed.error, 'error', isA<UniqueConstraintError>()),
       );
-      expect(results[2], const DatabaseBatchInserted(2));
+      expect(results[2], const BatchInserted(2));
       await db.dispose();
     });
 
@@ -444,7 +444,7 @@ void main() {
         (i) => i.into('todos').values(const Todo(title: 'Same', done: false)).onConflict(ConflictAlgorithm.ignore),
       );
 
-      expect(await batch.commit(), [const DatabaseBatchInserted(null)]);
+      expect(await batch.commit(), [const BatchInserted(null)]);
       await db.dispose();
     });
 
@@ -468,12 +468,12 @@ void main() {
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
       batch.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Same', done: false)));
 
-      await expectLater(batch.commit(), throwsA(isA<DatabaseUniqueConstraintError>()));
+      await expectLater(batch.commit(), throwsA(isA<UniqueConstraintError>()));
       expect(await db.query<Todo>((q) => q.from('todos').map(Todo.fromRow)), isEmpty);
       await db.dispose();
     });
 
-    test('reports a unique constraint violation as DatabaseUniqueConstraintError', () async {
+    test('reports a unique constraint violation as UniqueConstraintError', () async {
       final db = LocalDatabase(
         name: 'todos_unique.db',
         onCreate: (db, version) =>
@@ -484,18 +484,18 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [DatabaseType.varchar('Ship it')]),
-        throwsA(isA<DatabaseUniqueConstraintError>()),
+        throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
     });
 
-    test('reports a query against a missing table as DatabaseNoSuchTableError', () async {
+    test('reports a query against a missing table as NoSuchTableError', () async {
       final db = LocalDatabase(name: 'todos_missing.db', onCreate: _createTodos);
       await db.open();
 
       await expectLater(
         db.query<Todo>((q) => q.from('ghosts').map(Todo.fromRow)),
-        throwsA(isA<DatabaseNoSuchTableError>()),
+        throwsA(isA<NoSuchTableError>()),
       );
       await db.dispose();
     });
@@ -531,7 +531,7 @@ void main() {
     });
   });
 
-  group('DatabaseFilterBuilder', () {
+  group('FilterBuilder', () {
     late LocalDatabase db;
 
     setUp(() async {
@@ -544,7 +544,7 @@ void main() {
 
     tearDown(() => db.dispose());
 
-    Future<List<String>> titlesWhere(DatabaseFilter Function(DatabaseFilterBuilder w) build) async {
+    Future<List<String>> titlesWhere(Filter Function(FilterBuilder w) build) async {
       final rows = await db.query<Todo>(
         (q) => q.from('todos').where(build).orderBy(const [DatabaseOrder.named('title')]).map(Todo.fromRow),
       );
@@ -643,7 +643,7 @@ void main() {
       ]);
     });
   });
-  group('DatabaseFilterBuilder over nulls, text and stored conventions', () {
+  group('FilterBuilder over nulls, text and stored conventions', () {
     late LocalDatabase notes;
 
     setUp(() async {
@@ -660,7 +660,7 @@ void main() {
 
     tearDown(() => notes.dispose());
 
-    Future<List<int>> idsWhere(DatabaseFilter Function(DatabaseFilterBuilder w) build) => notes.query<int>(
+    Future<List<int>> idsWhere(Filter Function(FilterBuilder w) build) => notes.query<int>(
       (q) => q
           .from('notes')
           .select(const ['id'])
@@ -735,7 +735,7 @@ void main() {
         await slots.execute('INSERT INTO slots (at) VALUES (?)', [DatabaseType.time(time)]);
       }
 
-      Future<List<int>> idsWhereAt(DatabaseFilter Function(DatabaseFilterBuilder w) build) => slots.query<int>(
+      Future<List<int>> idsWhereAt(Filter Function(FilterBuilder w) build) => slots.query<int>(
         (q) => q
             .from('slots')
             .select(const ['id'])

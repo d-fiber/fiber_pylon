@@ -52,7 +52,7 @@ part of '../database.dart';
 ///   note: row.nullable('note')?.asString,
 /// );
 /// ```
-extension DatabaseRowReading on DatabaseRow {
+extension RowReading on DatabaseRow {
   /// The value of [column], for a column that is never NULL.
   ///
   /// Throws a [StateError] naming [column] and the columns the row does carry

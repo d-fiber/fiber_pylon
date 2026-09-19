@@ -53,7 +53,7 @@ final class Note {
 }
 
 /// Isolated, with an auto-numbered key.
-final class Notes extends DatabaseKeyedTable<Note, int> {
+final class Notes extends KeyedTable<Note, int> {
   Notes() : super('notes');
 
   late final id = column.key();
@@ -63,13 +63,13 @@ final class Notes extends DatabaseKeyedTable<Note, int> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title];
+  List<Field<Object?>> get columns => [id, title];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), title: row(title));
+  Note read(Reader row) => Note(id: row(id), title: row(title));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title)];
+  List<Assignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title)];
 }
 
 final class Profile {
@@ -80,7 +80,7 @@ final class Profile {
 }
 
 /// Isolated, with a text key and a unique column: both unique per tenant.
-final class Profiles extends DatabaseKeyedTable<Profile, String> {
+final class Profiles extends KeyedTable<Profile, String> {
   Profiles() : super('profiles');
 
   late final handle = column.text('handle').primaryKey();
@@ -90,13 +90,13 @@ final class Profiles extends DatabaseKeyedTable<Profile, String> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [handle, email];
+  List<Field<Object?>> get columns => [handle, email];
 
   @override
-  Profile read(DatabaseReader row) => Profile(row(handle), row(email));
+  Profile read(Reader row) => Profile(row(handle), row(email));
 
   @override
-  List<DatabaseAssignment> write(Profile profile) => [handle.to(profile.handle), email.to(profile.email)];
+  List<Assignment> write(Profile profile) => [handle.to(profile.handle), email.to(profile.email)];
 }
 
 final class Comment {
@@ -109,7 +109,7 @@ final class Comment {
 
 /// Isolated, and pointing at an isolated table: a comment can only point at a
 /// note of its own tenant.
-final class Comments extends DatabaseKeyedTable<Comment, int> {
+final class Comments extends KeyedTable<Comment, int> {
   Comments(this.notes) : super('comments');
 
   final Notes notes;
@@ -122,13 +122,13 @@ final class Comments extends DatabaseKeyedTable<Comment, int> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, noteId, text];
+  List<Field<Object?>> get columns => [id, noteId, text];
 
   @override
-  Comment read(DatabaseReader row) => Comment(id: row(id), noteId: row(noteId), text: row(text));
+  Comment read(Reader row) => Comment(id: row(id), noteId: row(noteId), text: row(text));
 
   @override
-  List<DatabaseAssignment> write(Comment comment) => [
+  List<Assignment> write(Comment comment) => [
     id.toOrGenerate(comment.id),
     noteId.to(comment.noteId),
     text.to(comment.text),
@@ -143,20 +143,20 @@ final class Setting {
 }
 
 /// Shared, the default: one copy for everyone, with no tenant column at all.
-final class Settings extends DatabaseKeyedTable<Setting, String> {
+final class Settings extends KeyedTable<Setting, String> {
   Settings() : super('settings');
 
   late final name = column.text('name').primaryKey();
   late final value = column.text('value');
 
   @override
-  List<DatabaseField<Object?>> get columns => [name, value];
+  List<Field<Object?>> get columns => [name, value];
 
   @override
-  Setting read(DatabaseReader row) => Setting(row(name), row(value));
+  Setting read(Reader row) => Setting(row(name), row(value));
 
   @override
-  List<DatabaseAssignment> write(Setting setting) => [name.to(setting.name), value.to(setting.value)];
+  List<Assignment> write(Setting setting) => [name.to(setting.name), value.to(setting.value)];
 }
 
 /// Declares the column an isolated table reserves.
@@ -169,13 +169,13 @@ final class Reserved extends DatabaseTable<int> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [tenant];
+  List<Field<Object?>> get columns => [tenant];
 
   @override
-  int read(DatabaseReader row) => 0;
+  int read(Reader row) => 0;
 
   @override
-  List<DatabaseAssignment> write(int value) => [];
+  List<Assignment> write(int value) => [];
 }
 
 /// A shared table pointing at an isolated one, which no tenant could honour.
@@ -187,13 +187,13 @@ final class SharedPointer extends DatabaseTable<int> {
   late final noteId = column.integer('note_id').references(notes.id);
 
   @override
-  List<DatabaseField<Object?>> get columns => [noteId];
+  List<Field<Object?>> get columns => [noteId];
 
   @override
-  int read(DatabaseReader row) => row(noteId);
+  int read(Reader row) => row(noteId);
 
   @override
-  List<DatabaseAssignment> write(int value) => [noteId.to(value)];
+  List<Assignment> write(int value) => [noteId.to(value)];
 }
 
 Future<void> _waitFor(List<Object?> list, int count) async {
@@ -243,7 +243,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  Future<List<String>> titles([DatabaseRows<Note>? rows]) async => [
+  Future<List<String>> titles([Rows<Note>? rows]) async => [
     for (final note in await (rows ?? notes.on(db).orderBy([notes.id.asc()])).list()) note.title,
   ];
 
@@ -349,11 +349,11 @@ void main() {
 
       await expectLater(
         profiles.on(db).insert(const Profile('ada', 'other@x.dev')),
-        throwsA(isA<DatabaseUniqueConstraintError>()),
+        throwsA(isA<UniqueConstraintError>()),
       );
       await expectLater(
         profiles.on(db).insert(const Profile('bob', 'ada@x.dev')),
-        throwsA(isA<DatabaseUniqueConstraintError>()),
+        throwsA(isA<UniqueConstraintError>()),
       );
     });
 
@@ -452,7 +452,7 @@ void main() {
 
       await expectLater(
         comments.on(db).insert(Comment(noteId: note.id!, text: 'sneaky')),
-        throwsA(isA<DatabaseForeignKeyConstraintError>()),
+        throwsA(isA<ForeignKeyConstraintError>()),
       );
     });
 
@@ -461,7 +461,7 @@ void main() {
       final note = await notes.on(db).insert(const Note(title: 'n'));
       await comments.on(db).insert(Comment(noteId: note.id!, text: 'hi'));
 
-      await expectLater(notes.on(db).remove(note.id!), throwsA(isA<DatabaseForeignKeyConstraintError>()));
+      await expectLater(notes.on(db).remove(note.id!), throwsA(isA<ForeignKeyConstraintError>()));
     });
   });
 

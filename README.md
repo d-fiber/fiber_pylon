@@ -368,7 +368,7 @@ A table is declared once, as a class, and the engine creates it, adds the column
 and reads and writes it typed:
 
 ```dart
-final class UsersTable extends DatabaseKeyedTable<User, String> {
+final class UsersTable extends KeyedTable<User, String> {
   UsersTable() : super('users');
 
   late final id = column.text('id').primaryKey();
@@ -379,13 +379,13 @@ final class UsersTable extends DatabaseKeyedTable<User, String> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name, age];
+  List<Field<Object?>> get columns => [id, name, age];
 
   @override
-  User read(DatabaseReader row) => User(id: row(id), name: row(name), age: row(age));
+  User read(Reader row) => User(id: row(id), name: row(name), age: row(age));
 
   @override
-  List<DatabaseAssignment> write(User user) => [id.to(user.id), name.to(user.name), age.to(user.age)];
+  List<Assignment> write(User user) => [id.to(user.id), name.to(user.name), age.to(user.age)];
 }
 ```
 

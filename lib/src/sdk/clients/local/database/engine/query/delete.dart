@@ -44,28 +44,28 @@ part of '../database.dart';
 /// ```dart
 /// final removed = await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
 /// ```
-final class DatabaseDelete {
-  const DatabaseDelete._();
+final class Delete {
+  const Delete._();
 
   /// Removes rows from [name], the same `FROM` a raw `DELETE FROM ...` names.
-  DatabaseDeleteFrom from(String name) => DatabaseDeleteFrom._(_quotedIdentifier(name));
+  DeleteFrom from(String name) => DeleteFrom._(_quotedIdentifier(name));
 }
 
-/// A [DatabaseDelete] that has named its table, opened by [DatabaseDelete.from] —
+/// A [Delete] that has named its table, opened by [Delete.from] —
 /// already a fully composed delete, since `WHERE` is genuinely optional on
 /// a raw `DELETE FROM table` (it removes every row without one).
-final class DatabaseDeleteFrom {
-  DatabaseDeleteFrom._(this._table, [this._where, this._whereArgs]);
+final class DeleteFrom {
+  DeleteFrom._(this._table, [this._where, this._whereArgs]);
 
   final String _table;
   final String? _where;
   final List<DatabaseType>? _whereArgs;
 
   /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Called again, both conditions must hold. Every row
+  /// [FilterBuilder]. Called again, both conditions must hold. Every row
   /// in the table is removed when this is never called.
-  DatabaseDeleteFrom where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
-    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return DatabaseDeleteFrom._(_table, _bothMatch(_where, clause), [...?_whereArgs, ...arguments]);
+  DeleteFrom where(Filter Function(FilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
+    return DeleteFrom._(_table, _bothMatch(_where, clause), [...?_whereArgs, ...arguments]);
   }
 }

@@ -53,7 +53,7 @@ sealed class DatabaseSession {
 
 const String _rowIdColumn = '__rowid';
 
-String _whereSql(DatabaseFilter? filter, List<DatabaseType> arguments) {
+String _whereSql(Filter? filter, List<DatabaseType> arguments) {
   if (filter == null) return '';
   final (clause, filterArguments) = _renderDatabaseFilter(filter);
   arguments.addAll(filterArguments);
@@ -84,8 +84,8 @@ String _whereSql(DatabaseFilter? filter, List<DatabaseType> arguments) {
 /// A filter or an order built from a column of another table is refused, so
 /// a column shared by name between two tables cannot be read from the wrong
 /// one. Reading with no [orderBy] gives no promised order.
-base class DatabaseRows<R extends Object> {
-  const DatabaseRows._(
+base class Rows<R extends Object> {
+  const Rows._(
     this._session,
     this._table, [
     this._filter,
@@ -97,14 +97,14 @@ base class DatabaseRows<R extends Object> {
 
   final DatabaseSession _session;
   final DatabaseTable<R> _table;
-  final DatabaseFilter? _filter;
+  final Filter? _filter;
   final List<DatabaseOrder> _orders;
   final int? _limit;
   final int? _offset;
   final _Scope _scope;
 
-  DatabaseRows<R> _copy({DatabaseFilter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
-      DatabaseRows<R>._(
+  Rows<R> _copy({Filter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+      Rows<R>._(
         _session,
         _table,
         filter ?? _filter,
@@ -122,15 +122,15 @@ base class DatabaseRows<R extends Object> {
   /// The filter every read and write of this table starts from: on an
   /// isolated table, the tenant condition comes first and no method of this
   /// class can leave it out.
-  DatabaseFilter? _scopedFilter(_Reach reach) {
+  Filter? _scopedFilter(_Reach reach) {
     if (_table.tunnel == Tunnel.shared) return _filter;
     final quoted = _quotedIdentifier(_tenantColumn);
-    final DatabaseFilter? partition;
+    final Filter? partition;
     if (!reach.isMany) {
-      partition = _DatabaseFilterRaw('$quoted = ?', [DatabaseType.varchar(reach.tenant!)]);
+      partition = _FilterRaw('$quoted = ?', [DatabaseType.varchar(reach.tenant!)]);
     } else if (reach.only case final only?) {
       if (only.isEmpty) throw ArgumentError.value(only, 'only', 'cannot be empty');
-      partition = _DatabaseFilterRaw('$quoted IN (${List.filled(only.length, '?').join(', ')})', [
+      partition = _FilterRaw('$quoted IN (${List.filled(only.length, '?').join(', ')})', [
         for (final tenant in only) DatabaseType.varchar(tenant),
       ]);
     } else {
@@ -144,7 +144,7 @@ base class DatabaseRows<R extends Object> {
   /// both filters match, rather than replacing the first.
   ///
   /// Throws an [ArgumentError] when [filter] uses a column of another table.
-  DatabaseRows<R> where(DatabaseFilter filter) {
+  Rows<R> where(Filter filter) {
     final foreign = filter._tables.difference({_table.tableName});
     if (foreign.isNotEmpty) {
       throw ArgumentError.value(
@@ -158,18 +158,18 @@ base class DatabaseRows<R extends Object> {
 
   /// Sorts the rows by [orders], the first deciding and each later one
   /// breaking the ties of the one before it.
-  DatabaseRows<R> orderBy(List<DatabaseOrder> orders) => _copy(orders: orders);
+  Rows<R> orderBy(List<DatabaseOrder> orders) => _copy(orders: orders);
 
   /// Reads at most [count] rows.
   ///
   /// Throws a [RangeError] when [count] is negative, which SQLite would read
   /// as no limit at all.
-  DatabaseRows<R> limit(int count) => _copy(limit: RangeError.checkNotNegative(count, 'count'));
+  Rows<R> limit(int count) => _copy(limit: RangeError.checkNotNegative(count, 'count'));
 
   /// Skips the first [count] matching rows.
   ///
   /// Throws a [RangeError] when [count] is negative.
-  DatabaseRows<R> offset(int count) => _copy(offset: RangeError.checkNotNegative(count, 'count'));
+  Rows<R> offset(int count) => _copy(offset: RangeError.checkNotNegative(count, 'count'));
 
   /// Every row kept, as records.
   Future<List<R>> list() async => [for (final row in await _selectRows()) _table._fromRow(row)];
@@ -293,7 +293,7 @@ base class DatabaseRows<R extends Object> {
   /// Throws a [StateError] when no [where] narrowed the rows, which would
   /// rewrite the whole table: say so with [updateAll]. Also throws when a
   /// [limit] or an [offset] was set, which an update would ignore.
-  Future<int> update(List<DatabaseAssignment> assignments) async {
+  Future<int> update(List<Assignment> assignments) async {
     if (_filter == null) {
       throw StateError('update on ${_table.tableName} has no where. Use updateAll to rewrite every row.');
     }
@@ -304,7 +304,7 @@ base class DatabaseRows<R extends Object> {
   ///
   /// Throws a [StateError] when a [where] narrowed the rows, which [update]
   /// is for.
-  Future<int> updateAll(List<DatabaseAssignment> assignments) async {
+  Future<int> updateAll(List<Assignment> assignments) async {
     if (_filter != null) throw StateError('updateAll on ${_table.tableName} has a where. Use update.');
     return _write(assignments);
   }
@@ -336,7 +336,7 @@ base class DatabaseRows<R extends Object> {
     }
   }
 
-  Future<int> _write(List<DatabaseAssignment> assignments) {
+  Future<int> _write(List<Assignment> assignments) {
     final update = _table._updateOf(assignments);
     return _writeClauses(update.clauses, update.arguments);
   }
@@ -378,16 +378,16 @@ base class DatabaseRows<R extends Object> {
 }
 
 /// A table read and written through one [DatabaseSession], opened by
-/// [DatabaseTable.on]. Everything [DatabaseRows] reads and edits is here too,
+/// [DatabaseTable.on]. Everything [Rows] reads and edits is here too,
 /// over the whole table, and inserting is added.
-base class DatabaseTableAccess<R extends Object> extends DatabaseRows<R> {
-  const DatabaseTableAccess._(DatabaseSession session, DatabaseTable<R> table, [_Scope scope = const _CurrentScope()])
+base class TableAccess<R extends Object> extends Rows<R> {
+  const TableAccess._(DatabaseSession session, DatabaseTable<R> table, [_Scope scope = const _CurrentScope()])
     : super._(session, table, null, const [], null, null, scope);
 
   /// Inserts [record] and answers the record the database now holds, so the
   /// key it was given and any default it took are already in it.
   ///
-  /// Throws a [DatabaseUniqueConstraintError] when a unique column or the key
+  /// Throws a [UniqueConstraintError] when a unique column or the key
   /// collides with a row already there. Nothing is replaced silently.
   Future<R> insert(R record) async => (await insertAll([record])).single;
 
@@ -428,18 +428,18 @@ base class DatabaseTableAccess<R extends Object> extends DatabaseRows<R> {
 }
 
 /// A keyed table read and written through one [DatabaseSession], opened by
-/// [DatabaseKeyedTable.on]. It adds what a key makes possible: reading, writing
+/// [KeyedTable.on]. It adds what a key makes possible: reading, writing
 /// and removing one row by its key.
-final class DatabaseKeyedAccess<R extends Object, K extends Object> extends DatabaseTableAccess<R> {
-  const DatabaseKeyedAccess._(super.session, DatabaseKeyedTable<R, K> super.table, [super.scope]) : super._();
+final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<R> {
+  const KeyedAccess._(super.session, KeyedTable<R, K> super.table, [super.scope]) : super._();
 
-  DatabaseKeyedTable<R, K> get _keyed => _table as DatabaseKeyedTable<R, K>;
+  KeyedTable<R, K> get _keyed => _table as KeyedTable<R, K>;
 
   /// The record whose key is [key], or null when there is none.
   Future<R?> get(K key) => where(_keyed._key.isEqualTo(key)).first();
 
   /// The record whose key is [key], now and again after each write that
-  /// changes it, or null while there is none. See [DatabaseRows.watch].
+  /// changes it, or null while there is none. See [Rows.watch].
   Stream<R?> watchOne(K key) => where(_keyed._key.isEqualTo(key)).watchFirst();
 
   /// Removes the row whose key is [key], and answers whether there was one.
@@ -454,16 +454,16 @@ final class DatabaseKeyedAccess<R extends Object, K extends Object> extends Data
   Future<R> upsert(R record) {
     // Held from here: the whole upsert runs on the tenant it started on.
     final scope = _table.tunnel == Tunnel.isolated ? _PinnedScope(_reach().tenant!) : const _CurrentScope();
-    return _session._atomically((session) => _upsertOn(DatabaseKeyedAccess<R, K>._(session, _keyed, scope), record));
+    return _session._atomically((session) => _upsertOn(KeyedAccess<R, K>._(session, _keyed, scope), record));
   }
 
-  Future<R> _upsertOn(DatabaseKeyedAccess<R, K> access, R record) async {
+  Future<R> _upsertOn(KeyedAccess<R, K> access, R record) async {
     final row = _table._rowOf(record, generateKey: false);
     final key = _keyed._key;
     final keyValue = row.remove(key.name);
     if (keyValue == null) return access.insert(record);
-    final sameKey = _DatabaseFilterOfTable(
-      _DatabaseFilterComparison(key.name, _Comparison.equal, keyValue),
+    final sameKey = _FilterOfTable(
+      _FilterComparison(key.name, _Comparison.equal, keyValue),
       _table.tableName,
     );
     final changed = row.isEmpty
@@ -486,8 +486,8 @@ final class DatabaseKeyedAccess<R extends Object, K extends Object> extends Data
 /// since a new row belongs to one tenant, which is [DatabaseTable.on]'s to say.
 ///
 /// A shared table has no tenants, so here it is simply all of its rows.
-final class DatabaseWholeRows<R extends Object> extends DatabaseRows<R> {
-  const DatabaseWholeRows._(
+final class WholeRows<R extends Object> extends Rows<R> {
+  const WholeRows._(
     super.session,
     super.table, [
     super.filter,
@@ -498,8 +498,8 @@ final class DatabaseWholeRows<R extends Object> extends DatabaseRows<R> {
   ]) : super._();
 
   @override
-  DatabaseWholeRows<R> _copy({DatabaseFilter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
-      DatabaseWholeRows<R>._(
+  WholeRows<R> _copy({Filter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+      WholeRows<R>._(
         _session,
         _table,
         filter ?? _filter,
@@ -510,23 +510,23 @@ final class DatabaseWholeRows<R extends Object> extends DatabaseRows<R> {
       );
 
   @override
-  DatabaseWholeRows<R> where(DatabaseFilter filter) => super.where(filter) as DatabaseWholeRows<R>;
+  WholeRows<R> where(Filter filter) => super.where(filter) as WholeRows<R>;
 
   @override
-  DatabaseWholeRows<R> orderBy(List<DatabaseOrder> orders) => super.orderBy(orders) as DatabaseWholeRows<R>;
+  WholeRows<R> orderBy(List<DatabaseOrder> orders) => super.orderBy(orders) as WholeRows<R>;
 
   @override
-  DatabaseWholeRows<R> limit(int count) => super.limit(count) as DatabaseWholeRows<R>;
+  WholeRows<R> limit(int count) => super.limit(count) as WholeRows<R>;
 
   @override
-  DatabaseWholeRows<R> offset(int count) => super.offset(count) as DatabaseWholeRows<R>;
+  WholeRows<R> offset(int count) => super.offset(count) as WholeRows<R>;
 
   /// Only the rows of [tenants]. Throws an [ArgumentError] when it is empty.
-  DatabaseWholeRows<R> ofTenants(Iterable<String> tenants) {
+  WholeRows<R> ofTenants(Iterable<String> tenants) {
     final only = tenants.toSet();
     if (only.isEmpty) throw ArgumentError.value(tenants, 'tenants', 'cannot be empty');
     only.forEach(_checkTenantId);
-    return DatabaseWholeRows<R>._(_session, _table, _filter, _orders, _limit, _offset, _AllScope(only));
+    return WholeRows<R>._(_session, _table, _filter, _orders, _limit, _offset, _AllScope(only));
   }
 
   /// Every row kept, with the tenant each belongs to — `null` for the

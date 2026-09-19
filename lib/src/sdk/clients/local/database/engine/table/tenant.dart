@@ -51,7 +51,7 @@ enum Tunnel {
   shared,
 }
 
-/// What [DatabaseWholeAccess.transfer] and [LocalDatabase.adoptAnonymousRows]
+/// What [WholeAccess.transfer] and [LocalDatabase.adoptAnonymousRows]
 /// do when a row being moved collides with one already at the target, on the
 /// key or on a unique constraint.
 enum TransferConflict {
@@ -227,9 +227,9 @@ extension LocalDatabaseTenants on LocalDatabase {
   /// It takes the app's [Fingerprint], which must be the one this database was
   /// opened with: throws a [StateError] when it was opened with none, or with
   /// another.
-  DatabaseWholeAccess wholeDatabase(Fingerprint fingerprint) {
+  WholeAccess wholeDatabase(Fingerprint fingerprint) {
     _requireFingerprint(fingerprint);
-    return DatabaseWholeAccess._(this);
+    return WholeAccess._(this);
   }
 
   Iterable<String> get _isolatedTableNames => [
@@ -279,8 +279,8 @@ extension LocalDatabaseTenants on LocalDatabase {
 /// The whole-database mechanism on a [LocalDatabase], opened by
 /// [LocalDatabaseTenants.wholeDatabase], which asks for the app's fingerprint:
 /// what concerns every tenant at once.
-final class DatabaseWholeAccess {
-  const DatabaseWholeAccess._(this._database);
+final class WholeAccess {
+  const WholeAccess._(this._database);
 
   final LocalDatabase _database;
 

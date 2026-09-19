@@ -40,8 +40,8 @@ part of '../database.dart';
 /// declares, and the two functions that cross between the Dart value and the
 /// [DatabaseType] SQLite holds.
 ///
-/// The columns [DatabaseColumns] opens carry one already. Write one only for a
-/// type of your own, and hand it to [DatabaseColumns.custom].
+/// The columns [Columns] opens carry one already. Write one only for a
+/// type of your own, and hand it to [Columns.custom].
 final class DatabaseCodec<V extends Object> {
   /// Codes a [V] through [encode] and [decode], stored as [storage].
   const DatabaseCodec({required this.storage, required this.encode, required this.decode});
@@ -152,14 +152,14 @@ class _FieldDefinition {
 /// type [V] it holds and how that type is stored.
 ///
 /// [V] is the Dart type a row gives back, so a column that accepts NULL is a
-/// `DatabaseField<Date?>` and one that does not is a `DatabaseField<Date>`.
+/// `Field<Date?>` and one that does not is a `Field<Date>`.
 /// Every filter and every assignment a field builds takes a [V], which is why
 /// `todos.done.isEqualTo('yes')` does not compile and `todos.done.isEqualTo(true)`
-/// does. Fields are opened by [DatabaseColumns], never constructed directly.
+/// does. Fields are opened by [Columns], never constructed directly.
 ///
 /// Two fields are equal when they name the same column of the same table.
-base class DatabaseField<V> extends Equatable {
-  const DatabaseField._(this.table, this.name, this._definition);
+base class Field<V> extends Equatable {
+  const Field._(this.table, this.name, this._definition);
 
   /// The name of the table this column belongs to.
   final String table;
@@ -176,25 +176,25 @@ base class DatabaseField<V> extends Equatable {
   bool get isPrimary => _definition.isPrimary;
 
   /// This column, accepting NULL, which a row then gives back as `null`.
-  DatabaseField<V?> nullable() => DatabaseField<V?>._(table, name, _definition.copyWith(isNullable: true));
+  Field<V?> nullable() => Field<V?>._(table, name, _definition.copyWith(isNullable: true));
 
   /// This column, refusing a second row that holds the same value.
-  DatabaseField<V> unique() => DatabaseField<V>._(table, name, _definition.copyWith(isUnique: true));
+  Field<V> unique() => Field<V>._(table, name, _definition.copyWith(isUnique: true));
 
   /// This column as the primary key of its table. The table must then be a
-  /// [DatabaseKeyedTable] whose [DatabaseKeyedTable.key] is this column.
-  DatabaseField<V> primaryKey() => DatabaseField<V>._(table, name, _definition.copyWith(isPrimary: true));
+  /// [KeyedTable] whose [KeyedTable.key] is this column.
+  Field<V> primaryKey() => Field<V>._(table, name, _definition.copyWith(isPrimary: true));
 
   /// This column, taking [value] for a row that writes none. A column that
   /// refuses NULL needs one to be added to a table that already holds rows.
-  DatabaseField<V> defaultsTo(V value) =>
-      DatabaseField<V>._(table, name, _definition.copyWith(defaultValue: _encode(value)));
+  Field<V> defaultsTo(V value) =>
+      Field<V>._(table, name, _definition.copyWith(defaultValue: _encode(value)));
 
   /// This column as a foreign key to [target], which must hold the same Dart
   /// type. [onDelete] says what happens to a row here when the row it points
   /// at is deleted, and it refuses the deletion by default.
-  DatabaseField<V> references(DatabaseField<V> target, {ReferentialAction onDelete = ReferentialAction.restrict}) =>
-      DatabaseField<V>._(
+  Field<V> references(Field<V> target, {ReferentialAction onDelete = ReferentialAction.restrict}) =>
+      Field<V>._(
         table,
         name,
         _definition.copyWith(
@@ -205,47 +205,47 @@ base class DatabaseField<V> extends Equatable {
 
   /// This column paired with [value], to be written by an insert, an upsert
   /// or an update.
-  DatabaseAssignment to(V value) => DatabaseAssignment._(this, _encode(value));
+  Assignment to(V value) => Assignment._(this, _encode(value));
 
   /// Rows where this column equals [value]. A null [value] on a nullable
   /// column matches the rows holding NULL, which a plain SQL `=` would not.
-  DatabaseFilter isEqualTo(V value) => _of(_DatabaseFilterComparison(name, _Comparison.equal, _encode(value)));
+  Filter isEqualTo(V value) => _of(_FilterComparison(name, _Comparison.equal, _encode(value)));
 
   /// Rows where this column differs from [value], the rows holding NULL
   /// included, since a NULL differs from every value.
-  DatabaseFilter isNotEqualTo(V value) => _of(_DatabaseFilterComparison(name, _Comparison.notEqual, _encode(value)));
+  Filter isNotEqualTo(V value) => _of(_FilterComparison(name, _Comparison.notEqual, _encode(value)));
 
   /// Rows where this column equals one of [values]. A null among them matches
   /// the rows holding NULL. Matches nothing when [values] is empty.
-  DatabaseFilter isIn(List<V> values) => _of(_DatabaseFilterIn(name, values.map(_encode).toList()));
+  Filter isIn(List<V> values) => _of(_FilterIn(name, values.map(_encode).toList()));
 
   /// Rows where this column equals one of the values [subquery] selects.
-  DatabaseFilter isInSelect(DatabaseSubquery<V> subquery) {
+  Filter isInSelect(Subquery<V> subquery) {
     final (clause, arguments) = subquery._render();
-    return _of(_DatabaseFilterRaw('${_quotedIdentifier(name)} IN ($clause)', arguments));
+    return _of(_FilterRaw('${_quotedIdentifier(name)} IN ($clause)', arguments));
   }
 
   /// Rows where this column holds NULL.
   ///
   /// Throws a [StateError] when this column does not accept NULL, since the
   /// filter could never match.
-  DatabaseFilter isNull() {
+  Filter isNull() {
     _requireNullable('isNull');
-    return _of(_DatabaseFilterNull(name, true));
+    return _of(_FilterNull(name, true));
   }
 
   /// Rows where this column holds a value.
   ///
   /// Throws a [StateError] when this column does not accept NULL, since the
   /// filter would match every row.
-  DatabaseFilter isNotNull() {
+  Filter isNotNull() {
     _requireNullable('isNotNull');
-    return _of(_DatabaseFilterNull(name, false));
+    return _of(_FilterNull(name, false));
   }
 
   /// The values of this column in the rows [filter] matches, for
   /// [isInSelect]. [filter] must be built from fields of this column's table.
-  DatabaseSubquery<V> where(DatabaseFilter filter) => DatabaseSubquery<V>._(this, filter);
+  Subquery<V> where(Filter filter) => Subquery<V>._(this, filter);
 
   /// This column as a term of an ordering, smallest first.
   DatabaseOrder asc() => DatabaseOrder.expression(_qualified, order: SortOrder.asc);
@@ -255,7 +255,7 @@ base class DatabaseField<V> extends Equatable {
 
   String get _qualified => '${_quotedIdentifier(table)}.${_quotedIdentifier(name)}';
 
-  DatabaseFilter _of(DatabaseFilter filter) => _DatabaseFilterOfTable(filter, table);
+  Filter _of(Filter filter) => _FilterOfTable(filter, table);
 
   void _requireNullable(String method) {
     if (!isNullable) throw StateError('$method on $this, which does not accept NULL, could never be useful.');
@@ -281,29 +281,29 @@ base class DatabaseField<V> extends Equatable {
 /// A primary key column the engine can fill in: an integer the database
 /// numbers itself, or a UUID the engine generates when a record has none yet.
 ///
-/// Opened by [DatabaseColumns.key] and [DatabaseColumns.uuidKey].
-final class DatabaseKey<K extends Object> extends DatabaseField<K> {
+/// Opened by [Columns.key] and [Columns.uuidKey].
+final class DatabaseKey<K extends Object> extends Field<K> {
   const DatabaseKey._(super.table, super.name, super._definition) : super._();
 
   /// This key paired with [value], or nothing at all when [value] is null, in
   /// which case the engine assigns the key on insert. A record whose key has
   /// not been assigned yet holds a null.
-  DatabaseAssignment toOrGenerate(K? value) =>
-      value == null ? DatabaseAssignment._(this, null) : DatabaseAssignment._(this, _encode(value));
+  Assignment toOrGenerate(K? value) =>
+      value == null ? Assignment._(this, null) : Assignment._(this, _encode(value));
 
   DatabaseType? _generate() => _definition.generator?.call();
 }
 
 /// A column value paired with the column it is written to, built by
-/// [DatabaseField.to]. Only the column that was given it accepts it: the Dart
+/// [Field.to]. Only the column that was given it accepts it: the Dart
 /// type of the value was checked when it was built.
-final class DatabaseAssignment {
-  const DatabaseAssignment._(this.field, this._value) : _isIncrement = false;
+final class Assignment {
+  const Assignment._(this.field, this._value) : _isIncrement = false;
 
-  const DatabaseAssignment._increment(this.field, DatabaseType this._value) : _isIncrement = true;
+  const Assignment._increment(this.field, DatabaseType this._value) : _isIncrement = true;
 
   /// The column this value is written to.
-  final DatabaseField<Object?> field;
+  final Field<Object?> field;
 
   final DatabaseType? _value;
 
@@ -314,7 +314,7 @@ final class DatabaseAssignment {
 
 /// Arithmetic on a numeric column, available only on a column whose Dart type
 /// is a number.
-extension DatabaseNumericField<V extends num> on DatabaseField<V?> {
+extension NumericField<V extends num> on Field<V?> {
   /// This column paired with [amount] to add to what it holds, to be written by
   /// an update: `SET column = COALESCE(column, 0) + amount`, so a NULL counts as
   /// zero, and a negative [amount] subtracts.
@@ -322,16 +322,16 @@ extension DatabaseNumericField<V extends num> on DatabaseField<V?> {
   /// It is done by the database in one statement, not read and written back,
   /// so two updates at once never lose one of the two. An insert and an upsert
   /// refuse it, since a new row has nothing to add to.
-  DatabaseAssignment incrementBy(V amount) => DatabaseAssignment._increment(this, _encode(amount));
+  Assignment incrementBy(V amount) => Assignment._increment(this, _encode(amount));
 }
 
 /// The values of one column in the rows a filter keeps, built by
-/// [DatabaseField.where] and consumed by [DatabaseField.isInSelect].
+/// [Field.where] and consumed by [Field.isInSelect].
 ///
 /// Its type says which Dart type it selects, so a column can only be matched
 /// against a column holding the same type.
-final class DatabaseSubquery<V> {
-  DatabaseSubquery._(this._field, this._filter) {
+final class Subquery<V> {
+  Subquery._(this._field, this._filter) {
     final foreign = _filter._tables.difference({_field.table});
     if (foreign.isNotEmpty) {
       throw ArgumentError.value(
@@ -342,8 +342,8 @@ final class DatabaseSubquery<V> {
     }
   }
 
-  final DatabaseField<V> _field;
-  final DatabaseFilter _filter;
+  final Field<V> _field;
+  final Filter _filter;
 
   (String, List<DatabaseType>) _render() {
     final (clause, arguments) = _renderDatabaseFilter(_filter);
@@ -357,43 +357,43 @@ final class DatabaseSubquery<V> {
 /// An enum, a UUID, a list and a JSON value have no such order, so those
 /// columns offer no `isGreaterThan`. A boolean has none either, since `bool`
 /// is not [Comparable]. The argument is never null, even on a nullable column.
-extension DatabaseOrderedField<V extends Comparable<Object?>> on DatabaseField<V?> {
+extension OrderedField<V extends Comparable<Object?>> on Field<V?> {
   /// Rows where this column is strictly greater than [value]. A row holding
   /// NULL never matches.
-  DatabaseFilter isGreaterThan(V value) =>
-      _of(_DatabaseFilterComparison(name, _Comparison.greaterThan, _encode(value)));
+  Filter isGreaterThan(V value) =>
+      _of(_FilterComparison(name, _Comparison.greaterThan, _encode(value)));
 
   /// Rows where this column is greater than [value] or equal to it.
-  DatabaseFilter isGreaterThanOrEqualTo(V value) =>
-      _of(_DatabaseFilterComparison(name, _Comparison.greaterThanOrEqual, _encode(value)));
+  Filter isGreaterThanOrEqualTo(V value) =>
+      _of(_FilterComparison(name, _Comparison.greaterThanOrEqual, _encode(value)));
 
   /// Rows where this column is strictly less than [value].
-  DatabaseFilter isLessThan(V value) => _of(_DatabaseFilterComparison(name, _Comparison.lessThan, _encode(value)));
+  Filter isLessThan(V value) => _of(_FilterComparison(name, _Comparison.lessThan, _encode(value)));
 
   /// Rows where this column is less than [value] or equal to it.
-  DatabaseFilter isLessThanOrEqualTo(V value) =>
-      _of(_DatabaseFilterComparison(name, _Comparison.lessThanOrEqual, _encode(value)));
+  Filter isLessThanOrEqualTo(V value) =>
+      _of(_FilterComparison(name, _Comparison.lessThanOrEqual, _encode(value)));
 
   /// Rows where this column lies between [low] and [high], both included.
-  DatabaseFilter isBetween(V low, V high) => isGreaterThanOrEqualTo(low) & isLessThanOrEqualTo(high);
+  Filter isBetween(V low, V high) => isGreaterThanOrEqualTo(low) & isLessThanOrEqualTo(high);
 }
 
 /// Text filters, available only on a text column. The text is matched as
 /// written, `%` and `_` in it standing for themselves, and SQLite ignores the
 /// case of ASCII letters.
-extension DatabaseTextField<V extends String?> on DatabaseField<V> {
+extension DatabaseTextField<V extends String?> on Field<V> {
   /// Rows where this column holds [text] somewhere in it.
-  DatabaseFilter contains(String text) => _of(_DatabaseFilterLike(name, '%${_escapeLike(text)}%'));
+  Filter contains(String text) => _of(_FilterLike(name, '%${_escapeLike(text)}%'));
 
   /// Rows where this column begins with [text].
-  DatabaseFilter startsWith(String text) => _of(_DatabaseFilterLike(name, '${_escapeLike(text)}%'));
+  Filter startsWith(String text) => _of(_FilterLike(name, '${_escapeLike(text)}%'));
 
   /// Rows where this column ends with [text].
-  DatabaseFilter endsWith(String text) => _of(_DatabaseFilterLike(name, '%${_escapeLike(text)}'));
+  Filter endsWith(String text) => _of(_FilterLike(name, '%${_escapeLike(text)}'));
 
   /// This column, comparing and sorting text under [collation]. With
   /// [Collation.noCase], `Ada` and `ADA` are one value, unique columns
   /// included.
-  DatabaseField<V> collatedBy(Collation collation) =>
-      DatabaseField<V>._(table, name, _definition.copyWith(collation: collation));
+  Field<V> collatedBy(Collation collation) =>
+      Field<V>._(table, name, _definition.copyWith(collation: collation));
 }

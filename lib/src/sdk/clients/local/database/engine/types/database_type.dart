@@ -82,7 +82,7 @@ sealed class DatabaseType extends Equatable {
   /// The write side of a nullable column, so that a nullable field does not
   /// need a conditional at every call site:
   /// `DatabaseType.nullable(note, DatabaseType.varchar)`. Read the column
-  /// back with [DatabaseRowReading.nullable].
+  /// back with [RowReading.nullable].
   static DatabaseType nullable<T extends Object>(T? value, DatabaseType Function(T value) encode) =>
       value == null ? const Nil() : encode(value);
 
@@ -371,8 +371,8 @@ final class Blob extends DatabaseType {
 /// column name to [DatabaseType]. What a column holds, and what its name
 /// means, is entirely the caller's own schema.
 ///
-/// Read a column with [DatabaseRowReading.required] or
-/// [DatabaseRowReading.nullable] rather than by indexing the map, which
+/// Read a column with [RowReading.required] or
+/// [RowReading.nullable] rather than by indexing the map, which
 /// answers `null` for a missing column without naming it.
 typedef DatabaseRow = Map<String, DatabaseType>;
 

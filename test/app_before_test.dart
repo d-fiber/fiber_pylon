@@ -289,7 +289,7 @@ final class TodoStore {
       batch.insert<Todo>((i) => i.into('todos').values(todo));
     }
     final results = await batch.commit();
-    return [for (final result in results) (result as DatabaseBatchInserted).rowId!];
+    return [for (final result in results) (result as BatchInserted).rowId!];
   }
 
   Future<void> addNote(Note note) => db.insert<Note>((i) => i.into('notes').values(note));

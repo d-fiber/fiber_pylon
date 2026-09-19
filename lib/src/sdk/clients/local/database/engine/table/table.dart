@@ -92,11 +92,11 @@ final DatabaseCodec<UuidValue> _uuidCodec = DatabaseCodec<UuidValue>(
 
 /// Opens the columns of one table, through [DatabaseTable.column]. Each method
 /// takes the name the column has in the database, and answers a
-/// [DatabaseField] typed with the Dart type that column holds.
+/// [Field] typed with the Dart type that column holds.
 ///
-/// A column refuses NULL until [DatabaseField.nullable] says otherwise.
-final class DatabaseColumns {
-  const DatabaseColumns._(this._table, this._isolated);
+/// A column refuses NULL until [Field.nullable] says otherwise.
+final class Columns {
+  const Columns._(this._table, this._isolated);
 
   final String _table;
   final bool _isolated;
@@ -123,53 +123,53 @@ final class DatabaseColumns {
   );
 
   /// A whole number of up to 64 bits.
-  DatabaseField<int> integer(String name) => custom(name, _integerCodec);
+  Field<int> integer(String name) => custom(name, _integerCodec);
 
   /// A floating point number.
-  DatabaseField<double> real(String name) => custom(name, _realCodec);
+  Field<double> real(String name) => custom(name, _realCodec);
 
   /// Text.
-  DatabaseField<String> text(String name) => custom(name, _textCodec);
+  Field<String> text(String name) => custom(name, _textCodec);
 
   /// Raw bytes.
-  DatabaseField<Uint8List> blob(String name) => custom(name, _blobCodec);
+  Field<Uint8List> blob(String name) => custom(name, _blobCodec);
 
   /// A boolean, stored as `1` or `0`.
-  DatabaseField<bool> boolean(String name) => custom(name, _booleanCodec);
+  Field<bool> boolean(String name) => custom(name, _booleanCodec);
 
   /// An instant, stored as milliseconds since the Unix epoch and read back as
   /// a UTC [DateTime].
-  DatabaseField<DateTime> timestamp(String name) => custom(name, _timestampCodec);
+  Field<DateTime> timestamp(String name) => custom(name, _timestampCodec);
 
   /// A calendar date with no time of day, the same on every device.
-  DatabaseField<Date> date(String name) => custom(name, _dateCodec);
+  Field<Date> date(String name) => custom(name, _dateCodec);
 
   /// A time of day with no calendar date.
-  DatabaseField<Time> time(String name) => custom(name, _timeCodec);
+  Field<Time> time(String name) => custom(name, _timeCodec);
 
   /// A UUID, stored as its canonical text.
-  DatabaseField<UuidValue> uuid(String name) => custom(name, _uuidCodec);
+  Field<UuidValue> uuid(String name) => custom(name, _uuidCodec);
 
   /// One member of [values], stored by name, so that reordering the enum never
   /// changes what a stored row means.
-  DatabaseField<E> enumeration<E extends Enum>(String name, List<E> values) => custom(
+  Field<E> enumeration<E extends Enum>(String name, List<E> values) => custom(
     name,
     DatabaseCodec<E>(storage: ColumnType.text, encode: DatabaseType.enum_, decode: (stored) => stored.asEnum(values)),
   );
 
   /// A list of native JSON values, stored as JSON text.
-  DatabaseField<List<T>> list<T>(String name) => custom(
+  Field<List<T>> list<T>(String name) => custom(
     name,
     DatabaseCodec<List<T>>(storage: ColumnType.text, encode: DatabaseType.list, decode: (stored) => stored.asList<T>()),
   );
 
   /// A value of your own type, stored as JSON text through [json].
-  DatabaseField<T> json<T extends Object>(String name, Json<T> json) =>
+  Field<T> json<T extends Object>(String name, Json<T> json) =>
       custom(name, DatabaseCodec<T>(storage: ColumnType.text, encode: json.encode, decode: json.decode));
 
   /// A value of your own type, stored the way [codec] says.
-  DatabaseField<V> custom<V extends Object>(String name, DatabaseCodec<V> codec) =>
-      DatabaseField<V>._(_table, name, _FieldDefinition(codec: codec._erased, isolated: _isolated));
+  Field<V> custom<V extends Object>(String name, DatabaseCodec<V> codec) =>
+      Field<V>._(_table, name, _FieldDefinition(codec: codec._erased, isolated: _isolated));
 }
 
 /// One row of a table as a query read it, handed to [DatabaseTable.read].
@@ -177,8 +177,8 @@ final class DatabaseColumns {
 /// Calling it with a column answers that column's value already decoded to
 /// the Dart type of the column: `row(title)` is a `String`, `row(due)` is a
 /// `Date?` when `due` accepts NULL.
-final class DatabaseReader {
-  const DatabaseReader._(this._table, this._row);
+final class Reader {
+  const Reader._(this._table, this._row);
 
   final String _table;
   final DatabaseRow _row;
@@ -187,7 +187,7 @@ final class DatabaseReader {
   ///
   /// Throws a [StateError] when [field] belongs to another table, or when it
   /// holds NULL although it was not declared nullable.
-  V call<V>(DatabaseField<V> field) {
+  V call<V>(Field<V> field) {
     if (field.table != _table) throw StateError('$field was read through a row of $_table.');
     final stored = _row[field.name];
     if (stored == null) throw StateError('$field is not among the columns this row was read with.');
@@ -200,7 +200,7 @@ final class DatabaseReader {
 /// the mapping it writes.
 ///
 /// ```dart
-/// final class Todos extends DatabaseKeyedTable<Todo, int> {
+/// final class Todos extends KeyedTable<Todo, int> {
 ///   Todos() : super('todos');
 ///
 ///   late final id = column.key();
@@ -209,13 +209,13 @@ final class DatabaseReader {
 ///   late final due = column.date('due').nullable();
 ///
 ///   @override
-///   List<DatabaseField<Object?>> get columns => [id, title, done, due];
+///   List<Field<Object?>> get columns => [id, title, done, due];
 ///
 ///   @override
-///   Todo read(DatabaseReader row) => Todo(id: row(id), title: row(title), done: row(done), due: row(due));
+///   Todo read(Reader row) => Todo(id: row(id), title: row(title), done: row(done), due: row(due));
 ///
 ///   @override
-///   List<DatabaseAssignment> write(Todo todo) =>
+///   List<Assignment> write(Todo todo) =>
 ///       [id.toOrGenerate(todo.id), title.to(todo.title), done.to(todo.done), due.to(todo.due)];
 /// }
 ///
@@ -236,7 +236,7 @@ abstract class DatabaseTable<R extends Object> {
 
   /// Opens the columns of this table. Each `late final` field of the subclass
   /// is one call.
-  late final DatabaseColumns column = DatabaseColumns._(tableName, tunnel == Tunnel.isolated);
+  late final Columns column = Columns._(tableName, tunnel == Tunnel.isolated);
 
   /// Whose rows this table holds: [Tunnel.shared], one copy for everyone (the
   /// default), or [Tunnel.isolated], where every [Tenant] has rows of its own.
@@ -253,49 +253,49 @@ abstract class DatabaseTable<R extends Object> {
   ///
   /// A column missing from here is not created, and any read, write or filter
   /// that uses it throws a [StateError] naming it.
-  List<DatabaseField<Object?>> get columns;
+  List<Field<Object?>> get columns;
 
   /// The columns that together make the primary key, for a table with no
   /// single key column, such as one that links two others.
-  List<DatabaseField<Object?>> get primaryKey => const [];
+  List<Field<Object?>> get primaryKey => const [];
 
   /// Each list of columns that must not repeat together across two rows.
-  List<List<DatabaseField<Object?>>> get uniques => const [];
+  List<List<Field<Object?>>> get uniques => const [];
 
   /// Each list of columns worth an index, for a column filtered or ordered on
   /// often. A column that references another table is not indexed unless it
   /// is listed here.
-  List<List<DatabaseField<Object?>>> get indexes => const [];
+  List<List<Field<Object?>>> get indexes => const [];
 
   /// Builds a record from one row.
-  R read(DatabaseReader row);
+  R read(Reader row);
 
   /// The columns of [record] this table writes, each paired with its value.
-  List<DatabaseAssignment> write(R record);
+  List<Assignment> write(R record);
 
   /// This table read and written through [session], a [LocalDatabase] or the
   /// [DatabaseTransaction] of one of its transactions.
-  DatabaseTableAccess<R> on(DatabaseSession session) {
+  TableAccess<R> on(DatabaseSession session) {
     session._database._requireDeclared(this);
-    return DatabaseTableAccess<R>._(session, this);
+    return TableAccess<R>._(session, this);
   }
 
   /// This table across every tenant, read and written through [session]: the
   /// whole-database mechanism, which is a separate entry point from [on], not a
-  /// wider view of it. See [DatabaseWholeRows].
+  /// wider view of it. See [WholeRows].
   ///
   /// Reaching the whole database takes the app's [Fingerprint], which must be
   /// the one the database was opened with: throws a [StateError] otherwise.
-  DatabaseWholeRows<R> onWholeDatabase(DatabaseSession session, Fingerprint fingerprint) {
+  WholeRows<R> onWholeDatabase(DatabaseSession session, Fingerprint fingerprint) {
     session._database._requireDeclared(this);
     session._database._requireFingerprint(fingerprint);
-    return DatabaseWholeRows<R>._(session, this);
+    return WholeRows<R>._(session, this);
   }
 
   /// The `CREATE TABLE` this class declares, as the schema library renders it.
   late final DeclaredTable declaration = _declare();
 
-  DatabaseField<Object?>? get _keyField => null;
+  Field<Object?>? get _keyField => null;
 
   DeclaredTable _declare() {
     final names = <String>{};
@@ -409,7 +409,7 @@ abstract class DatabaseTable<R extends Object> {
     });
   }
 
-  TableForeignKeyBuilder _tenantForeignKey(TableForeignKeyFactory factory, DatabaseField<Object?> field) {
+  TableForeignKeyBuilder _tenantForeignKey(TableForeignKeyFactory factory, Field<Object?> field) {
     final reference = field._definition.reference!;
     final referenced = reference.column;
     if (referenced == null) {
@@ -428,7 +428,7 @@ abstract class DatabaseTable<R extends Object> {
     return foreignKey;
   }
 
-  void _requireOwned(DatabaseField<Object?> field) {
+  void _requireOwned(Field<Object?> field) {
     if (field.table != tableName || !columns.contains(field)) {
       throw StateError('$field is not listed in the columns of $tableName.');
     }
@@ -456,7 +456,7 @@ abstract class DatabaseTable<R extends Object> {
     return row;
   }
 
-  Map<String, DatabaseType> _valuesOf(List<DatabaseAssignment> assignments) {
+  Map<String, DatabaseType> _valuesOf(List<Assignment> assignments) {
     final row = <String, DatabaseType>{};
     for (final assignment in assignments) {
       _requireOwned(assignment.field);
@@ -477,7 +477,7 @@ abstract class DatabaseTable<R extends Object> {
 
   /// What an update of [assignments] sets, as the `SET` clauses and the
   /// arguments they bind, in order.
-  ({List<String> clauses, List<DatabaseType> arguments}) _updateOf(List<DatabaseAssignment> assignments) {
+  ({List<String> clauses, List<DatabaseType> arguments}) _updateOf(List<Assignment> assignments) {
     final written = <String>{};
     final clauses = <String>[];
     final arguments = <DatabaseType>[];
@@ -496,7 +496,7 @@ abstract class DatabaseTable<R extends Object> {
 
   String get _columnList => columns.map((field) => _quotedIdentifier(field.name)).join(', ');
 
-  R _fromRow(DatabaseRow row) => read(DatabaseReader._(tableName, row));
+  R _fromRow(DatabaseRow row) => read(Reader._(tableName, row));
 }
 
 /// A [DatabaseTable] whose rows are told apart by one primary key column of
@@ -504,24 +504,24 @@ abstract class DatabaseTable<R extends Object> {
 /// record and deleting a row by its key.
 ///
 /// The key is the one column of [columns] opened as a key, through
-/// [DatabaseColumns.key], [DatabaseColumns.uuidKey] or [DatabaseField.primaryKey],
+/// [Columns.key], [Columns.uuidKey] or [Field.primaryKey],
 /// and its Dart type must be [K]. Both are checked when the schema is
 /// declared, which is the first time the database opens.
-abstract class DatabaseKeyedTable<R extends Object, K extends Object> extends DatabaseTable<R> {
+abstract class KeyedTable<R extends Object, K extends Object> extends DatabaseTable<R> {
   /// A keyed table called [tableName] in the database.
-  DatabaseKeyedTable(super.tableName);
+  KeyedTable(super.tableName);
 
   @override
-  DatabaseKeyedAccess<R, K> on(DatabaseSession session) {
+  KeyedAccess<R, K> on(DatabaseSession session) {
     session._database._requireDeclared(this);
-    return DatabaseKeyedAccess<R, K>._(session, this);
+    return KeyedAccess<R, K>._(session, this);
   }
 
   @override
-  DatabaseField<Object?>? get _keyField => _key;
+  Field<Object?>? get _keyField => _key;
 
   /// The column that is the key of this table, so a filter can name it.
-  DatabaseField<K> get keyField => _key;
+  Field<K> get keyField => _key;
 
   /// The key [record] carries, or null when it carries none yet — a record
   /// whose key the engine will assign on insert.
@@ -537,24 +537,24 @@ abstract class DatabaseKeyedTable<R extends Object, K extends Object> extends Da
   /// Not for a project: the tenant mechanism never names a tenant. Only the
   /// package holds one, and only the one that was current when it began.
   @internal
-  DatabaseKeyedAccess<R, K> onHeldTenant(DatabaseSession session, String? tenant) {
+  KeyedAccess<R, K> onHeldTenant(DatabaseSession session, String? tenant) {
     session._database._requireDeclared(this);
-    return DatabaseKeyedAccess<R, K>._(
+    return KeyedAccess<R, K>._(
       session,
       this,
       tunnel == Tunnel.isolated ? _PinnedScope(tenant ?? '') : const _CurrentScope(),
     );
   }
 
-  late final DatabaseField<K> _key = _findKey();
+  late final Field<K> _key = _findKey();
 
-  DatabaseField<K> _findKey() {
+  Field<K> _findKey() {
     final keys = columns.where((field) => field.isPrimary).toList();
     if (keys.length != 1) {
       throw StateError('$tableName is a keyed table and needs exactly one primary key column, but has ${keys.length}.');
     }
     final key = keys.single;
-    if (key is! DatabaseField<K>) {
+    if (key is! Field<K>) {
       throw StateError('$key holds a different type than the $K that $tableName declares as its key.');
     }
     return key;

@@ -56,7 +56,7 @@ final class Collection<R extends Object, K extends Object> extends Query<R, K> {
 
   /// The table this collection is on: its columns are what a query is written
   /// with, and what [Database.initialize] declares.
-  DatabaseKeyedTable<R, K> get table => _table;
+  KeyedTable<R, K> get table => _table;
 
   /// The document [id] of this collection.
   ///
@@ -66,7 +66,7 @@ final class Collection<R extends Object, K extends Object> extends Query<R, K> {
   /// Stores [record] as a new document and answers its reference, under the key
   /// the record carries — or the one the engine assigns when it carries none.
   ///
-  /// Throws a `DatabaseUniqueConstraintError` when a document already has that
+  /// Throws a `UniqueConstraintError` when a document already has that
   /// key: use [DocumentReference.set] to overwrite one.
   Future<DocumentReference<R, K>> add(R record) async {
     final saved = await _table.on(AppStorage.database).insert(record);
@@ -78,7 +78,7 @@ final class Collection<R extends Object, K extends Object> extends Query<R, K> {
 
   /// This collection across every tenant: the whole-database mechanism, opened
   /// only by the app's [Fingerprint]. It reads, and edits or removes what a
-  /// filter keeps; see [DatabaseWholeRows].
-  DatabaseWholeRows<R> onWholeDatabase(Fingerprint fingerprint) =>
+  /// filter keeps; see [WholeRows].
+  WholeRows<R> onWholeDatabase(Fingerprint fingerprint) =>
       _table.onWholeDatabase(AppStorage.database, fingerprint);
 }

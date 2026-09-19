@@ -49,7 +49,7 @@ final class User {
 /// The table [User]s live in. It is declared once, and the project writes
 /// every query with its columns — `usersTable.age.isGreaterThan(18)` — so a
 /// misspelled name or a value of the wrong type does not compile.
-final class UsersTable extends DatabaseKeyedTable<User, String> {
+final class UsersTable extends KeyedTable<User, String> {
   UsersTable() : super('users');
 
   late final id = column.text('id').primaryKey();
@@ -62,18 +62,18 @@ final class UsersTable extends DatabaseKeyedTable<User, String> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name, age, city];
+  List<Field<Object?>> get columns => [id, name, age, city];
 
   @override
-  List<List<DatabaseField<Object?>>> get indexes => [
+  List<List<Field<Object?>>> get indexes => [
     [age],
   ];
 
   @override
-  User read(DatabaseReader row) => User(id: row(id), name: row(name), age: row(age), city: row(city));
+  User read(Reader row) => User(id: row(id), name: row(name), age: row(age), city: row(city));
 
   @override
-  List<DatabaseAssignment> write(User user) => [
+  List<Assignment> write(User user) => [
     id.to(user.id),
     name.to(user.name),
     age.to(user.age),

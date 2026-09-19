@@ -61,7 +61,7 @@ final class WriteBatch {
   /// Queues [DocumentReference.update].
   void update<R extends Object, K extends Object>(
     DocumentReference<R, K> reference,
-    List<DatabaseAssignment> assignments,
+    List<Assignment> assignments,
   ) => _queue((session, tenant) => reference._update(reference._table.onHeldTenant(session, tenant), assignments));
 
   /// Queues [DocumentReference.delete].
@@ -104,7 +104,7 @@ final class Transaction {
   final DatabaseSession _session;
   final String? _tenant;
 
-  DatabaseKeyedAccess<R, K> _access<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
+  KeyedAccess<R, K> _access<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>
       reference._table.onHeldTenant(_session, _tenant);
 
   /// Reads [reference], which need not exist.
@@ -118,7 +118,7 @@ final class Transaction {
   /// Does what [DocumentReference.update] does, inside this transaction.
   Future<void> update<R extends Object, K extends Object>(
     DocumentReference<R, K> reference,
-    List<DatabaseAssignment> assignments,
+    List<Assignment> assignments,
   ) => reference._update(_access(reference), assignments);
 
   /// Does what [DocumentReference.delete] does, inside this transaction.

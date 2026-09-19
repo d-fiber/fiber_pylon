@@ -61,7 +61,7 @@ final class User {
 }
 
 /// Isolated: every tenant has users of its own.
-final class UsersTable extends DatabaseKeyedTable<User, String> {
+final class UsersTable extends KeyedTable<User, String> {
   UsersTable() : super('users');
 
   late final id = column.text('id').primaryKey();
@@ -75,14 +75,14 @@ final class UsersTable extends DatabaseKeyedTable<User, String> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name, age, city, visits, seen];
+  List<Field<Object?>> get columns => [id, name, age, city, visits, seen];
 
   @override
-  User read(DatabaseReader row) =>
+  User read(Reader row) =>
       User(id: row(id), name: row(name), age: row(age), city: row(city), visits: row(visits), seen: row(seen));
 
   @override
-  List<DatabaseAssignment> write(User user) => [
+  List<Assignment> write(User user) => [
     id.to(user.id),
     name.to(user.name),
     age.to(user.age),
@@ -101,7 +101,7 @@ final class Item {
 }
 
 /// Shared, with a key the engine numbers itself.
-final class ItemsTable extends DatabaseKeyedTable<Item, int> {
+final class ItemsTable extends KeyedTable<Item, int> {
   ItemsTable() : super('items');
 
   late final id = column.key();
@@ -109,13 +109,13 @@ final class ItemsTable extends DatabaseKeyedTable<Item, int> {
   late final stock = column.integer('stock');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, label, stock];
+  List<Field<Object?>> get columns => [id, label, stock];
 
   @override
-  Item read(DatabaseReader row) => Item(id: row(id), label: row(label), stock: row(stock));
+  Item read(Reader row) => Item(id: row(id), label: row(label), stock: row(stock));
 
   @override
-  List<DatabaseAssignment> write(Item item) => [id.toOrGenerate(item.id), label.to(item.label), stock.to(item.stock)];
+  List<Assignment> write(Item item) => [id.toOrGenerate(item.id), label.to(item.label), stock.to(item.stock)];
 }
 
 final class OwnDatabase extends pylon.Database {
@@ -303,7 +303,7 @@ void main() {
     test('adds a document under the key it carries, and never overwrites', () async {
       await db.users.add(_ada);
 
-      await expectLater(db.users.add(_ada), throwsA(isA<DatabaseUniqueConstraintError>()));
+      await expectLater(db.users.add(_ada), throwsA(isA<UniqueConstraintError>()));
     });
 
     test('clears its documents and keeps the table', () async {
@@ -708,18 +708,18 @@ void main() {
   });
 }
 
-final class _StrayTable extends DatabaseKeyedTable<Item, int> {
+final class _StrayTable extends KeyedTable<Item, int> {
   _StrayTable() : super('stray');
 
   late final id = column.key();
   late final label = column.text('label');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, label];
+  List<Field<Object?>> get columns => [id, label];
 
   @override
-  Item read(DatabaseReader row) => Item(id: row(id), label: row(label), stock: 0);
+  Item read(Reader row) => Item(id: row(id), label: row(label), stock: 0);
 
   @override
-  List<DatabaseAssignment> write(Item item) => [id.toOrGenerate(item.id), label.to(item.label)];
+  List<Assignment> write(Item item) => [id.toOrGenerate(item.id), label.to(item.label)];
 }

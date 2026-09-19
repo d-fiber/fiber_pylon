@@ -50,16 +50,16 @@ final class DatabaseQuery<T extends Object> {
   DatabaseQuery._();
 
   /// Reads from [name], the same `FROM` a raw `SELECT ... FROM ...` names.
-  DatabaseQueryFrom<T> from(String name) => DatabaseQueryFrom._(table: _quotedIdentifier(name));
+  QueryFrom<T> from(String name) => QueryFrom._(table: _quotedIdentifier(name));
 }
 
 /// A [DatabaseQuery] that has named its table, opened by [DatabaseQuery.from].
-/// Every method here answers a new [DatabaseQueryFrom] rather than changing
+/// Every method here answers a new [QueryFrom] rather than changing
 /// this one, and — unlike [from] itself — every one of them is optional and
 /// may be called in any order, since none of them changes what the next one
 /// is allowed to be.
-final class DatabaseQueryFrom<T extends Object> {
-  const DatabaseQueryFrom._({
+final class QueryFrom<T extends Object> {
+  const QueryFrom._({
     required String table,
     T Function(DatabaseRow row)? fromRow,
     bool distinct = false,
@@ -100,24 +100,24 @@ final class DatabaseQueryFrom<T extends Object> {
 
   /// Decodes each selected row into a [T] with [fromRow]. Required: nothing
   /// here guesses how a row and a model relate.
-  DatabaseQueryFrom<T> map(T Function(DatabaseRow row) fromRow) => _copyWith(fromRow: fromRow);
+  QueryFrom<T> map(T Function(DatabaseRow row) fromRow) => _copyWith(fromRow: fromRow);
 
   /// Skips a row that duplicates one already read, across the columns
   /// [select] named.
-  DatabaseQueryFrom<T> distinct([bool value = true]) => _copyWith(distinct: value);
+  QueryFrom<T> distinct([bool value = true]) => _copyWith(distinct: value);
 
   /// Reads only the columns named [columns], instead of every column the
   /// table declares. Called again, it adds columns to the ones already named.
   /// Each name is quoted, so it is read as a column and never
   /// as SQL: an aggregate or an expression belongs in [LocalDatabase.rawQuery].
-  DatabaseQueryFrom<T> select(List<String> columns) =>
+  QueryFrom<T> select(List<String> columns) =>
       _copyWith(columns: [...?_columns, ...columns.map(_quotedIdentifier)]);
 
   /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Called again, it narrows the rows the earlier
+  /// [FilterBuilder]. Called again, it narrows the rows the earlier
   /// call kept: both conditions must hold.
-  DatabaseQueryFrom<T> where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
-    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
+  QueryFrom<T> where(Filter Function(FilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
     return _copyWith(where: _bothMatch(_where, clause), whereArgs: [...?_whereArgs, ...arguments]);
   }
 
@@ -125,17 +125,17 @@ final class DatabaseQueryFrom<T extends Object> {
   /// [map] see them. Called again, it adds columns to the grouping. An empty
   /// list changes nothing. Each name is quoted, so it is read as a column and never
   /// as SQL.
-  DatabaseQueryFrom<T> groupBy(List<String> columns) =>
+  QueryFrom<T> groupBy(List<String> columns) =>
       columns.isEmpty ? this : _copyWith(groupBy: _appended(_groupBy, columns.map(_quotedIdentifier)));
 
   /// Keeps only the groups [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Called again, both conditions must hold.
+  /// [FilterBuilder]. Called again, both conditions must hold.
   /// Meaningless without [groupBy].
   ///
-  /// A condition over an aggregate goes through [DatabaseFilterBuilder.raw],
+  /// A condition over an aggregate goes through [FilterBuilder.raw],
   /// such as `w.raw('COUNT(*) > ?', [DatabaseType.integer(1)])`.
-  DatabaseQueryFrom<T> having(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
-    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
+  QueryFrom<T> having(Filter Function(FilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
     return _copyWith(having: _bothMatch(_having, clause), havingArgs: [...?_havingArgs, ...arguments]);
   }
 
@@ -143,21 +143,21 @@ final class DatabaseQueryFrom<T extends Object> {
   /// only breaking the ties the one before it left. Called again, its terms
   /// come after the ones already given, so they only break the remaining ties.
   /// An empty list changes nothing.
-  DatabaseQueryFrom<T> orderBy(List<DatabaseOrder> orders) =>
+  QueryFrom<T> orderBy(List<DatabaseOrder> orders) =>
       orders.isEmpty ? this : _copyWith(orderBy: _appended(_orderBy, orders.map(_renderOrder)));
 
   /// Reads at most [count] rows.
   ///
   /// Throws a [RangeError] if [count] is negative, which SQLite would read as
   /// no limit at all.
-  DatabaseQueryFrom<T> limit(int count) => _copyWith(limit: RangeError.checkNotNegative(count, 'count'));
+  QueryFrom<T> limit(int count) => _copyWith(limit: RangeError.checkNotNegative(count, 'count'));
 
   /// Skips the first [count] matching rows, applied after [limit].
   ///
   /// Throws a [RangeError] if [count] is negative.
-  DatabaseQueryFrom<T> offset(int count) => _copyWith(offset: RangeError.checkNotNegative(count, 'count'));
+  QueryFrom<T> offset(int count) => _copyWith(offset: RangeError.checkNotNegative(count, 'count'));
 
-  DatabaseQueryFrom<T> _copyWith({
+  QueryFrom<T> _copyWith({
     T Function(DatabaseRow row)? fromRow,
     bool? distinct,
     List<String>? columns,
@@ -169,7 +169,7 @@ final class DatabaseQueryFrom<T extends Object> {
     String? orderBy,
     int? limit,
     int? offset,
-  }) => DatabaseQueryFrom._(
+  }) => QueryFrom._(
     table: _table,
     fromRow: fromRow ?? _fromRow,
     distinct: distinct ?? _distinct,
@@ -188,7 +188,7 @@ final class DatabaseQueryFrom<T extends Object> {
       _whereArgs == null && _havingArgs == null ? null : [...?_whereArgs, ...?_havingArgs];
 
   T Function(DatabaseRow row) get _requiredFromRow =>
-      _fromRow ?? (throw StateError('DatabaseQueryFrom.map was never set.'));
+      _fromRow ?? (throw StateError('QueryFrom.map was never set.'));
 }
 
 /// One term of a query's `ORDER BY`, with the [SortOrder] it sorts in.
@@ -197,27 +197,27 @@ final class DatabaseQueryFrom<T extends Object> {
 /// expression can never be mistaken for one another: [DatabaseOrder.named]
 /// takes a column name and quotes it, [DatabaseOrder.expression] takes SQL and
 /// leaves it as written. A `switch` over a [DatabaseOrder] is exhaustive with
-/// [NamedDatabaseOrder] and [ExpressionDatabaseOrder].
+/// [NamedOrder] and [ExpressionOrder].
 sealed class DatabaseOrder extends Equatable {
   const DatabaseOrder._({required this.order});
 
   /// The column called [name], sorted in [order].
-  const factory DatabaseOrder.named(String name, {SortOrder order}) = NamedDatabaseOrder._;
+  const factory DatabaseOrder.named(String name, {SortOrder order}) = NamedOrder._;
 
   /// The raw SQL [sql], sorted in [order], for a term a bare column cannot
   /// express, such as `lower(title)`.
   ///
   /// Nothing here validates it, the same choice made for every other raw SQL
   /// fragment a caller supplies.
-  const factory DatabaseOrder.expression(String sql, {SortOrder order}) = ExpressionDatabaseOrder._;
+  const factory DatabaseOrder.expression(String sql, {SortOrder order}) = ExpressionOrder._;
 
   /// The direction this term sorts in.
   final SortOrder order;
 }
 
 /// A [DatabaseOrder] that sorts by one column, by name.
-final class NamedDatabaseOrder extends DatabaseOrder {
-  const NamedDatabaseOrder._(this.name, {super.order = SortOrder.asc}) : super._();
+final class NamedOrder extends DatabaseOrder {
+  const NamedOrder._(this.name, {super.order = SortOrder.asc}) : super._();
 
   /// The name of the column this term sorts by.
   final String name;
@@ -227,8 +227,8 @@ final class NamedDatabaseOrder extends DatabaseOrder {
 }
 
 /// A [DatabaseOrder] that sorts by a raw SQL expression.
-final class ExpressionDatabaseOrder extends DatabaseOrder {
-  const ExpressionDatabaseOrder._(this.sql, {super.order = SortOrder.asc}) : super._();
+final class ExpressionOrder extends DatabaseOrder {
+  const ExpressionOrder._(this.sql, {super.order = SortOrder.asc}) : super._();
 
   /// The SQL expression this term sorts by.
   final String sql;
@@ -241,8 +241,8 @@ String _appended(String? earlier, Iterable<String> terms) => [?earlier, ...terms
 
 String _renderOrder(DatabaseOrder term) {
   final target = switch (term) {
-    NamedDatabaseOrder(:final name) => _quotedIdentifier(name),
-    ExpressionDatabaseOrder(:final sql) => sql,
+    NamedOrder(:final name) => _quotedIdentifier(name),
+    ExpressionOrder(:final sql) => sql,
   };
   return '$target ${term.order.sql}';
 }

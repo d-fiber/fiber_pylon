@@ -215,7 +215,7 @@ void main() {
           fingerprint: Fingerprint.generate(),
           encryption: EncryptionPolicy.required,
         ),
-        throwsA(isA<DatabaseEncryptionUnavailableError>()),
+        throwsA(isA<EncryptionUnavailableError>()),
       );
 
       expect(file('Fiber.db').existsSync(), isFalse);

@@ -39,7 +39,7 @@ part of '../database.dart';
 /// One upgrade of the schema version, run by [LocalDatabase.declared] inside
 /// the transaction that upgrades the file. It receives the transaction and
 /// must not reach for the [LocalDatabase] itself.
-typedef DatabaseMigration = Future<void> Function(DatabaseTransaction txn);
+typedef Migration = Future<void> Function(DatabaseTransaction txn);
 
 OnDatabaseConfigureFn? _configureDeclared(bool readOnly) =>
     readOnly ? null : (db) => db.rawQuery('PRAGMA journal_mode = WAL');
@@ -58,7 +58,7 @@ Future<void> _synchronizeSchema(LocalDatabase database, Database native) {
       final latest = database._migrations.length + 1;
       final stored = (await nativeTransaction.rawQuery('PRAGMA user_version')).single['user_version']! as int;
       if (stored > latest) {
-        throw DatabaseSchemaTooNewError(
+        throw SchemaTooNewError(
           'The file is at schema version $stored but this code only knows version $latest. '
           'Open it with the newer code instead.',
         );
@@ -89,7 +89,7 @@ Future<void> _synchronizeSchema(LocalDatabase database, Database native) {
           try {
             statement = table.addColumnStatement(column);
           } on StateError catch (error) {
-            throw DatabaseMigrationRequiredError(
+            throw MigrationRequiredError(
               '${table.name}.$column cannot be added to the existing file: ${error.message}',
             );
           }

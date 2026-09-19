@@ -55,7 +55,7 @@ final class Note {
   final String title;
 }
 
-final class Notes extends DatabaseKeyedTable<Note, String> {
+final class Notes extends KeyedTable<Note, String> {
   Notes() : super('notes');
 
   late final id = column.text('id').primaryKey();
@@ -65,13 +65,13 @@ final class Notes extends DatabaseKeyedTable<Note, String> {
   Tunnel get tunnel => Tunnel.isolated;
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title];
+  List<Field<Object?>> get columns => [id, title];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), title: row(title));
+  Note read(Reader row) => Note(id: row(id), title: row(title));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [id.to(note.id), title.to(note.title)];
+  List<Assignment> write(Note note) => [id.to(note.id), title.to(note.title)];
 }
 
 final class Own extends Database {
@@ -130,7 +130,7 @@ print(AppStorage.isEncrypted);
     compiles: false,
   ),
   _Program('building a schema with the DSL', "TableBuilder('t');", compiles: false),
-  _Program('a schema migration', 'const DatabaseMigration? migration = null;', compiles: false),
+  _Program('a schema migration', 'const Migration? migration = null;', compiles: false),
   _Program('a drift report', 'const DifferenceKind? kind = null;', compiles: false),
 ];
 

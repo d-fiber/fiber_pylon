@@ -83,7 +83,7 @@ void main() {
     return db;
   }
 
-  group('DatabaseRowReading', () {
+  group('RowReading', () {
     test('required names the column when the row does not carry it', () async {
       final db = await openWithNotes('row_missing.db', const [Note(title: 'A')]);
       final row = (await db.rawQuery('SELECT title FROM notes')).single;

@@ -50,15 +50,15 @@ final class DatabaseBatch {
   List<_BatchStatement> _statements = [];
 
   /// Queues a [LocalDatabase.insert].
-  void insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) {
-    final spec = build(DatabaseInsert<T>._());
+  void insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) {
+    final spec = build(Insert<T>._());
     _batch.rawInsert(spec._sql, spec._arguments);
     _statements.add(_BatchStatement.insert);
   }
 
   /// Queues a [LocalDatabase.update].
-  void update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) {
-    final spec = build(DatabaseUpdate<T>._());
+  void update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) {
+    final spec = build(Update<T>._());
     _batch.update(
       spec._table,
       _toNativeRow(spec._data.toRow()),
@@ -70,8 +70,8 @@ final class DatabaseBatch {
   }
 
   /// Queues a [LocalDatabase.delete].
-  void delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) {
-    final spec = build(const DatabaseDelete._());
+  void delete(DeleteFrom Function(Delete delete) build) {
+    final spec = build(const Delete._());
     _batch.delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
     _statements.add(_BatchStatement.delete);
   }
@@ -85,11 +85,11 @@ final class DatabaseBatch {
   /// Queues a query composed by [build] from an empty [DatabaseQuery], the
   /// same builder [LocalDatabase.query] takes.
   ///
-  /// Its rows come back as a [DatabaseBatchRows] at this call's own position
+  /// Its rows come back as a [BatchRows] at this call's own position
   /// in the list [commit] or [apply] answers, undecoded: a batch runs every
-  /// statement before it hands anything back, so [DatabaseQueryFrom.map] has
+  /// statement before it hands anything back, so [QueryFrom.map] has
   /// nothing to map yet and is never read.
-  void query(DatabaseQueryFrom<Object> Function(DatabaseQuery<Object> query) build) {
+  void query(QueryFrom<Object> Function(DatabaseQuery<Object> query) build) {
     final spec = build(DatabaseQuery<Object>._());
     _batch.query(
       spec._table,
@@ -109,9 +109,9 @@ final class DatabaseBatch {
   /// Runs every statement queued so far as one atomic unit: either they all
   /// land, or, unless [continueOnError] is `true`, none of them do.
   ///
-  /// Answers one [DatabaseBatchResult] per queued statement, in the order
+  /// Answers one [BatchResult] per queued statement, in the order
   /// they were queued. With [continueOnError], a statement that failed is a
-  /// [DatabaseBatchFailed] at its own position rather than a throw.
+  /// [BatchFailed] at its own position rather than a throw.
   ///
   /// [noResult] skips collecting each statement's own result, worth setting
   /// for a large batch that only cares whether it succeeded. The list
@@ -120,7 +120,7 @@ final class DatabaseBatch {
   /// Whether it succeeds or not, the batch is empty afterwards: what is queued
   /// next is a new batch, so a statement never runs twice. To retry a batch that
   /// failed, queue its statements again.
-  Future<List<DatabaseBatchResult>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) =>
+  Future<List<BatchResult>> commit({bool? exclusive, bool? noResult, bool? continueOnError}) =>
       _run((batch) => batch.commit(exclusive: exclusive, noResult: noResult, continueOnError: continueOnError));
 
   /// Runs every statement queued so far without wrapping them in a
@@ -131,10 +131,10 @@ final class DatabaseBatch {
   ///
   /// Answers the same list [commit] does, and leaves the batch empty the same
   /// way.
-  Future<List<DatabaseBatchResult>> apply({bool? noResult, bool? continueOnError}) =>
+  Future<List<BatchResult>> apply({bool? noResult, bool? continueOnError}) =>
       _run((batch) => batch.apply(noResult: noResult, continueOnError: continueOnError));
 
-  Future<List<DatabaseBatchResult>> _run(Future<List<Object?>> Function(Batch batch) execute) {
+  Future<List<BatchResult>> _run(Future<List<Object?>> Function(Batch batch) execute) {
     final batch = _batch;
     final statements = _statements;
     _batch = _executor.batch();
@@ -147,18 +147,18 @@ final class DatabaseBatch {
     });
   }
 
-  List<DatabaseBatchResult> _typed(List<_BatchStatement> statements, List<Object?> results) => [
+  List<BatchResult> _typed(List<_BatchStatement> statements, List<Object?> results) => [
     for (var position = 0; position < results.length; position++) _typedResult(statements[position], results[position]),
   ];
 }
 
-DatabaseBatchResult _typedResult(_BatchStatement statement, Object? result) {
-  if (result is DatabaseException) return DatabaseBatchFailed(DatabaseError.from(result));
+BatchResult _typedResult(_BatchStatement statement, Object? result) {
+  if (result is DatabaseException) return BatchFailed(DatabaseError.from(result));
   return switch (statement) {
-    _BatchStatement.insert => DatabaseBatchInserted(result as int?),
-    _BatchStatement.update || _BatchStatement.delete => DatabaseBatchChanged(result as int),
-    _BatchStatement.execute => const DatabaseBatchExecuted(),
-    _BatchStatement.query => DatabaseBatchRows(
+    _BatchStatement.insert => BatchInserted(result as int?),
+    _BatchStatement.update || _BatchStatement.delete => BatchChanged(result as int),
+    _BatchStatement.execute => const BatchExecuted(),
+    _BatchStatement.query => BatchRows(
       (result as List<Object?>).cast<Map<String, Object?>>().map(_fromNativeRow).toList(),
     ),
   };
@@ -166,14 +166,14 @@ DatabaseBatchResult _typedResult(_BatchStatement statement, Object? result) {
 
 /// What one statement of a [DatabaseBatch] came to, at the position it was
 /// queued in.
-sealed class DatabaseBatchResult extends Equatable {
-  const DatabaseBatchResult();
+sealed class BatchResult extends Equatable {
+  const BatchResult();
 }
 
 /// The outcome of a queued [DatabaseBatch.insert].
-final class DatabaseBatchInserted extends DatabaseBatchResult {
+final class BatchInserted extends BatchResult {
   /// Wraps the [rowId] sqflite answered.
-  const DatabaseBatchInserted(this.rowId);
+  const BatchInserted(this.rowId);
 
   /// The row id sqflite assigned. `null` when the row was skipped, which is
   /// what [ConflictAlgorithm.ignore] does with one that collides.
@@ -184,9 +184,9 @@ final class DatabaseBatchInserted extends DatabaseBatchResult {
 }
 
 /// The outcome of a queued [DatabaseBatch.update] or [DatabaseBatch.delete].
-final class DatabaseBatchChanged extends DatabaseBatchResult {
+final class BatchChanged extends BatchResult {
   /// Wraps the [count] sqflite answered.
-  const DatabaseBatchChanged(this.count);
+  const BatchChanged(this.count);
 
   /// How many rows the statement changed or removed.
   final int count;
@@ -196,18 +196,18 @@ final class DatabaseBatchChanged extends DatabaseBatchResult {
 }
 
 /// The outcome of a queued [DatabaseBatch.execute], which answers nothing.
-final class DatabaseBatchExecuted extends DatabaseBatchResult {
+final class BatchExecuted extends BatchResult {
   /// The outcome of a statement that ran.
-  const DatabaseBatchExecuted();
+  const BatchExecuted();
 
   @override
   List<Object?> get props => const [];
 }
 
 /// The outcome of a queued [DatabaseBatch.query].
-final class DatabaseBatchRows extends DatabaseBatchResult {
+final class BatchRows extends BatchResult {
   /// Wraps the [rows] the query selected.
-  const DatabaseBatchRows(this.rows);
+  const BatchRows(this.rows);
 
   /// The rows the query selected, undecoded.
   final List<DatabaseRow> rows;
@@ -217,9 +217,9 @@ final class DatabaseBatchRows extends DatabaseBatchResult {
 }
 
 /// The outcome of a queued statement that failed under `continueOnError`.
-final class DatabaseBatchFailed extends DatabaseBatchResult {
+final class BatchFailed extends BatchResult {
   /// Wraps the [error] the statement raised.
-  const DatabaseBatchFailed(this.error);
+  const BatchFailed(this.error);
 
   /// Why the statement failed, read the way every other method here reads a
   /// sqflite failure.

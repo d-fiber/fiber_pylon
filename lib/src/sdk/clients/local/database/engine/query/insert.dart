@@ -40,38 +40,38 @@ part of '../database.dart';
 /// constructed directly — [LocalDatabase.insert] hands one to its own
 /// callback. The only method here is [into]: nothing can follow `INSERT`
 /// before naming a table, so nothing else is offered here either — the
-/// compiler refuses a callback that returns [DatabaseInsert] itself, or
-/// anything short of a fully composed [DatabaseInsertValues].
+/// compiler refuses a callback that returns [Insert] itself, or
+/// anything short of a fully composed [InsertValues].
 ///
 /// ```dart
 /// final id = await db.insert<Todo>((i) => i.into('todos').values(todo));
 /// ```
-final class DatabaseInsert<T extends DatabaseRecord> {
-  DatabaseInsert._();
+final class Insert<T extends DatabaseRecord> {
+  Insert._();
 
   /// Inserts into [name], the same `INTO` a raw `INSERT INTO ...` names.
-  DatabaseInsertInto<T> into(String name) => DatabaseInsertInto._(_quotedIdentifier(name));
+  InsertInto<T> into(String name) => InsertInto._(_quotedIdentifier(name));
 }
 
-/// A [DatabaseInsert] that has named its table, opened by [DatabaseInsert.into].
+/// A [Insert] that has named its table, opened by [Insert.into].
 /// The only method here is [values]: a raw `INSERT INTO table` still needs a
 /// `VALUES` clause before it means anything, so nothing else is offered
 /// here either.
-final class DatabaseInsertInto<T extends DatabaseRecord> {
-  DatabaseInsertInto._(this._table);
+final class InsertInto<T extends DatabaseRecord> {
+  InsertInto._(this._table);
 
   final String _table;
 
   /// Inserts [value], read into a row through [DatabaseRecord.toRow].
-  DatabaseInsertValues<T> values(T value) => DatabaseInsertValues._(_table, value);
+  InsertValues<T> values(T value) => InsertValues._(_table, value);
 }
 
-/// A fully composed insert, opened by [DatabaseInsertInto.values] — the only
+/// A fully composed insert, opened by [InsertInto.values] — the only
 /// shape [LocalDatabase.insert] accepts back from its own callback, since
 /// naming a table and a value is everything a raw `INSERT INTO ... VALUES
 /// (...)` needs.
-final class DatabaseInsertValues<T extends DatabaseRecord> {
-  DatabaseInsertValues._(this._table, this._data, [this._conflict]);
+final class InsertValues<T extends DatabaseRecord> {
+  InsertValues._(this._table, this._data, [this._conflict]);
 
   final String _table;
   final T _data;
@@ -79,7 +79,7 @@ final class DatabaseInsertValues<T extends DatabaseRecord> {
 
   /// Resolves the conflict, should [values] collide with a row already
   /// there. Left unset, sqflite aborts the whole statement.
-  DatabaseInsertValues<T> onConflict(ConflictAlgorithm algorithm) => DatabaseInsertValues._(_table, _data, algorithm);
+  InsertValues<T> onConflict(ConflictAlgorithm algorithm) => InsertValues._(_table, _data, algorithm);
 
   String get _sql {
     final columns = _data.toRow().keys.map(_quotedIdentifier);

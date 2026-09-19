@@ -62,16 +62,16 @@ final class DatabaseTransaction extends DatabaseSession {
   });
 
   /// See [LocalDatabase.insert].
-  Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
+  Future<int> insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) =>
       _guarded(() async {
-        final spec = build(DatabaseInsert<T>._());
+        final spec = build(Insert<T>._());
         final rowId = await _txn.rawInsert(spec._sql, spec._arguments);
         _owner._notifyWrite({_unquotedIdentifier(spec._table)});
         return rowId;
       });
 
   /// See [LocalDatabase.query].
-  Future<List<T>> query<T extends Object>(DatabaseQueryFrom<T> Function(DatabaseQuery<T> query) build) =>
+  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(DatabaseQuery<T> query) build) =>
       _guarded(() async {
         final spec = build(DatabaseQuery<T>._());
         final rows = await _txn.query(
@@ -97,9 +97,9 @@ final class DatabaseTransaction extends DatabaseSession {
   });
 
   /// See [LocalDatabase.update].
-  Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
+  Future<int> update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) =>
       _guarded(() async {
-        final spec = build(DatabaseUpdate<T>._());
+        final spec = build(Update<T>._());
         final changed = await _txn.update(
           spec._table,
           _toNativeRow(spec._data.toRow()),
@@ -112,8 +112,8 @@ final class DatabaseTransaction extends DatabaseSession {
       });
 
   /// See [LocalDatabase.delete].
-  Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() async {
-    final spec = build(const DatabaseDelete._());
+  Future<int> delete(DeleteFrom Function(Delete delete) build) => _guarded(() async {
+    final spec = build(const Delete._());
     final removed = await _txn.delete(spec._table, where: spec._where, whereArgs: _toNativeArgs(spec._whereArgs));
     if (removed > 0) _owner._notifyWrite({_unquotedIdentifier(spec._table)});
     return removed;

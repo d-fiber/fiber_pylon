@@ -102,7 +102,7 @@ final class Note extends Equatable {
   List<Object?> get props => [id, todoId, body, writtenOn];
 }
 
-final class Todos extends DatabaseKeyedTable<Todo, int> {
+final class Todos extends KeyedTable<Todo, int> {
   Todos() : super('todos');
 
   late final id = column.key();
@@ -113,10 +113,10 @@ final class Todos extends DatabaseKeyedTable<Todo, int> {
   late final due = column.date('due').nullable();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title, done, status, priority, due];
+  List<Field<Object?>> get columns => [id, title, done, status, priority, due];
 
   @override
-  Todo read(DatabaseReader row) => Todo(
+  Todo read(Reader row) => Todo(
     id: row(id),
     title: row(title),
     done: row(done),
@@ -126,7 +126,7 @@ final class Todos extends DatabaseKeyedTable<Todo, int> {
   );
 
   @override
-  List<DatabaseAssignment> write(Todo todo) => [
+  List<Assignment> write(Todo todo) => [
     id.toOrGenerate(todo.id),
     title.to(todo.title),
     done.to(todo.done),
@@ -136,20 +136,20 @@ final class Todos extends DatabaseKeyedTable<Todo, int> {
   ];
 }
 
-final class Tags extends DatabaseKeyedTable<Tag, UuidValue> {
+final class Tags extends KeyedTable<Tag, UuidValue> {
   Tags() : super('tags');
 
   late final id = column.uuidKey();
   late final name = column.text('name').unique();
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, name];
+  List<Field<Object?>> get columns => [id, name];
 
   @override
-  Tag read(DatabaseReader row) => Tag(id: row(id), name: row(name));
+  Tag read(Reader row) => Tag(id: row(id), name: row(name));
 
   @override
-  List<DatabaseAssignment> write(Tag tag) => [id.toOrGenerate(tag.id), name.to(tag.name)];
+  List<Assignment> write(Tag tag) => [id.toOrGenerate(tag.id), name.to(tag.name)];
 }
 
 final class TodoTags extends DatabaseTable<TodoTag> {
@@ -159,19 +159,19 @@ final class TodoTags extends DatabaseTable<TodoTag> {
   late final tagId = column.uuid('tag_id').references(tags.id, onDelete: ReferentialAction.cascade);
 
   @override
-  List<DatabaseField<Object?>> get columns => [todoId, tagId];
+  List<Field<Object?>> get columns => [todoId, tagId];
 
   @override
-  List<DatabaseField<Object?>> get primaryKey => [todoId, tagId];
+  List<Field<Object?>> get primaryKey => [todoId, tagId];
 
   @override
-  TodoTag read(DatabaseReader row) => TodoTag(todoId: row(todoId), tagId: row(tagId));
+  TodoTag read(Reader row) => TodoTag(todoId: row(todoId), tagId: row(tagId));
 
   @override
-  List<DatabaseAssignment> write(TodoTag link) => [todoId.to(link.todoId), tagId.to(link.tagId)];
+  List<Assignment> write(TodoTag link) => [todoId.to(link.todoId), tagId.to(link.tagId)];
 }
 
-final class Notes extends DatabaseKeyedTable<Note, int> {
+final class Notes extends KeyedTable<Note, int> {
   Notes() : super('notes');
 
   late final id = column.key();
@@ -180,13 +180,13 @@ final class Notes extends DatabaseKeyedTable<Note, int> {
   late final writtenOn = column.date('written_on');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, todoId, body, writtenOn];
+  List<Field<Object?>> get columns => [id, todoId, body, writtenOn];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), todoId: row(todoId), body: row(body), writtenOn: row(writtenOn));
+  Note read(Reader row) => Note(id: row(id), todoId: row(todoId), body: row(body), writtenOn: row(writtenOn));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [
+  List<Assignment> write(Note note) => [
     id.toOrGenerate(note.id),
     todoId.to(note.todoId),
     body.to(note.body),

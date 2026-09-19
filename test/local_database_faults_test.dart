@@ -127,7 +127,7 @@ void main() {
     }
   }
 
-  Future<List<int>> readNs(LocalDatabase db, DatabaseQueryFrom<int> Function(DatabaseQueryFrom<int> query) refine) =>
+  Future<List<int>> readNs(LocalDatabase db, QueryFrom<int> Function(QueryFrom<int> query) refine) =>
       db.query<int>((q) => refine(q.from('cells').map((row) => row['n']!.asInt)));
 
   group('LocalDatabase transactions', () {
@@ -218,7 +218,7 @@ void main() {
       await second.dispose();
     });
 
-    test('reports a transaction used after it finished as DatabaseTransactionClosedError', () async {
+    test('reports a transaction used after it finished as TransactionClosedError', () async {
       final db = await openWith('txn_closed.db', [_notes]);
       late DatabaseTransaction finished;
       await db.transaction((txn) async {
@@ -227,7 +227,7 @@ void main() {
 
       await expectLater(
         finished.execute('SELECT 1'),
-        throwsA(isA<DatabaseTransactionClosedError>()),
+        throwsA(isA<TransactionClosedError>()),
         reason: 'a finished transaction is not an unknown failure',
       );
       await db.dispose();
@@ -240,7 +240,7 @@ void main() {
       'CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id))',
     ];
 
-    test('reports a broken foreign key as DatabaseForeignKeyConstraintError', () async {
+    test('reports a broken foreign key as ForeignKeyConstraintError', () async {
       final db = await openWith(
         'error_foreign_key.db',
         parentAndChild,
@@ -249,40 +249,40 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO children (parent_id) VALUES (99)'),
-        throwsA(isA<DatabaseForeignKeyConstraintError>()),
+        throwsA(isA<ForeignKeyConstraintError>()),
       );
       await db.dispose();
     });
 
-    test('reports a broken CHECK as DatabaseCheckConstraintError', () async {
+    test('reports a broken CHECK as CheckConstraintError', () async {
       final db = await openWith('error_check.db', ['CREATE TABLE ages (n INTEGER CHECK (n > 0))']);
 
-      await expectLater(db.execute('INSERT INTO ages (n) VALUES (0)'), throwsA(isA<DatabaseCheckConstraintError>()));
+      await expectLater(db.execute('INSERT INTO ages (n) VALUES (0)'), throwsA(isA<CheckConstraintError>()));
       await db.dispose();
     });
 
-    test('reports a value a STRICT column refuses as DatabaseDatatypeMismatchError', () async {
+    test('reports a value a STRICT column refuses as DatatypeMismatchError', () async {
       final db = await openWith('error_strict.db', ['CREATE TABLE ages (n INTEGER) STRICT']);
 
       await expectLater(
         db.execute('INSERT INTO ages (n) VALUES (?)', [const DatabaseType.varchar('old')]),
-        throwsA(isA<DatabaseDatatypeMismatchError>()),
+        throwsA(isA<DatatypeMismatchError>()),
       );
       await db.dispose();
     });
 
-    test('reports a column that does not exist as DatabaseNoSuchColumnError', () async {
+    test('reports a column that does not exist as NoSuchColumnError', () async {
       final db = await openWith('error_no_column.db', [_notes]);
 
-      await expectLater(db.rawQuery('SELECT missing FROM notes'), throwsA(isA<DatabaseNoSuchColumnError>()));
+      await expectLater(db.rawQuery('SELECT missing FROM notes'), throwsA(isA<NoSuchColumnError>()));
       await expectLater(
         db.insert<Cells>((i) => i.into('notes').values(const Cells(1, 'a'))),
-        throwsA(isA<DatabaseNoSuchColumnError>()),
+        throwsA(isA<NoSuchColumnError>()),
       );
       await db.dispose();
     });
 
-    test('reports a filter on a column that does not exist as DatabaseNoSuchColumnError', () async {
+    test('reports a filter on a column that does not exist as NoSuchColumnError', () async {
       final db = await openWith('error_no_column_filter.db', [_notes]);
 
       await expectLater(
@@ -292,24 +292,24 @@ void main() {
               .where((w) => w.isEqualTo(key: 'missing', value: const DatabaseType.integer(1)))
               .map((row) => 1),
         ),
-        throwsA(isA<DatabaseNoSuchColumnError>()),
+        throwsA(isA<NoSuchColumnError>()),
       );
       await db.dispose();
     });
 
-    test('reports a table or an index created twice as DatabaseAlreadyExistsError', () async {
+    test('reports a table or an index created twice as AlreadyExistsError', () async {
       final db = await openWith('error_exists.db', [_notes]);
       await db.execute('CREATE INDEX notes_body ON notes (body)');
 
-      await expectLater(db.execute(_notes), throwsA(isA<DatabaseAlreadyExistsError>()));
+      await expectLater(db.execute(_notes), throwsA(isA<AlreadyExistsError>()));
       await expectLater(
         db.execute('CREATE INDEX notes_body ON notes (body)'),
-        throwsA(isA<DatabaseAlreadyExistsError>()),
+        throwsA(isA<AlreadyExistsError>()),
       );
       await db.dispose();
     });
 
-    test('reports a write that meets another connection lock as DatabaseBusyError', () async {
+    test('reports a write that meets another connection lock as BusyError', () async {
       final holder = await openWith('error_busy.db', [_notes], singleInstance: false);
       final waiter = LocalDatabase(name: 'error_busy.db', singleInstance: false);
       await waiter.open();
@@ -317,41 +317,41 @@ void main() {
 
       await expectLater(
         waiter.insert<Note>((i) => i.into('notes').values(const Note('blocked'))),
-        throwsA(isA<DatabaseBusyError>()),
+        throwsA(isA<BusyError>()),
       );
       await holder.execute('ROLLBACK');
       await holder.dispose();
       await waiter.dispose();
     });
 
-    test('reports a file that is not a database as DatabaseCorruptError', () async {
+    test('reports a file that is not a database as CorruptError', () async {
       File('${directory.path}/garbage.db').writeAsBytesSync(List.filled(4096, 7));
       final db = LocalDatabase(name: 'garbage.db');
 
-      await expectLater(db.open(), throwsA(isA<DatabaseCorruptError>()));
+      await expectLater(db.open(), throwsA(isA<CorruptError>()));
     });
 
-    test('reports a write that finds the file full as DatabaseStorageError', () async {
+    test('reports a write that finds the file full as StorageError', () async {
       final db = await openWith('error_full.db', ['CREATE TABLE blobs (data BLOB)']);
       await db.execute('PRAGMA max_page_count = 4');
 
       await expectLater(
         db.execute('INSERT INTO blobs (data) VALUES (zeroblob(1000000))'),
-        throwsA(isA<DatabaseStorageError>()),
+        throwsA(isA<StorageError>()),
       );
       await db.dispose();
     });
 
-    test('reports a read only open of a file that does not exist as DatabaseOpenFailedError', () async {
+    test('reports a read only open of a file that does not exist as OpenFailedError', () async {
       final db = LocalDatabase(name: 'absent.db', readOnly: true);
 
-      await expectLater(db.open(), throwsA(isA<DatabaseOpenFailedError>()));
+      await expectLater(db.open(), throwsA(isA<OpenFailedError>()));
     });
 
-    test('still reports what it cannot classify as DatabaseUnknownError', () async {
+    test('still reports what it cannot classify as UnknownError', () async {
       final db = await openWith('error_unknown.db', [_notes]);
 
-      await expectLater(db.rawQuery('SELECT no_such_function(1)'), throwsA(isA<DatabaseUnknownError>()));
+      await expectLater(db.rawQuery('SELECT no_such_function(1)'), throwsA(isA<UnknownError>()));
       await db.dispose();
     });
   });
@@ -479,7 +479,7 @@ void main() {
       batch.insert<Note>((i) => i.into('notes').values(const Note('second')));
       final results = await batch.commit();
 
-      expect(results, [const DatabaseBatchInserted(2)]);
+      expect(results, [const BatchInserted(2)]);
       expect(await countOf(db, 'notes'), 2);
       await db.dispose();
     });
@@ -606,7 +606,7 @@ void main() {
       final db = await openWith('table_injection.db', [_notes]);
       await db.insert<Note>((i) => i.into('notes').values(const Note('kept')));
 
-      await expectLater(db.delete((d) => d.from('notes WHERE 1 = 1 --')), throwsA(isA<DatabaseNoSuchTableError>()));
+      await expectLater(db.delete((d) => d.from('notes WHERE 1 = 1 --')), throwsA(isA<NoSuchTableError>()));
       expect(await countOf(db, 'notes'), 1, reason: 'the injected condition removed rows');
       await db.dispose();
     });
@@ -641,7 +641,7 @@ void main() {
 
       final results = await batch.commit();
 
-      expect(results, [const DatabaseBatchInserted(1)]);
+      expect(results, [const BatchInserted(1)]);
       await db.dispose();
     });
 
@@ -655,7 +655,7 @@ void main() {
     });
 
     test('refuses to match text that holds a NUL character, which SQLite reads as the end of a pattern', () async {
-      const builder = DatabaseFilterBuilder();
+      const builder = FilterBuilder();
 
       expect(() => builder.contains(key: 'body', text: 'a\u0000b'), throwsArgumentError);
       expect(() => builder.startsWith(key: 'body', text: '\u0000'), throwsArgumentError);

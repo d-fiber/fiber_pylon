@@ -153,13 +153,13 @@ class AppStorage {
   /// See [LocalDatabase.insert].
   static Future<int> insert<T extends DatabaseRecord>(
     Fingerprint fingerprint,
-    DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build,
+    InsertValues<T> Function(Insert<T> insert) build,
   ) => _whole(fingerprint).insert<T>(build);
 
   /// See [LocalDatabase.query].
   static Future<List<T>> query<T extends Object>(
     Fingerprint fingerprint,
-    DatabaseQueryFrom<T> Function(DatabaseQuery<T> query) build,
+    QueryFrom<T> Function(DatabaseQuery<T> query) build,
   ) => _whole(fingerprint).query<T>(build);
 
   /// See [LocalDatabase.rawQuery].
@@ -169,11 +169,11 @@ class AppStorage {
   /// See [LocalDatabase.update].
   static Future<int> update<T extends DatabaseRecord>(
     Fingerprint fingerprint,
-    DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build,
+    UpdateSet<T> Function(Update<T> update) build,
   ) => _whole(fingerprint).update<T>(build);
 
   /// See [LocalDatabase.delete].
-  static Future<int> delete(Fingerprint fingerprint, DatabaseDeleteFrom Function(DatabaseDelete delete) build) =>
+  static Future<int> delete(Fingerprint fingerprint, DeleteFrom Function(Delete delete) build) =>
       _whole(fingerprint).delete(build);
 
   /// See [LocalDatabase.transaction].
@@ -243,7 +243,7 @@ Future<LocalDatabase> openAppDatabase({
 
   try {
     await _openHealthy(db, name);
-  } on DatabaseEncryptionUnavailableError {
+  } on EncryptionUnavailableError {
     rethrow; // nothing is wrong with the file: deleting it would only lose it
   } on DatabaseError {
     await _deleteFiles(path, resolvedFactory);
@@ -279,14 +279,14 @@ void _refuseClearFile(String path, String name) {
 }
 
 /// Opens [db] and runs `PRAGMA quick_check` on it, closing it again and
-/// throwing [DatabaseOpenFailedError] when the check finds a problem.
+/// throwing [OpenFailedError] when the check finds a problem.
 Future<void> _openHealthy(LocalDatabase db, String name) async {
   try {
     await db.open();
     final rows = await db.rawQuery('PRAGMA quick_check');
     final verdict = rows.isEmpty ? null : rows.first.values.first.asString;
     if (verdict != 'ok') {
-      throw DatabaseOpenFailedError('$name is corrupted: quick_check answered $verdict');
+      throw OpenFailedError('$name is corrupted: quick_check answered $verdict');
     }
   } catch (_) {
     await db.dispose();

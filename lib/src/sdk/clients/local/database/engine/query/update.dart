@@ -46,32 +46,32 @@ part of '../database.dart';
 ///   (u) => u.table('todos').set(done).where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
 /// );
 /// ```
-final class DatabaseUpdate<T extends DatabaseRecord> {
-  DatabaseUpdate._();
+final class Update<T extends DatabaseRecord> {
+  Update._();
 
   /// Updates rows in [name], the same table name a raw `UPDATE table` names.
-  DatabaseUpdateTable<T> table(String name) => DatabaseUpdateTable._(_quotedIdentifier(name));
+  UpdateTable<T> table(String name) => UpdateTable._(_quotedIdentifier(name));
 }
 
-/// A [DatabaseUpdate] that has named its table, opened by [DatabaseUpdate.table].
+/// A [Update] that has named its table, opened by [Update.table].
 /// The only method here is [set]: a raw `UPDATE table` still needs a `SET`
 /// clause before it means anything, so nothing else is offered here either.
-final class DatabaseUpdateTable<T extends DatabaseRecord> {
-  DatabaseUpdateTable._(this._table);
+final class UpdateTable<T extends DatabaseRecord> {
+  UpdateTable._(this._table);
 
   final String _table;
 
   /// Writes [value], read into a row through [DatabaseRecord.toRow], over
   /// every matched row.
-  DatabaseUpdateSet<T> set(T value) => DatabaseUpdateSet._(_table, value);
+  UpdateSet<T> set(T value) => UpdateSet._(_table, value);
 }
 
-/// A fully composed update, opened by [DatabaseUpdateTable.set] — the only
+/// A fully composed update, opened by [UpdateTable.set] — the only
 /// shape [LocalDatabase.update] accepts back from its own callback. [where]
 /// and [onConflict] refine it further and may be called in either order,
 /// since neither changes what the other is allowed to be.
-final class DatabaseUpdateSet<T extends DatabaseRecord> {
-  DatabaseUpdateSet._(this._table, this._data, [this._where, this._whereArgs, this._conflict]);
+final class UpdateSet<T extends DatabaseRecord> {
+  UpdateSet._(this._table, this._data, [this._where, this._whereArgs, this._conflict]);
 
   final String _table;
   final T _data;
@@ -80,15 +80,15 @@ final class DatabaseUpdateSet<T extends DatabaseRecord> {
   final ConflictAlgorithm? _conflict;
 
   /// Keeps only the rows [build] matches, composed from an empty
-  /// [DatabaseFilterBuilder]. Called again, both conditions must hold. Every row
+  /// [FilterBuilder]. Called again, both conditions must hold. Every row
   /// in the table is matched when this is never called.
-  DatabaseUpdateSet<T> where(DatabaseFilter Function(DatabaseFilterBuilder w) build) {
-    final (clause, arguments) = _renderDatabaseFilter(build(const DatabaseFilterBuilder()));
-    return DatabaseUpdateSet._(_table, _data, _bothMatch(_where, clause), [...?_whereArgs, ...arguments], _conflict);
+  UpdateSet<T> where(Filter Function(FilterBuilder w) build) {
+    final (clause, arguments) = _renderDatabaseFilter(build(const FilterBuilder()));
+    return UpdateSet._(_table, _data, _bothMatch(_where, clause), [...?_whereArgs, ...arguments], _conflict);
   }
 
   /// Resolves the conflict, should [set] collide with a row already there.
   /// Left unset, sqflite aborts the whole statement.
-  DatabaseUpdateSet<T> onConflict(ConflictAlgorithm algorithm) =>
-      DatabaseUpdateSet._(_table, _data, _where, _whereArgs, algorithm);
+  UpdateSet<T> onConflict(ConflictAlgorithm algorithm) =>
+      UpdateSet._(_table, _data, _where, _whereArgs, algorithm);
 }

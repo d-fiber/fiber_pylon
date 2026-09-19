@@ -113,7 +113,7 @@ void main() {
       final fingerprint = Fingerprint.generate();
       final db = LocalDatabase(name: 'k.db', factory: factory, fingerprint: fingerprint, encrypt: true);
 
-      await expectLater(db.open(), throwsA(isA<DatabaseEncryptionUnavailableError>()));
+      await expectLater(db.open(), throwsA(isA<EncryptionUnavailableError>()));
 
       final options = factory.requested.single;
       expect(options, isA<SqlCipherOpenDatabaseOptions>());
@@ -126,8 +126,8 @@ void main() {
       final a = LocalDatabase(name: 'a.db', factory: factory, fingerprint: Fingerprint.generate(), encrypt: true);
       final b = LocalDatabase(name: 'b.db', factory: factory, fingerprint: Fingerprint.generate(), encrypt: true);
 
-      await expectLater(a.open(), throwsA(isA<DatabaseEncryptionUnavailableError>()));
-      await expectLater(b.open(), throwsA(isA<DatabaseEncryptionUnavailableError>()));
+      await expectLater(a.open(), throwsA(isA<EncryptionUnavailableError>()));
+      await expectLater(b.open(), throwsA(isA<EncryptionUnavailableError>()));
 
       final passwords = factory.requested.map((o) => (o as SqlCipherOpenDatabaseOptions).password).toList();
       expect(passwords[0], isNot(passwords[1]));
@@ -136,7 +136,7 @@ void main() {
     test('refuses to run on a SQLite that is not SQLCipher, and stays closed', () async {
       final db = LocalDatabase(name: 'plain.db', fingerprint: Fingerprint.generate(), encrypt: true);
 
-      await expectLater(db.open(), throwsA(isA<DatabaseEncryptionUnavailableError>()));
+      await expectLater(db.open(), throwsA(isA<EncryptionUnavailableError>()));
 
       expect(db.isOpen, isFalse);
     });
@@ -144,7 +144,7 @@ void main() {
     test('writes nothing into a database it refused to open', () async {
       final db = LocalDatabase(name: 'empty.db', fingerprint: Fingerprint.generate(), encrypt: true);
 
-      await expectLater(db.open(), throwsA(isA<DatabaseEncryptionUnavailableError>()));
+      await expectLater(db.open(), throwsA(isA<EncryptionUnavailableError>()));
 
       final file = File('${directory.path}/empty.db');
       expect(!file.existsSync() || file.lengthSync() == 0, isTrue);

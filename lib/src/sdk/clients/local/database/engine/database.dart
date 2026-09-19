@@ -136,7 +136,7 @@ part 'table/declared.dart';
 ///
 /// Tables declared as [DatabaseTable] classes replace the strings, the
 /// callbacks and the row maps above. [LocalDatabase.declared] creates and
-/// migrates them, and each column is a typed [DatabaseField], so a filter
+/// migrates them, and each column is a typed [Field], so a filter
 /// takes the Dart type of its own column:
 ///
 /// ```dart
@@ -168,7 +168,7 @@ part 'table/declared.dart';
 /// is rare enough, and expensive enough, to not deserve its own method).
 ///
 /// Every write made through this class tells the streams watching the tables
-/// it touched (see [DatabaseRows.watch]): a typed write, [insert], [update],
+/// it touched (see [Rows.watch]): a typed write, [insert], [update],
 /// [delete], a [batch] and a [transaction] — the last one only once it has
 /// committed, and not at all when it rolls back. A raw [execute] or a [batch]
 /// cannot say which table it changed, so it tells every watcher, and each one
@@ -189,7 +189,7 @@ class LocalDatabase extends DatabaseSession {
   List<DatabaseTable<Object>>? _tables;
   Future<void> _declaring = Future<void>.value();
   final List<DeclaredTable> _declarations;
-  final List<DatabaseMigration> _migrations;
+  final List<Migration> _migrations;
   final Fingerprint? _fingerprint;
   final bool _encrypted;
   Database? _db;
@@ -229,7 +229,7 @@ class LocalDatabase extends DatabaseSession {
   /// the same fingerprint. With [encrypt] the file is also encrypted with a key
   /// derived from [fingerprint], so a copy of it cannot be read without it. That
   /// needs a SQLCipher [factory]; on a SQLite that is not one, [open] throws a
-  /// [DatabaseEncryptionUnavailableError] instead of writing the file in clear.
+  /// [EncryptionUnavailableError] instead of writing the file in clear.
   LocalDatabase({
     required String name,
     int version = 1,
@@ -268,7 +268,7 @@ class LocalDatabase extends DatabaseSession {
   /// When [open] runs, inside one transaction: every table that does not
   /// exist yet is created, and so is every column a declared table gained
   /// since the file was written, provided SQLite can add it, which means it is
-  /// nullable or has a [DatabaseField.defaultsTo] and is neither a key nor
+  /// nullable or has a [Field.defaultsTo] and is neither a key nor
   /// unique. A change SQLite cannot make on its own, such as removing or
   /// renaming a column or filling a new column from another, is a [migrations]
   /// entry. Entry number `n`, counting from zero, upgrades a file from version
@@ -278,7 +278,7 @@ class LocalDatabase extends DatabaseSession {
   /// version left it. A fresh file runs none of them.
   ///
   /// A file written by a newer version of the code is refused with a
-  /// [DatabaseSchemaTooNewError] instead of being read wrongly.
+  /// [SchemaTooNewError] instead of being read wrongly.
   ///
   /// Foreign keys are enforced, as on every [LocalDatabase], and on a writable
   /// file the journal is in write-ahead mode, which SQLite leaves off unless
@@ -292,7 +292,7 @@ class LocalDatabase extends DatabaseSession {
     required String name,
     required List<DatabaseTable<Object>> tables,
     List<DeclaredTable> declarations = const [],
-    List<DatabaseMigration> migrations = const [],
+    List<Migration> migrations = const [],
     bool readOnly = false,
     bool singleInstance = true,
     DatabaseFactory? factory,
@@ -337,7 +337,7 @@ class LocalDatabase extends DatabaseSession {
   /// call made while the first is still running waits for it instead of opening
   /// another connection.
   ///
-  /// Throws a [DatabaseOpenFailedError] when SQLite cannot open the file and
+  /// Throws a [OpenFailedError] when SQLite cannot open the file and
   /// gives no more precise reason, such as a read only open of a file that does
   /// not exist.
   Future<void> open() {
@@ -402,7 +402,7 @@ class LocalDatabase extends DatabaseSession {
       _db = db;
     } on DatabaseException catch (error) {
       final reason = DatabaseError.from(error);
-      throw reason is DatabaseUnknownError ? DatabaseOpenFailedError(reason.message) : reason;
+      throw reason is UnknownError ? OpenFailedError(reason.message) : reason;
     }
   }
 
@@ -413,7 +413,7 @@ class LocalDatabase extends DatabaseSession {
     final rows = await db.rawQuery('PRAGMA cipher_version');
     final version = rows.isEmpty ? null : rows.first.values.first;
     if (version is! String || version.isEmpty) {
-      throw DatabaseEncryptionUnavailableError(
+      throw EncryptionUnavailableError(
         '$_name was to be encrypted, but the SQLite it runs on is not SQLCipher: '
         'give the LocalDatabase the factory of sqflite_sqlcipher.',
       );
@@ -493,13 +493,13 @@ class LocalDatabase extends DatabaseSession {
     _notifyWrite(null);
   });
 
-  /// Inserts one row, composed by [build] from an empty [DatabaseInsert] —
-  /// [build] must return a fully composed [DatabaseInsertValues], the same way
+  /// Inserts one row, composed by [build] from an empty [Insert] —
+  /// [build] must return a fully composed [InsertValues], the same way
   /// a raw `INSERT` needs an `INTO` and a `VALUES` before it means anything
   /// — answering the row id sqflite assigned.
-  Future<int> insert<T extends DatabaseRecord>(DatabaseInsertValues<T> Function(DatabaseInsert<T> insert) build) =>
+  Future<int> insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) =>
       _guarded(() async {
-        final spec = build(DatabaseInsert<T>._());
+        final spec = build(Insert<T>._());
         final rowId = await _executor().rawInsert(spec._sql, spec._arguments);
         _notifyWrite({_unquotedIdentifier(spec._table)});
         return rowId;
@@ -507,9 +507,9 @@ class LocalDatabase extends DatabaseSession {
 
   /// Reads rows, filtered, ordered, paged and decoded exactly as [build]
   /// composes it from an empty [DatabaseQuery] — [build] must return a
-  /// [DatabaseQueryFrom], the same way a raw `SELECT` needs a `FROM` before it
+  /// [QueryFrom], the same way a raw `SELECT` needs a `FROM` before it
   /// means anything.
-  Future<List<T>> query<T extends Object>(DatabaseQueryFrom<T> Function(DatabaseQuery<T> query) build) =>
+  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(DatabaseQuery<T> query) build) =>
       _guarded(() async {
         final spec = build(DatabaseQuery<T>._());
         final rows = await _executor().query(
@@ -537,12 +537,12 @@ class LocalDatabase extends DatabaseSession {
   });
 
   /// Writes one row over every row matched, composed by [build] from an
-  /// empty [DatabaseUpdate] — [build] must return a [DatabaseUpdateSet], the same
+  /// empty [Update] — [build] must return a [UpdateSet], the same
   /// way a raw `UPDATE table` needs a `SET` before it means anything —
   /// answering how many rows changed.
-  Future<int> update<T extends DatabaseRecord>(DatabaseUpdateSet<T> Function(DatabaseUpdate<T> update) build) =>
+  Future<int> update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) =>
       _guarded(() async {
-        final spec = build(DatabaseUpdate<T>._());
+        final spec = build(Update<T>._());
         final changed = await _executor().update(
           spec._table,
           _toNativeRow(spec._data.toRow()),
@@ -555,11 +555,11 @@ class LocalDatabase extends DatabaseSession {
       });
 
   /// Removes every row matched, composed by [build] from an empty
-  /// [DatabaseDelete] — [build] must return a [DatabaseDeleteFrom], the same way
+  /// [Delete] — [build] must return a [DeleteFrom], the same way
   /// a raw `DELETE` needs a `FROM` before it means anything — answering how
   /// many rows were removed.
-  Future<int> delete(DatabaseDeleteFrom Function(DatabaseDelete delete) build) => _guarded(() async {
-    final spec = build(const DatabaseDelete._());
+  Future<int> delete(DeleteFrom Function(Delete delete) build) => _guarded(() async {
+    final spec = build(const Delete._());
     final removed = await _executor().delete(
       spec._table,
       where: spec._where,

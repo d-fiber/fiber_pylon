@@ -52,7 +52,7 @@ final class Note {
   final bool done;
 }
 
-final class Notes extends DatabaseKeyedTable<Note, int> {
+final class Notes extends KeyedTable<Note, int> {
   Notes() : super('notes');
 
   late final id = column.key();
@@ -60,29 +60,29 @@ final class Notes extends DatabaseKeyedTable<Note, int> {
   late final done = column.boolean('done').defaultsTo(false);
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, title, done];
+  List<Field<Object?>> get columns => [id, title, done];
 
   @override
-  Note read(DatabaseReader row) => Note(id: row(id), title: row(title), done: row(done));
+  Note read(Reader row) => Note(id: row(id), title: row(title), done: row(done));
 
   @override
-  List<DatabaseAssignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title), done.to(note.done)];
+  List<Assignment> write(Note note) => [id.toOrGenerate(note.id), title.to(note.title), done.to(note.done)];
 }
 
-final class Tags extends DatabaseKeyedTable<String, int> {
+final class Tags extends KeyedTable<String, int> {
   Tags() : super('tags');
 
   late final id = column.key();
   late final label = column.text('label');
 
   @override
-  List<DatabaseField<Object?>> get columns => [id, label];
+  List<Field<Object?>> get columns => [id, label];
 
   @override
-  String read(DatabaseReader row) => row(label);
+  String read(Reader row) => row(label);
 
   @override
-  List<DatabaseAssignment> write(String value) => [label.to(value)];
+  List<Assignment> write(String value) => [label.to(value)];
 }
 
 /// Waits until [list] holds [count] items: the next event needs a real
@@ -122,7 +122,7 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  group('DatabaseRows.watch', () {
+  group('Rows.watch', () {
     test('sends the current rows first, then one event per change', () async {
       await notes.on(db).insert(const Note(title: 'one'));
       final events = <List<String>>[];
