@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../common/fault.dart';
+import '../../../../common/fault.dart';
 import 'response.dart';
 
 /// Turns what an HTTP call did into the adapter's own signal.

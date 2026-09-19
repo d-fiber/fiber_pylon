@@ -34,8 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../rest/request.dart';
-import '../rest/response.dart';
+import 'request.dart';
+import 'response.dart';
 
 /// How a project decides whether a cached answer is still worth trusting,
 /// and how fresh a new one is compared to what is already held.

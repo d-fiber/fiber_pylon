@@ -34,8 +34,8 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import '../common/fault.dart';
-import '../credential/manager.dart';
+import '../../../../common/fault.dart';
+import '../../../../credential/manager.dart';
 
 /// Wraps a call in the policy that is the same whatever the call is.
 ///

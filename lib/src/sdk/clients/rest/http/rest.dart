@@ -36,7 +36,7 @@
 
 import 'dart:convert';
 
-import '../common/segment.dart';
+import '../segment.dart';
 import 'client.dart';
 import 'request.dart';
 import 'response.dart';

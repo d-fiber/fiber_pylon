@@ -38,7 +38,7 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 
-import '../common/reporter.dart';
+import '../../../../common/reporter.dart';
 import 'channel.dart';
 
 /// A duplex link carrying text frames.
