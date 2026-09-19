@@ -62,7 +62,7 @@ final class GroundSdk extends Sdk {
 
   @override
   Future<void> dispose() async {
-    if (isInitialized) await database.dispose();
+    await database.dispose();
     await super.dispose();
   }
 }
