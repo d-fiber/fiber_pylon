@@ -244,6 +244,19 @@ class SecureStorage {
   /// An entry holding a [String], reading as [defaultValue] until it is set.
   static Secure<String> string_(String key, String defaultValue) => _SecureString(_instance, key, defaultValue);
 
+  /// An entry the package keeps for itself, holding a [String] under [key], which
+  /// starts with the prefix reserved for the package.
+  ///
+  /// Reads as an empty string until it is set. Not for a project, which declares
+  /// its entries with [string_] and cannot reach these.
+  @internal
+  Secure<String> packageString(String key) {
+    if (!key.startsWith(_reservedPrefix)) {
+      throw ArgumentError.value(key, 'key', 'must start with "$_reservedPrefix", as the package\'s own do');
+    }
+    return _SecureString.package(this, key, '');
+  }
+
   /// An entry holding bytes, reading as [defaultValue] until it is set.
   static Secure<Uint8List> bytes_(String key, Uint8List defaultValue) => _SecureBytes(_instance, key, defaultValue);
 
@@ -308,6 +321,9 @@ sealed class Secure<T> extends Observable<T> {
     _storage._requireOwnKey(_key);
   }
 
+  /// An entry the package keeps for itself, under a key that is reserved.
+  Secure._package(this._storage, this._key, this._defaultValue);
+
   /// The key this entry occupies in the vault.
   String get key => _key;
 
@@ -371,6 +387,8 @@ sealed class Secure<T> extends Observable<T> {
 /// The [Secure] behind [SecureStorage.string_].
 final class _SecureString extends Secure<String> {
   _SecureString(super.storage, super.key, super.defaultValue) : super._();
+
+  _SecureString.package(super.storage, super.key, super.defaultValue) : super._package();
 
   @override
   String _decode(String stored) => stored;
