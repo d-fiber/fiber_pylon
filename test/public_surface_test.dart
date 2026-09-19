@@ -137,6 +137,19 @@ await token.set('abc');
 print(token());
 print(SecureStorage.fingerprint.derive('purpose'));
 ''', compiles: true),
+  _Program('a call that reads the cache and refreshes it', '''
+SdkRepository<int, int, String, int>? call;
+call?.status.stream.listen((status) => switch (status) {
+  StatusIdle() => 0,
+  StatusRunning() => 1,
+  StatusSucceeded() => 2,
+  StatusOffline() => 3,
+  StatusUnauthenticated() => 4,
+  StatusFailed(:final error) => error,
+});
+call?.stream.listen((value) => value + 1);
+await call?.refresh();
+''', compiles: true),
   _Program('the app credential through the singleton', '''
 await Credentials.set(const Credential(token: 'abc', refreshToken: 'again'));
 print(Credentials.isHeld);
