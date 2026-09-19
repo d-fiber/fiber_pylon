@@ -185,7 +185,8 @@ class LocalDatabase extends DatabaseSession {
   final bool _readOnly;
   final bool _singleInstance;
   final DatabaseFactory _factory;
-  final List<DatabaseTable<Object>>? _tables;
+  List<DatabaseTable<Object>>? _tables;
+  Future<void> _declaring = Future<void>.value();
   final List<DeclaredTable> _declarations;
   final List<DatabaseMigration> _migrations;
   final Fingerprint? _fingerprint;
@@ -436,6 +437,51 @@ class LocalDatabase extends DatabaseSession {
   Future<void> _configure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');
     await _onConfigure?.call(db);
+  }
+
+  /// Declares [tables] on this database, which must be open, and creates what
+  /// they declare: every table that does not exist yet, and every column an
+  /// existing one gained, under the same rules as [LocalDatabase.declared].
+  ///
+  /// This is how tables reach a database that was opened before anyone knew
+  /// them — the app database, opened at launch, then handed the tables of the
+  /// project's own collections. Declaring a table again with the same
+  /// declaration does nothing. Once a database has been declared any table, it
+  /// refuses the ones it was not told about, as [LocalDatabase.declared] does.
+  ///
+  /// Two calls at once run one after the other. A call that fails — a table
+  /// declared differently from before, a column SQLite cannot add — leaves the
+  /// database as it was, tables and file alike.
+  ///
+  /// Throws a [StateError] on a read only database, or one that is not open.
+  Future<void> declare(List<DatabaseTable<Object>> tables) {
+    final run = _declaring.then((_) => _declare(tables));
+    _declaring = run.then((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  Future<void> _declare(List<DatabaseTable<Object>> tables) async {
+    if (_readOnly) throw StateError('$_name is read only: it cannot be declared any table.');
+    final db = _requireOpen();
+    final before = _tables;
+    final known = {for (final table in before ?? const <DatabaseTable<Object>>[]) table.tableName: table};
+    final added = <DatabaseTable<Object>>[];
+    for (final table in tables) {
+      final held = known[table.tableName] ?? added.where((other) => other.tableName == table.tableName).firstOrNull;
+      if (held == null) {
+        added.add(table);
+      } else if (held.declaration != table.declaration) {
+        throw StateError('${table.tableName} is already declared on $_name, and differently.');
+      }
+    }
+    if (added.isEmpty) return;
+    _tables = [...?before, ...added];
+    try {
+      await _synchronizeSchema(this, db);
+    } catch (_) {
+      _tables = before;
+      rethrow;
+    }
   }
 
   /// Runs [sql] directly, for anything [insert], [query], [update] and
