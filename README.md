@@ -567,8 +567,7 @@ final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, 
   @override bool get observesConnection => true;
   @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
   @override Future<void> response(List<User> users) => ...;                        // the database
-  @override Future<List<User>?> initial() => db.from(db.users).select();           // what it holds now
-  @override Stream<List<User>> stream() => db.from(db.users).watch();              // then every change
+  @override Stream<List<User>> stream() => db.from(db.users).watch();              // the only local read: what it holds, then every change
   @override UsersError resolve(Fault<RestSignal> fault) => ...;
 }
 
@@ -580,15 +579,22 @@ await users.refresh();                // fetch, then response: the database move
 
 A repository stands for one piece of data, so what identifies it is in its own fields, fixed
 when it is made: `AdultsList(minAge: 18)` and `AdultsList(minAge: 65)` are two repositories,
-and each one's `fetch`, `initial`, `stream` and `response` read the same `minAge`, so what is
+and each one's `fetch`, `stream` and `response` read the same `minAge`, so what is
 asked of the network is what is read from the database. When a parameter changes while the
 screen is open, make another repository and `dispose` the first.
 
 One way only: `refresh` writes, the database's own `watch` emits, `data` follows. There is no
 second source for a screen to reconcile with the first, and a change of tenant swaps what
 `data` holds along with the rows. `data` is an `Observable`, the way a `Preference` reads:
-`value` and `stream`. There is no initial value to invent: `initial()` asks the database what
-it holds, once, and `data` is `null` until it has answered, and after it when there is nothing.
+`value` and `stream`. There is no initial value to invent or to read: the repository listens to
+`stream()` right after it is made, and that stream's first event is what the database holds. So
+a screen that asks later finds the value already in `data`, and one that asks within the first
+moments gets `null`, then the value. `data` is also `null` when the database holds nothing.
+
+A repository that `isAuthenticated` listens to the database only while a credential is held: it
+starts when someone signs in, and when they sign out it stops listening and empties `data`,
+without being disposed, and it starts again at the next sign-in. A refresh made without a
+credential ends `StatusUnauthenticated`.
 
 What is happening is a second observable, `status`, and it is independent of the first: when a
 refresh fails or the network is out, `data` still holds what is stored.
