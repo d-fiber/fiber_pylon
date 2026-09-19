@@ -168,6 +168,7 @@ export 'src/credential/store.dart';
 export 'src/mutation/mutation.dart';
 export 'src/mutation/mutation_queue.dart';
 export 'src/mutation/mutation_store.dart';
+export 'src/storage/local_storage/app.dart' show AppStorage;
 export 'src/storage/local_storage/database.dart';
 export 'src/storage/local_storage/schema/schema.dart';
 export 'src/storage/local_storage/sort_order.dart';

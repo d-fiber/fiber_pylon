@@ -34,11 +34,15 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:io';
+
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
 class Ticket {
   final String value;
@@ -58,8 +62,29 @@ Future<_AppPreferences> _appPreferences() async {
 }
 
 void main() {
-  setUp(() {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  late Directory directory;
+
+  setUp(() async {
+    directory = await Directory.systemTemp.createTemp('pylon_storage');
+    databaseFactoryFfi.setDatabasesPath(directory.path);
     SharedPreferences.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(
+      appName: 'pylon_test',
+      packageName: 'dev.fiber.pylon_test',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+  });
+
+  tearDown(() async {
+    await GetIt.instance.reset();
+    await directory.delete(recursive: true);
   });
 
   group('StoredCredential', () {

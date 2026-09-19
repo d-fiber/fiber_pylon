@@ -10,6 +10,7 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 
+import 'package:fiber_pylon/src/storage/local_storage/app.dart' as _i933;
 import 'package:fiber_pylon/src/storage/valkery_storage.dart' as _i218;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
@@ -24,6 +25,11 @@ extension GetItInjectableX on _i174.GetIt {
     await gh.singletonAsync<_i218.ValkeryStorage>(
       () => _i218.ValkeryStorage.initialize(),
       preResolve: true,
+    );
+    await gh.singletonAsync<_i933.AppStorage>(
+      () => _i933.AppStorage.initialize(),
+      preResolve: true,
+      dispose: (i) => i.dispose(),
     );
     return this;
   }
