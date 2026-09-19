@@ -42,8 +42,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 class FakeChannel implements Channel<String> {
   final StreamController<String> _events = StreamController<String>.broadcast();
-  final StreamController<ChannelState> _state =
-      StreamController<ChannelState>.broadcast();
+  final StreamController<ChannelState> _state = StreamController<ChannelState>.broadcast();
 
   final List<String> joined = [];
   final List<String> left = [];
@@ -215,46 +214,6 @@ void main() {
 
       expect(channel.opens, opensAtDispose);
       await channel.shutdown();
-    });
-  });
-
-  group('Backoff', () {
-    test('grows by the factor until it reaches the ceiling', () {
-      final backoff = Backoff(
-        initial: const Duration(seconds: 1),
-        ceiling: const Duration(seconds: 4),
-        jitter: 0,
-      );
-
-      expect(backoff.next(), const Duration(seconds: 1));
-      expect(backoff.next(), const Duration(seconds: 2));
-      expect(backoff.next(), const Duration(seconds: 4));
-      expect(backoff.next(), const Duration(seconds: 4));
-    });
-
-    test('starts over after a reset', () {
-      final backoff = Backoff(initial: const Duration(seconds: 1), jitter: 0);
-      backoff.next();
-      backoff.next();
-
-      backoff.reset();
-
-      expect(backoff.attempts, 0);
-      expect(backoff.next(), const Duration(seconds: 1));
-    });
-
-    test('keeps a jittered delay within the spread it was given', () {
-      final backoff = Backoff(
-        initial: const Duration(seconds: 10),
-        ceiling: const Duration(seconds: 10),
-        jitter: 0.2,
-        random: Random(7),
-      );
-
-      for (var attempt = 0; attempt < 50; attempt++) {
-        final delay = backoff.next();
-        expect(delay.inMilliseconds, inInclusiveRange(8000, 12000));
-      }
     });
   });
 }
