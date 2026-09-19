@@ -336,15 +336,21 @@ base class DatabaseRows<R extends Object> {
     }
   }
 
-  Future<int> _write(List<DatabaseAssignment> assignments) => _writeValues(_table._valuesOf(assignments));
+  Future<int> _write(List<DatabaseAssignment> assignments) {
+    final update = _table._updateOf(assignments);
+    return _writeClauses(update.clauses, update.arguments);
+  }
 
-  Future<int> _writeValues(Map<String, DatabaseType> values) {
+  Future<int> _writeValues(Map<String, DatabaseType> values) =>
+      _writeClauses([for (final name in values.keys) '${_quotedIdentifier(name)} = ?'], values.values.toList());
+
+  Future<int> _writeClauses(List<String> clauses, List<DatabaseType> values) {
     final reach = _reach();
     return _session._run((executor) async {
       _requireNoPage('a write');
-      if (values.isEmpty) throw StateError('A write on ${_table.tableName} needs at least one column to set.');
-      final arguments = values.values.toList();
-      final set = values.keys.map((name) => '${_quotedIdentifier(name)} = ?').join(', ');
+      if (clauses.isEmpty) throw StateError('A write on ${_table.tableName} needs at least one column to set.');
+      final arguments = [...values];
+      final set = clauses.join(', ');
       final where = _whereSql(_scopedFilter(reach), arguments);
       final changed = await executor.rawUpdate(
         'UPDATE ${_quotedIdentifier(_table.tableName)} SET $set$where',

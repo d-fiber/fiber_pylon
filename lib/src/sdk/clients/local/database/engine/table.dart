@@ -450,12 +450,36 @@ abstract class DatabaseTable<R extends Object> {
       _requireOwned(assignment.field);
       final value = assignment._value;
       if (value == null) continue;
+      if (assignment._isIncrement) {
+        throw StateError(
+          '${assignment.field} is incremented, which only an update can do: a new row has nothing to add to.',
+        );
+      }
       if (row.containsKey(assignment.field.name)) {
         throw StateError('${assignment.field} is written twice for one record.');
       }
       row[assignment.field.name] = value;
     }
     return row;
+  }
+
+  /// What an update of [assignments] sets, as the `SET` clauses and the
+  /// arguments they bind, in order.
+  ({List<String> clauses, List<DatabaseType> arguments}) _updateOf(List<DatabaseAssignment> assignments) {
+    final written = <String>{};
+    final clauses = <String>[];
+    final arguments = <DatabaseType>[];
+    for (final assignment in assignments) {
+      _requireOwned(assignment.field);
+      final value = assignment._value;
+      if (value == null) continue;
+      final name = assignment.field.name;
+      if (!written.add(name)) throw StateError('${assignment.field} is written twice by one update.');
+      final quoted = _quotedIdentifier(name);
+      clauses.add(assignment._isIncrement ? '$quoted = COALESCE($quoted, 0) + ?' : '$quoted = ?');
+      arguments.add(value);
+    }
+    return (clauses: clauses, arguments: arguments);
   }
 
   String get _columnList => columns.map((field) => _quotedIdentifier(field.name)).join(', ');

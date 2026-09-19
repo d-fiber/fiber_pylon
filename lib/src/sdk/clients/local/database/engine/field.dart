@@ -298,12 +298,31 @@ final class DatabaseKey<K extends Object> extends DatabaseField<K> {
 /// [DatabaseField.to]. Only the column that was given it accepts it: the Dart
 /// type of the value was checked when it was built.
 final class DatabaseAssignment {
-  const DatabaseAssignment._(this.field, this._value);
+  const DatabaseAssignment._(this.field, this._value) : _isIncrement = false;
+
+  const DatabaseAssignment._increment(this.field, DatabaseType this._value) : _isIncrement = true;
 
   /// The column this value is written to.
   final DatabaseField<Object?> field;
 
   final DatabaseType? _value;
+
+  /// Whether [_value] is an amount to add to what the column holds, rather than
+  /// what the column becomes.
+  final bool _isIncrement;
+}
+
+/// Arithmetic on a numeric column, available only on a column whose Dart type
+/// is a number.
+extension DatabaseNumericField<V extends num> on DatabaseField<V?> {
+  /// This column paired with [amount] to add to what it holds, to be written by
+  /// an update: `SET column = COALESCE(column, 0) + amount`, so a NULL counts as
+  /// zero, and a negative [amount] subtracts.
+  ///
+  /// It is done by the database in one statement, not read and written back,
+  /// so two updates at once never lose one of the two. An insert and an upsert
+  /// refuse it, since a new row has nothing to add to.
+  DatabaseAssignment incrementBy(V amount) => DatabaseAssignment._increment(this, _encode(amount));
 }
 
 /// The values of one column in the rows a filter keeps, built by
