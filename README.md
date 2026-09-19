@@ -561,8 +561,6 @@ piece of data it shows, with its parameters in its own fields.
 
 ```dart
 final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
-  @override bool get isAuthenticated => true;
-  @override bool get observesConnection => true;
   @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
   @override Future<void> response(List<User> users) => ...;                        // the database
   @override Stream<List<User>> stream() => db.from(db.users).stream();              // the only local read: what it holds, then every change
@@ -622,12 +620,15 @@ The variants are only what pylon can decide by itself: the life of the refresh, 
 credential was held to make it (`isAuthenticated` and `Credentials`), and whether the network
 was reachable (`Network`).
 
-Whether to look at the connection before asking is the repository's to say, with
-`observesConnection`, and has no default because it depends on what `fetch` talks to. A REST
-read says `true`: with no connection there is nothing to ask, and it ends `StatusOffline`
-without a request. A REST write says `false`: the request is worth trying, and its own failure
-is the honest answer. A call to a vendor's package over bluetooth or a local network needs no
-internet at all and says `false` too. Everything else is the project's own error `E`, which
+Two settings say what a repository is, and both are `true` unless it overrides them.
+`isAuthenticated` says it reads an account's data and carries the credential. `observesConnection`
+says a refresh looks at the connection before asking: a REST read wants that, since with no
+connection there is nothing to ask, and it ends `StatusOffline` without a request. A REST write
+overrides it to `false`, since the request is worth trying and its own failure is the honest
+answer, and so does a call to a vendor's package over bluetooth or a local network, which needs no
+internet at all. A request that signs someone in overrides `isAuthenticated` to `false`.
+
+Everything else is the project's own error `E`, which
 `resolve` produces from the fault, as a `FaultResolver` does: that is where a project says that a
 request which never reached the server means the network.
 
