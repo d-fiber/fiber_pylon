@@ -43,11 +43,11 @@ const _table = 'sync_cache';
 
 /// Where [CacheEntry] survives, per entry rather than per collection.
 ///
-/// The read half of offline-first: a `CachePolicy` decides whether an entry
-/// is still worth trusting, this decides where it lives. Two implementations
-/// are given, [MemorySyncStore] for a test and [SqfliteSyncStore] for
-/// production, the same split the credential's own store has between memory
-/// and the vault.
+/// What reading without the network is built on: a `CachePolicy` decides
+/// whether an entry is still worth trusting, this decides where it lives. Two
+/// implementations are given, [MemorySyncStore] for a test and
+/// [SqfliteSyncStore] for production, the same split the credential's own store
+/// has between memory and the vault.
 abstract interface class SyncStore {
   /// The entry stored under [key], or `null` when there is none.
   Future<CacheEntry?> read(String key);
