@@ -38,8 +38,9 @@ part of 'schema.dart';
 
 /// A `UNIQUE` constraint spanning one or several columns at once.
 final class UniqueConstraint extends Equatable {
-  /// Wraps every field a [TableUniqueBuilder] call resolved.
-  const UniqueConstraint({required this.columns, this.name});
+  /// Built only by [TableUniqueBuilder], never by hand: a value assembled
+  /// here could hold a combination the builder refuses.
+  const UniqueConstraint._({required this.columns, this.name});
 
   /// The columns that, together, must not repeat across two rows.
   final List<String> columns;
@@ -77,5 +78,5 @@ final class TableUniqueBuilder {
     return this;
   }
 
-  UniqueConstraint _build() => UniqueConstraint(columns: _columns, name: _name);
+  UniqueConstraint _build() => UniqueConstraint._(columns: _columns, name: _name);
 }

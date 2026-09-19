@@ -59,7 +59,7 @@ void main() {
           .columns((c) => {'account_id': c.integer(), 'group_id': c.integer()});
 
       expect(table.statements, [
-        'CREATE TABLE "memberships" ("account_id" INTEGER, "group_id" INTEGER, '
+        'CREATE TABLE "memberships" ("account_id" INTEGER NOT NULL, "group_id" INTEGER NOT NULL, '
             'PRIMARY KEY ("account_id", "group_id"))',
       ]);
     });
@@ -126,7 +126,9 @@ void main() {
         'kv',
       ).strict().withoutRowid().columns((c) => {'key': c.text().isPrimary(), 'value': c.any()});
 
-      expect(table.statements, ['CREATE TABLE "kv" ("key" TEXT PRIMARY KEY, "value" ANY) STRICT, WITHOUT ROWID']);
+      expect(table.statements, [
+        'CREATE TABLE "kv" ("key" TEXT PRIMARY KEY NOT NULL, "value" ANY) STRICT, WITHOUT ROWID',
+      ]);
     });
 
     test('renders a generated column', () {
@@ -170,7 +172,7 @@ void main() {
     });
 
     test('renders a literal default as SQL, quoting text and spelling a blob in hexadecimal', () {
-      final table = TableBuilder('samples').columns(
+      final table = TableBuilder('samples').strict().columns(
         (c) => {
           'count': c.integer().default_(const Integer(-3)),
           'ratio': c.real().default_(const Real(0.25)),
@@ -187,7 +189,7 @@ void main() {
             '"label" TEXT DEFAULT (\'it\'\'s\'), '
             '"payload" BLOB DEFAULT (X\'000fff\'), '
             '"anything" ANY DEFAULT (NULL)'
-            ')',
+            ') STRICT',
       ]);
     });
 

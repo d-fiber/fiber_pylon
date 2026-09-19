@@ -39,8 +39,9 @@ part of 'schema.dart';
 /// A `CHECK` constraint, carried by the table rather than by one column, so
 /// it may read several at once.
 final class CheckConstraint extends Equatable {
-  /// Wraps every field a [TableCheckBuilder] call resolved.
-  const CheckConstraint({required this.expression, this.name});
+  /// Built only by [TableCheckBuilder], never by hand: a value assembled
+  /// here could hold a combination the builder refuses.
+  const CheckConstraint._({required this.expression, this.name});
 
   /// The raw SQL predicate every row must satisfy.
   ///
@@ -81,5 +82,5 @@ final class TableCheckBuilder {
     return this;
   }
 
-  CheckConstraint _build() => CheckConstraint(expression: _expression, name: _name);
+  CheckConstraint _build() => CheckConstraint._(expression: _expression, name: _name);
 }

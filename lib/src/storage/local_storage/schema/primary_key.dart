@@ -38,8 +38,9 @@ part of 'schema.dart';
 
 /// A composite `PRIMARY KEY`, spanning every column named.
 final class PrimaryKeyConstraint extends Equatable {
-  /// Wraps every field a [TablePrimaryKeyBuilder] call resolved.
-  const PrimaryKeyConstraint({required this.columns, this.name});
+  /// Built only by [TablePrimaryKeyBuilder], never by hand: a value assembled
+  /// here could hold a combination the builder refuses.
+  const PrimaryKeyConstraint._({required this.columns, this.name});
 
   /// The columns that, together, identify a row. Every one of them is
   /// refused a null value.
@@ -80,5 +81,5 @@ final class TablePrimaryKeyBuilder {
     return this;
   }
 
-  PrimaryKeyConstraint _build() => PrimaryKeyConstraint(columns: _columns, name: _name);
+  PrimaryKeyConstraint _build() => PrimaryKeyConstraint._(columns: _columns, name: _name);
 }

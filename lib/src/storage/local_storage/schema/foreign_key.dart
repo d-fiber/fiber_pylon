@@ -39,8 +39,9 @@ part of 'schema.dart';
 /// A table-level `FOREIGN KEY` constraint spanning one or several columns at
 /// once.
 final class TableForeignKey extends Equatable {
-  /// Wraps every field a [TableForeignKeyBuilder] call resolved.
-  const TableForeignKey({
+  /// Built only by [TableForeignKeyBuilder], never by hand: a value assembled
+  /// here could hold a combination the builder refuses.
+  const TableForeignKey._({
     required this.columns,
     required this.referencedTable,
     this.referencedColumns,
@@ -149,7 +150,7 @@ final class TableForeignKeyBuilder {
   /// [DeclaredTable.statements] tries to render it.
   TableForeignKey _build() {
     final table = _referencedTable ?? (throw StateError('TableForeignKeyBuilder.references was never called.'));
-    return TableForeignKey(
+    return TableForeignKey._(
       columns: _columns,
       referencedTable: table,
       referencedColumns: _referencedColumns,

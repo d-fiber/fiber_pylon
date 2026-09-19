@@ -54,8 +54,12 @@ enum ColumnType {
   /// Raw bytes.
   blob,
 
-  /// Any storage class at all. The escape hatch `STRICT` needs for a column
-  /// with no fixed type, meaningless outside a `STRICT` table.
+  /// Any storage class at all, kept exactly as written. The escape hatch
+  /// `STRICT` needs for a column with no fixed type.
+  ///
+  /// Outside a `STRICT` table SQLite gives the keyword `ANY` numeric affinity
+  /// and rewrites the text `'007'` into the integer `7`, so
+  /// [TableBuilder.columns] refuses it there.
   any,
 }
 
@@ -211,8 +215,9 @@ final class GeneratedColumn extends Equatable {
 /// A column exactly as a [ColumnBuilder] resolved it, read by
 /// [DeclaredTable] to render its own `CREATE TABLE`.
 final class ColumnDefinition extends Equatable {
-  /// Wraps every field a [ColumnBuilder.build] call resolved.
-  const ColumnDefinition({
+  /// Built only by [ColumnBuilder.build], never by hand: a value assembled
+  /// here could hold a combination the builder refuses.
+  const ColumnDefinition._({
     required this.type,
     required this.notNull,
     required this.isPrimary,
@@ -236,8 +241,9 @@ final class ColumnDefinition extends Equatable {
   /// Whether this column refuses a value another row already holds.
   final bool unique;
 
-  /// Whether this column's implicit rowid grows on its own. Meaningless
-  /// unless [isPrimary] and [type] is [ColumnType.integer].
+  /// Whether this column's rowid grows on its own. It is only ever true
+  /// together with [isPrimary], since [IntegerColumnBuilder.autoincrement]
+  /// makes the column the primary key.
   final bool autoincrement;
 
   /// The collating sequence this column sorts and compares under.
@@ -254,6 +260,18 @@ final class ColumnDefinition extends Equatable {
   /// How this column's value is computed from the rest of the row. Null
   /// when it is an ordinary column.
   final GeneratedColumn? generated;
+
+  ColumnDefinition _refusingNull() => ColumnDefinition._(
+    type: type,
+    notNull: true,
+    isPrimary: isPrimary,
+    unique: unique,
+    autoincrement: autoincrement,
+    collation: collation,
+    defaultValue: defaultValue,
+    references: references,
+    generated: generated,
+  );
 
   @override
   List<Object?> get props => [
@@ -300,6 +318,11 @@ sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extend
 
   /// Makes this column the table's primary key, which also refuses a null
   /// value.
+  ///
+  /// SQLite lets a primary key hold null unless the column says otherwise,
+  /// except for an `INTEGER PRIMARY KEY`, where null asks for the next id. A
+  /// column that is not an integer is therefore rendered with `NOT NULL` as
+  /// well.
   Self isPrimary() {
     _isPrimary = true;
     return _self;
@@ -358,9 +381,12 @@ sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extend
   /// Makes this column computed from the rest of the row, rather than one a
   /// caller ever writes.
   ///
-  /// SQLite refuses this alongside [default_], [defaultExpression] or
-  /// [references] on the same column, a rule this does not enforce, the same
-  /// as every other cross-field rule an author is expected to hold.
+  /// SQLite refuses this alongside [isPrimary], [default_] or
+  /// [defaultExpression] on the same column, and says so when the table is
+  /// created. It accepts a [references] that would have to rewrite the
+  /// column (`SET NULL`, `SET DEFAULT`, or an update that cascades) and then
+  /// fails on the first write that touches the key, so [TableBuilder.columns]
+  /// refuses that one.
   Self generated(GeneratedColumn options) {
     _generated = options;
     return _self;
@@ -368,7 +394,7 @@ sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extend
 
   /// This column's options, exactly as [TableBuilder.columns] reads them
   /// once its own callback returns.
-  ColumnDefinition build() => ColumnDefinition(
+  ColumnDefinition build() => ColumnDefinition._(
     type: _type,
     notNull: _isPrimary || !_isNullable,
     isPrimary: _isPrimary,
@@ -386,12 +412,14 @@ sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extend
 final class IntegerColumnBuilder extends ColumnBuilder<IntegerColumnBuilder, Integer> {
   IntegerColumnBuilder._() : super._(ColumnType.integer);
 
-  /// Makes this column's rowid grow on its own, rather than reusing a
-  /// smaller id a deleted row left behind.
+  /// Makes this column the table's primary key and makes its rowid grow on
+  /// its own, rather than reusing a smaller id a deleted row left behind.
   ///
-  /// SQLite allows it only on a single-column `INTEGER PRIMARY KEY`, a rule
-  /// this does not enforce.
+  /// SQLite allows `AUTOINCREMENT` only on a single-column `INTEGER PRIMARY
+  /// KEY` of a table that keeps its rowid, so this sets [isPrimary] itself:
+  /// an autoincrement column that is not a primary key cannot be built.
   IntegerColumnBuilder autoincrement() {
+    _isPrimary = true;
     _autoincrement = true;
     return this;
   }
@@ -432,7 +460,7 @@ final class AnyColumnBuilder extends ColumnBuilder<AnyColumnBuilder, DatabaseTyp
 ///
 /// ```dart
 /// TableBuilder('todos').columns((c) => {
-///   'id': c.integer().isPrimary().autoincrement(),
+///   'id': c.integer().autoincrement(),
 ///   'title': c.text().isNullable(false).collation(Collation.noCase),
 ///   'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
 /// });
@@ -452,10 +480,18 @@ final class ColumnFactory {
 
   /// Opens a [ColumnType.blob] column.
   BlobColumnBuilder blob() => BlobColumnBuilder._();
+}
 
-  /// Opens an [ColumnType.any] column: a `STRICT`-table escape hatch for a
-  /// column with no fixed type. Meaningless outside a [TableBuilder.strict]
-  /// table.
+/// What a `STRICT` table offers beyond [ColumnFactory]: the one type only a
+/// strict table can hold.
+final class StrictColumnFactory extends ColumnFactory {
+  /// Opens no column on its own; each of its methods does.
+  const StrictColumnFactory._();
+
+  /// Opens an [ColumnType.any] column: a column with no fixed type, which
+  /// SQLite accepts only in a `STRICT` table. In an ordinary table it would
+  /// have `NUMERIC` affinity and quietly turn the text `'007'` into the
+  /// integer `7`, which is why [ColumnFactory] does not offer it.
   AnyColumnBuilder any() => AnyColumnBuilder._();
 }
 

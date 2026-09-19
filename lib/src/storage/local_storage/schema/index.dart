@@ -90,8 +90,9 @@ final class ExpressionIndexColumn extends IndexColumn {
 /// An index exactly as a [TableIndexBuilder] resolved it, read by
 /// [DeclaredTable] to render its own `CREATE INDEX`.
 final class TableIndex extends Equatable {
-  /// Wraps every field a [TableIndexBuilder] call resolved.
-  const TableIndex({required this.name, required this.columns, this.unique = false, this.where});
+  /// Built only by [TableIndexBuilder], never by hand: a value assembled
+  /// here could hold a combination the builder refuses.
+  const TableIndex._({required this.name, required this.columns, this.unique = false, this.where});
 
   /// The name this index is created under.
   final String name;
@@ -162,6 +163,6 @@ final class TableIndexBuilder {
   /// render it.
   TableIndex _build() {
     final columns = _columns ?? (throw StateError('TableIndexBuilder.columns was never called.'));
-    return TableIndex(name: _name, columns: columns, unique: _unique, where: _where);
+    return TableIndex._(name: _name, columns: columns, unique: _unique, where: _where);
   }
 }
