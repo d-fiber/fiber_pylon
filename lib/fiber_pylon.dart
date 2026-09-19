@@ -179,7 +179,7 @@ export 'src/sdk/clients/local/database/engine/app.dart' show AppStorage, Encrypt
 export 'src/sdk/clients/local/database/engine/database.dart'
     hide LocalDatabase, LocalDatabaseTenants, DatabaseSession, DatabaseMigration, SchemaDifference, DifferenceKind;
 export 'src/sdk/clients/local/database/engine/schema/schema.dart' show ReferentialAction, Collation, ColumnType;
-export 'src/sdk/clients/local/database/engine/sort_order.dart';
+export 'src/sdk/clients/local/database/engine/query/sort_order.dart';
 export 'src/sdk/clients/local/local_sdk.dart';
 export 'src/sdk/clients/rest/http/cache_policy.dart';
 export 'src/sdk/clients/rest/http/call_guard.dart';

@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// How one Dart type is stored in one column: the storage class the column
 /// declares, and the two functions that cross between the Dart value and the

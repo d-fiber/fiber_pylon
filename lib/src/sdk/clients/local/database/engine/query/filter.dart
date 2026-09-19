@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// One condition a `WHERE` clause can hold, built through
 /// [DatabaseFilterBuilder] rather than written as a raw SQL string. Never

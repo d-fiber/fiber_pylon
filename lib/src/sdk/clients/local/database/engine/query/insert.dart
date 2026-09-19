@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// Opens one [LocalDatabase.insert] (or [DatabaseBatch.insert]) call. Never
 /// constructed directly — [LocalDatabase.insert] hands one to its own

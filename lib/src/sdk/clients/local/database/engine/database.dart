@@ -47,7 +47,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../../security/fingerprint.dart';
 import 'schema/schema.dart';
-import 'sort_order.dart';
+import 'query/sort_order.dart';
 
 part 'types/database_type.dart';
 part 'types/native.dart';
@@ -61,23 +61,23 @@ part 'types/interval.dart';
 part 'types/range.dart';
 part 'types/json.dart';
 part 'types/row.dart';
-part 'record.dart';
-part 'column.dart';
+part 'query/record.dart';
+part 'schema/database_column.dart';
 part 'schema/drift.dart';
 part 'errors.dart';
-part 'filter.dart';
-part 'insert.dart';
-part 'query.dart';
-part 'update.dart';
-part 'delete.dart';
-part 'transaction.dart';
-part 'batch.dart';
-part 'field.dart';
-part 'table.dart';
-part 'tenant.dart';
-part 'reactive.dart';
-part 'session.dart';
-part 'declared.dart';
+part 'query/filter.dart';
+part 'query/insert.dart';
+part 'query/query.dart';
+part 'query/update.dart';
+part 'query/delete.dart';
+part 'transaction/transaction.dart';
+part 'transaction/batch.dart';
+part 'table/field.dart';
+part 'table/table.dart';
+part 'table/tenant.dart';
+part 'table/reactive.dart';
+part 'table/session.dart';
+part 'table/declared.dart';
 
 /// A local SQLite database, opened once and reused — the same open, create,
 /// migrate and close lifecycle every sqflite-backed store in pylon would

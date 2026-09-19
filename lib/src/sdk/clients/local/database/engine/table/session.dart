@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// Where a table is read and written: either a [LocalDatabase] or the
 /// [DatabaseTransaction] one of its transactions hands to your callback.

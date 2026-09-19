@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// Opens one [LocalDatabase.update] (or [DatabaseBatch.update]) call. Never
 /// constructed directly — [LocalDatabase.update] hands one to its own

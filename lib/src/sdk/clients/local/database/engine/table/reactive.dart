@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// Reads [read] now and again after every write to [table], answering each
 /// result [same] does not call equal to the one before it.

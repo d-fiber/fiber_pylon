@@ -34,7 +34,7 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-part of 'database.dart';
+part of '../database.dart';
 
 /// One upgrade of the schema version, run by [LocalDatabase.declared] inside
 /// the transaction that upgrades the file. It receives the transaction and

@@ -37,7 +37,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../database.dart';
-import '../sort_order.dart';
+import '../query/sort_order.dart';
 
 part 'column.dart';
 part 'primary_key.dart';
