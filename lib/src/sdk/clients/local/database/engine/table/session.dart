@@ -37,30 +37,30 @@
 part of '../database.dart';
 
 /// Where a table is read and written: either a [LocalDatabase] or the
-/// [DatabaseTransaction] one of its transactions hands to your callback.
+/// [TransactionScope] one of its transactions hands to your callback.
 ///
 /// Both accept `todos.on(session)`, so a function that takes a
-/// [DatabaseSession] runs the same way inside and outside a transaction.
-sealed class DatabaseSession {
+/// [Connection] runs the same way inside and outside a transaction.
+sealed class Connection {
   DatabaseExecutor _executor();
 
   LocalDatabase get _database;
 
-  Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action);
+  Future<T> _atomically<T>(Future<T> Function(Connection session) action);
 
   Future<T> _run<T>(Future<T> Function(DatabaseExecutor executor) action) => _guarded(() => action(_executor()));
 }
 
 const String _rowIdColumn = '__rowid';
 
-String _whereSql(Filter? filter, List<DatabaseType> arguments) {
+String _whereSql(Filter? filter, List<Value> arguments) {
   if (filter == null) return '';
   final (clause, filterArguments) = _renderDatabaseFilter(filter);
   arguments.addAll(filterArguments);
   return ' WHERE $clause';
 }
 
-(String, List<Object?>?) _insertSql(String table, Map<String, DatabaseType> row) {
+(String, List<Object?>?) _insertSql(String table, Map<String, Value> row) {
   final target = _quotedIdentifier(table);
   if (row.isEmpty) return ('INSERT INTO $target DEFAULT VALUES', null);
   final names = row.keys.map(_quotedIdentifier).join(', ');
@@ -69,7 +69,7 @@ String _whereSql(Filter? filter, List<DatabaseType> arguments) {
 }
 
 /// The rows of one table, narrowed by a filter, an order and a page, read
-/// through one [DatabaseSession]. Every method that narrows answers a new
+/// through one [Connection]. Every method that narrows answers a new
 /// value, so a half built query can be kept and extended.
 ///
 /// ```dart
@@ -95,15 +95,15 @@ base class Rows<R extends Object> {
     this._scope = const _CurrentScope(),
   ]);
 
-  final DatabaseSession _session;
-  final DatabaseTable<R> _table;
+  final Connection _session;
+  final TypedTable<R> _table;
   final Filter? _filter;
-  final List<DatabaseOrder> _orders;
+  final List<Sort> _orders;
   final int? _limit;
   final int? _offset;
   final _Scope _scope;
 
-  Rows<R> _copy({Filter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+  Rows<R> _copy({Filter? filter, List<Sort>? orders, int? limit, int? offset}) =>
       Rows<R>._(
         _session,
         _table,
@@ -127,11 +127,11 @@ base class Rows<R extends Object> {
     final quoted = _quotedIdentifier(_tenantColumn);
     final Filter? partition;
     if (!reach.isMany) {
-      partition = _FilterRaw('$quoted = ?', [DatabaseType.varchar(reach.tenant!)]);
+      partition = _FilterRaw('$quoted = ?', [Value.varchar(reach.tenant!)]);
     } else if (reach.only case final only?) {
       if (only.isEmpty) throw ArgumentError.value(only, 'only', 'cannot be empty');
       partition = _FilterRaw('$quoted IN (${List.filled(only.length, '?').join(', ')})', [
-        for (final tenant in only) DatabaseType.varchar(tenant),
+        for (final tenant in only) Value.varchar(tenant),
       ]);
     } else {
       partition = null;
@@ -158,7 +158,7 @@ base class Rows<R extends Object> {
 
   /// Sorts the rows by [orders], the first deciding and each later one
   /// breaking the ties of the one before it.
-  Rows<R> orderBy(List<DatabaseOrder> orders) => _copy(orders: orders);
+  Rows<R> orderBy(List<Sort> orders) => _copy(orders: orders);
 
   /// Reads at most [count] rows.
   ///
@@ -174,10 +174,10 @@ base class Rows<R extends Object> {
   /// Every row kept, as records.
   Future<List<R>> list() async => [for (final row in await _selectRows()) _table._fromRow(row)];
 
-  Future<List<DatabaseRow>> _selectRows({bool withTenant = false}) {
+  Future<List<RawRow>> _selectRows({bool withTenant = false}) {
     final reach = _reach();
     return _session._run((executor) async {
-      final arguments = <DatabaseType>[];
+      final arguments = <Value>[];
       final where = _whereSql(_scopedFilter(reach), arguments);
       final tieBreak = reach.isMany && _orders.isNotEmpty ? ', ${_quotedIdentifier(_tenantColumn)}' : '';
       final order = _orders.isEmpty ? '' : ' ORDER BY ${_orders.map(_renderOrder).join(', ')}$tieBreak';
@@ -208,7 +208,7 @@ base class Rows<R extends Object> {
   /// write that leaves them as they were sends nothing. Nothing is read until
   /// the stream is listened to, and it stops when the listener cancels.
   ///
-  /// Throws a [StateError] on a session that is a [DatabaseTransaction]: it
+  /// Throws a [StateError] on a session that is a [TransactionScope]: it
   /// ends before anything could change, so a stream over it would never send a
   /// second event.
   Stream<List<R>> watch() => _watchRows().map((rows) => [for (final row in rows) _table._fromRow(row)]);
@@ -233,7 +233,7 @@ base class Rows<R extends Object> {
     );
   }
 
-  Stream<List<DatabaseRow>> _watchRows() => _watchTable<List<DatabaseRow>>(
+  Stream<List<RawRow>> _watchRows() => _watchTable<List<RawRow>>(
     _watchedDatabase(),
     _table.tableName,
     _selectRows,
@@ -245,7 +245,7 @@ base class Rows<R extends Object> {
   bool get _followsTenant => _scope is _CurrentScope && _table.tunnel == Tunnel.isolated;
 
   LocalDatabase _watchedDatabase() {
-    if (_session is DatabaseTransaction) {
+    if (_session is TransactionScope) {
       throw StateError(
         'watch on ${_table.tableName} needs a LocalDatabase: a transaction ends before it could change.',
       );
@@ -261,7 +261,7 @@ base class Rows<R extends Object> {
     final reach = _reach();
     return _session._run((executor) async {
       _requireNoPage('count');
-      final arguments = <DatabaseType>[];
+      final arguments = <Value>[];
       final where = _whereSql(_scopedFilter(reach), arguments);
       final rows = await executor.rawQuery(
         'SELECT COUNT(*) AS n FROM ${_quotedIdentifier(_table.tableName)}$where',
@@ -278,7 +278,7 @@ base class Rows<R extends Object> {
     final reach = _reach();
     return _session._run((executor) async {
       _requireNoPage('exists');
-      final arguments = <DatabaseType>[];
+      final arguments = <Value>[];
       final where = _whereSql(_scopedFilter(reach), arguments);
       final rows = await executor.rawQuery(
         'SELECT EXISTS(SELECT 1 FROM ${_quotedIdentifier(_table.tableName)}$where) AS present',
@@ -341,10 +341,10 @@ base class Rows<R extends Object> {
     return _writeClauses(update.clauses, update.arguments);
   }
 
-  Future<int> _writeValues(Map<String, DatabaseType> values) =>
+  Future<int> _writeValues(Map<String, Value> values) =>
       _writeClauses([for (final name in values.keys) '${_quotedIdentifier(name)} = ?'], values.values.toList());
 
-  Future<int> _writeClauses(List<String> clauses, List<DatabaseType> values) {
+  Future<int> _writeClauses(List<String> clauses, List<Value> values) {
     final reach = _reach();
     return _session._run((executor) async {
       _requireNoPage('a write');
@@ -365,7 +365,7 @@ base class Rows<R extends Object> {
     final reach = _reach();
     return _session._run((executor) async {
       _requireNoPage('a delete');
-      final arguments = <DatabaseType>[];
+      final arguments = <Value>[];
       final where = _whereSql(_scopedFilter(reach), arguments);
       final removed = await executor.rawDelete(
         'DELETE FROM ${_quotedIdentifier(_table.tableName)}$where',
@@ -377,11 +377,11 @@ base class Rows<R extends Object> {
   }
 }
 
-/// A table read and written through one [DatabaseSession], opened by
-/// [DatabaseTable.on]. Everything [Rows] reads and edits is here too,
+/// A table read and written through one [Connection], opened by
+/// [TypedTable.on]. Everything [Rows] reads and edits is here too,
 /// over the whole table, and inserting is added.
 base class TableAccess<R extends Object> extends Rows<R> {
-  const TableAccess._(DatabaseSession session, DatabaseTable<R> table, [_Scope scope = const _CurrentScope()])
+  const TableAccess._(Connection session, TypedTable<R> table, [_Scope scope = const _CurrentScope()])
     : super._(session, table, null, const [], null, null, scope);
 
   /// Inserts [record] and answers the record the database now holds, so the
@@ -400,7 +400,7 @@ base class TableAccess<R extends Object> extends Rows<R> {
       final batch = executor.batch();
       for (final record in records) {
         final row = _table._rowOf(record, generateKey: true);
-        if (tenant != null) row[_tenantColumn] = DatabaseType.varchar(tenant);
+        if (tenant != null) row[_tenantColumn] = Value.varchar(tenant);
         final (sql, arguments) = _insertSql(_table.tableName, row);
         batch.rawInsert(sql, arguments);
       }
@@ -427,7 +427,7 @@ base class TableAccess<R extends Object> extends Rows<R> {
   }
 }
 
-/// A keyed table read and written through one [DatabaseSession], opened by
+/// A keyed table read and written through one [Connection], opened by
 /// [KeyedTable.on]. It adds what a key makes possible: reading, writing
 /// and removing one row by its key.
 final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<R> {
@@ -475,15 +475,15 @@ final class KeyedAccess<R extends Object, K extends Object> extends TableAccess<
 }
 
 /// The rows of one table across every tenant: the whole-database mechanism,
-/// opened by [DatabaseTable.onWholeDatabase].
+/// opened by [TypedTable.onWholeDatabase].
 ///
-/// It is not the tenant mechanism with a wider view. [DatabaseTable.on] never
+/// It is not the tenant mechanism with a wider view. [TypedTable.on] never
 /// reaches another tenant's rows, whatever is called on what it returns; this
 /// is a separate entry point, picked on purpose, that reaches all of them —
 /// for a support tool, a backup, a migration, anything that is about the
 /// whole database rather than about one account. It reads, and it edits or
 /// removes the rows a filter keeps, wherever they belong; it inserts nothing,
-/// since a new row belongs to one tenant, which is [DatabaseTable.on]'s to say.
+/// since a new row belongs to one tenant, which is [TypedTable.on]'s to say.
 ///
 /// A shared table has no tenants, so here it is simply all of its rows.
 final class WholeRows<R extends Object> extends Rows<R> {
@@ -498,7 +498,7 @@ final class WholeRows<R extends Object> extends Rows<R> {
   ]) : super._();
 
   @override
-  WholeRows<R> _copy({Filter? filter, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+  WholeRows<R> _copy({Filter? filter, List<Sort>? orders, int? limit, int? offset}) =>
       WholeRows<R>._(
         _session,
         _table,
@@ -513,7 +513,7 @@ final class WholeRows<R extends Object> extends Rows<R> {
   WholeRows<R> where(Filter filter) => super.where(filter) as WholeRows<R>;
 
   @override
-  WholeRows<R> orderBy(List<DatabaseOrder> orders) => super.orderBy(orders) as WholeRows<R>;
+  WholeRows<R> orderBy(List<Sort> orders) => super.orderBy(orders) as WholeRows<R>;
 
   @override
   WholeRows<R> limit(int count) => super.limit(count) as WholeRows<R>;
@@ -540,7 +540,7 @@ final class WholeRows<R extends Object> extends Rows<R> {
     ];
   }
 
-  String? _tenantOf(DatabaseRow row) {
+  String? _tenantOf(RawRow row) {
     final tenant = row[_tenantColumn]!.asString;
     return tenant.isEmpty ? null : tenant;
   }

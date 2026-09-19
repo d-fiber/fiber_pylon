@@ -38,25 +38,25 @@ part of '../database.dart';
 
 /// How one Dart type is stored in one column: the storage class the column
 /// declares, and the two functions that cross between the Dart value and the
-/// [DatabaseType] SQLite holds.
+/// [Value] SQLite holds.
 ///
 /// The columns [Columns] opens carry one already. Write one only for a
 /// type of your own, and hand it to [Columns.custom].
-final class DatabaseCodec<V extends Object> {
+final class ColumnCodec<V extends Object> {
   /// Codes a [V] through [encode] and [decode], stored as [storage].
-  const DatabaseCodec({required this.storage, required this.encode, required this.decode});
+  const ColumnCodec({required this.storage, required this.encode, required this.decode});
 
   /// The storage class a column of this codec declares.
   final ColumnType storage;
 
   /// Turns a [V] into the value SQLite stores.
-  final DatabaseType Function(V value) encode;
+  final Value Function(V value) encode;
 
   /// Turns a stored value, never a [Nil], back into a [V].
-  final V Function(DatabaseType stored) decode;
+  final V Function(Value stored) decode;
 
-  DatabaseCodec<Object> get _erased =>
-      DatabaseCodec<Object>(storage: storage, encode: (value) => encode(value as V), decode: decode);
+  ColumnCodec<Object> get _erased =>
+      ColumnCodec<Object>(storage: storage, encode: (value) => encode(value as V), decode: decode);
 }
 
 class _FieldDefinition {
@@ -74,13 +74,13 @@ class _FieldDefinition {
     this.referencesIsolated = false,
   });
 
-  final DatabaseCodec<Object> codec;
+  final ColumnCodec<Object> codec;
   final bool isNullable;
   final bool isUnique;
   final bool isPrimary;
   final bool isAutoincrement;
-  final DatabaseType Function()? generator;
-  final DatabaseType? defaultValue;
+  final Value Function()? generator;
+  final Value? defaultValue;
   final ColumnReference? reference;
   final Collation? collation;
 
@@ -94,7 +94,7 @@ class _FieldDefinition {
     bool? isNullable,
     bool? isUnique,
     bool? isPrimary,
-    DatabaseType? defaultValue,
+    Value? defaultValue,
     ColumnReference? reference,
     Collation? collation,
     bool? referencesIsolated,
@@ -115,14 +115,14 @@ class _FieldDefinition {
   /// The column this definition declares. An isolated table takes the key, the
   /// uniqueness and the foreign key out of the column itself and states them
   /// on the table instead, where the tenant column can be part of them.
-  ColumnBuilder<dynamic, DatabaseType> builder(
+  ColumnBuilder<dynamic, Value> builder(
     ColumnFactory factory, {
     bool keepPrimary = true,
     bool keepUnique = true,
     bool keepReference = true,
   }) {
     final stored = defaultValue;
-    final ColumnBuilder<dynamic, DatabaseType> column = switch ((codec.storage, stored)) {
+    final ColumnBuilder<dynamic, Value> column = switch ((codec.storage, stored)) {
       (ColumnType.integer, null) => isAutoincrement ? factory.integer().autoincrement() : factory.integer(),
       (ColumnType.integer, final Integer value) => factory.integer().default_(value),
       (ColumnType.real, null) => factory.real(),
@@ -248,10 +248,10 @@ base class Field<V> extends Equatable {
   Subquery<V> where(Filter filter) => Subquery<V>._(this, filter);
 
   /// This column as a term of an ordering, smallest first.
-  DatabaseOrder asc() => DatabaseOrder.expression(_qualified, order: SortOrder.asc);
+  Sort asc() => Sort.expression(_qualified, order: SortOrder.asc);
 
   /// This column as a term of an ordering, largest first.
-  DatabaseOrder desc() => DatabaseOrder.expression(_qualified, order: SortOrder.desc);
+  Sort desc() => Sort.expression(_qualified, order: SortOrder.desc);
 
   String get _qualified => '${_quotedIdentifier(table)}.${_quotedIdentifier(name)}';
 
@@ -261,9 +261,9 @@ base class Field<V> extends Equatable {
     if (!isNullable) throw StateError('$method on $this, which does not accept NULL, could never be useful.');
   }
 
-  DatabaseType _encode(V value) => value == null ? const DatabaseType.nil() : _definition.codec.encode(value as Object);
+  Value _encode(V value) => value == null ? const Value.nil() : _definition.codec.encode(value as Object);
 
-  V _decode(DatabaseType stored) {
+  V _decode(Value stored) {
     if (stored is Nil) {
       if (_definition.isNullable) return null as V;
       throw StateError('$this is NULL although the column is not declared nullable.');
@@ -282,8 +282,8 @@ base class Field<V> extends Equatable {
 /// numbers itself, or a UUID the engine generates when a record has none yet.
 ///
 /// Opened by [Columns.key] and [Columns.uuidKey].
-final class DatabaseKey<K extends Object> extends Field<K> {
-  const DatabaseKey._(super.table, super.name, super._definition) : super._();
+final class KeyField<K extends Object> extends Field<K> {
+  const KeyField._(super.table, super.name, super._definition) : super._();
 
   /// This key paired with [value], or nothing at all when [value] is null, in
   /// which case the engine assigns the key on insert. A record whose key has
@@ -291,7 +291,7 @@ final class DatabaseKey<K extends Object> extends Field<K> {
   Assignment toOrGenerate(K? value) =>
       value == null ? Assignment._(this, null) : Assignment._(this, _encode(value));
 
-  DatabaseType? _generate() => _definition.generator?.call();
+  Value? _generate() => _definition.generator?.call();
 }
 
 /// A column value paired with the column it is written to, built by
@@ -300,12 +300,12 @@ final class DatabaseKey<K extends Object> extends Field<K> {
 final class Assignment {
   const Assignment._(this.field, this._value) : _isIncrement = false;
 
-  const Assignment._increment(this.field, DatabaseType this._value) : _isIncrement = true;
+  const Assignment._increment(this.field, Value this._value) : _isIncrement = true;
 
   /// The column this value is written to.
   final Field<Object?> field;
 
-  final DatabaseType? _value;
+  final Value? _value;
 
   /// Whether [_value] is an amount to add to what the column holds, rather than
   /// what the column becomes.
@@ -345,7 +345,7 @@ final class Subquery<V> {
   final Field<V> _field;
   final Filter _filter;
 
-  (String, List<DatabaseType>) _render() {
+  (String, List<Value>) _render() {
     final (clause, arguments) = _renderDatabaseFilter(_filter);
     return ('SELECT ${_field._qualified} FROM ${_quotedIdentifier(_field.table)} WHERE $clause', arguments);
   }
@@ -381,7 +381,7 @@ extension OrderedField<V extends Comparable<Object?>> on Field<V?> {
 /// Text filters, available only on a text column. The text is matched as
 /// written, `%` and `_` in it standing for themselves, and SQLite ignores the
 /// case of ASCII letters.
-extension DatabaseTextField<V extends String?> on Field<V> {
+extension StringField<V extends String?> on Field<V> {
   /// Rows where this column holds [text] somewhere in it.
   Filter contains(String text) => _of(_FilterLike(name, '%${_escapeLike(text)}%'));
 

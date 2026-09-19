@@ -58,11 +58,11 @@ class Query<R extends Object, K extends Object> {
 
   final KeyedTable<R, K> _table;
   final List<Filter> _filters;
-  final List<DatabaseOrder> _orders;
+  final List<Sort> _orders;
   final int? _limit;
   final int? _offset;
 
-  Query<R, K> _copy({List<Filter>? filters, List<DatabaseOrder>? orders, int? limit, int? offset}) =>
+  Query<R, K> _copy({List<Filter>? filters, List<Sort>? orders, int? limit, int? offset}) =>
       Query._(_table, filters ?? _filters, orders ?? _orders, limit ?? _limit, offset ?? _offset);
 
   /// Keeps the documents [filter] matches, and those of every earlier [where].
@@ -73,7 +73,7 @@ class Query<R extends Object, K extends Object> {
 
   /// Sorts by [orders], after any earlier [orderBy], each later one breaking
   /// the ties of the one before it.
-  Query<R, K> orderBy(List<DatabaseOrder> orders) => _copy(orders: [..._orders, ...orders]);
+  Query<R, K> orderBy(List<Sort> orders) => _copy(orders: [..._orders, ...orders]);
 
   /// Keeps the first [count] documents.
   Query<R, K> limit(int count) => _copy(limit: RangeError.checkNotNegative(count, 'count'));
@@ -81,7 +81,7 @@ class Query<R extends Object, K extends Object> {
   /// Skips the first [count] documents.
   Query<R, K> offset(int count) => _copy(offset: RangeError.checkNotNegative(count, 'count'));
 
-  Rows<R> _rows(DatabaseSession session) {
+  Rows<R> _rows(Connection session) {
     Rows<R> rows = _table.on(session);
     for (final filter in _filters) {
       rows = rows.where(filter);

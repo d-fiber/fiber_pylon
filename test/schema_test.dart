@@ -180,7 +180,7 @@ void main() {
           'ratio': c.real().default_(const Real(0.25)),
           'label': c.text().default_(const Varchar("it's")),
           'payload': c.blob().default_(Blob(Uint8List.fromList([0, 15, 255]))),
-          'anything': c.any().default_(const DatabaseType.nil()),
+          'anything': c.any().default_(const Value.nil()),
         },
       );
 
@@ -198,7 +198,7 @@ void main() {
     test('renders a boolean default as the integer the value layer stores it as', () {
       final table = TableBuilder(
         'todos',
-      ).columns((c) => {'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false))});
+      ).columns((c) => {'done': c.integer().isNullable(false).default_(Value.boolean(false))});
 
       expect(table.statements, ['CREATE TABLE "todos" ("done" INTEGER NOT NULL DEFAULT (0))']);
     });
@@ -346,7 +346,7 @@ void main() {
             (c) => {
               'id': c.integer().isPrimary().autoincrement(),
               'title': c.text().isNullable(false),
-              'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
+              'done': c.integer().isNullable(false).default_(Value.boolean(false)),
             },
           );
 
@@ -360,13 +360,13 @@ void main() {
       );
       await db.open();
 
-      await db.execute('INSERT INTO todos (title) VALUES (?)', const [DatabaseType.varchar('Ship it')]);
+      await db.execute('INSERT INTO todos (title) VALUES (?)', const [Value.varchar('Ship it')]);
       final rows = await db.rawQuery('SELECT id, title, done FROM todos');
       expect(rows, [
         const {
-          'id': DatabaseType.integer(1),
-          'title': DatabaseType.varchar('Ship it'),
-          'done': DatabaseType.integer(0),
+          'id': Value.integer(1),
+          'title': Value.varchar('Ship it'),
+          'done': Value.integer(0),
         },
       ]);
 
@@ -392,7 +392,7 @@ void main() {
       final declared = TableBuilder('samples').columns(
         (c) => {
           'id': c.integer().isPrimary().autoincrement(),
-          'done': c.integer().default_(DatabaseType.boolean(true)),
+          'done': c.integer().default_(Value.boolean(true)),
           'ratio': c.real().default_(const Real(0.25)),
           'label': c.text().default_(const Varchar("it's")),
           'payload': c.blob().default_(Blob(Uint8List.fromList([0, 15, 255]))),
@@ -417,10 +417,10 @@ void main() {
       ).columns((c) => {'name': c.text().isNullable(false).unique().collation(Collation.noCase)});
       final db = openDeclared('schema_collation.db', declared);
       await db.open();
-      await db.execute('INSERT INTO people (name) VALUES (?)', const [DatabaseType.varchar('Ada')]);
+      await db.execute('INSERT INTO people (name) VALUES (?)', const [Value.varchar('Ada')]);
 
       await expectLater(
-        db.execute('INSERT INTO people (name) VALUES (?)', const [DatabaseType.varchar('ADA')]),
+        db.execute('INSERT INTO people (name) VALUES (?)', const [Value.varchar('ADA')]),
         throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
@@ -437,10 +437,10 @@ void main() {
           .columns((c) => {'group': c.text(), 'email': c.text()});
       final db = openDeclared('schema_indexes.db', declared);
       await db.open();
-      await db.execute('INSERT INTO people (email) VALUES (?)', const [DatabaseType.varchar('Ada@Example.com')]);
+      await db.execute('INSERT INTO people (email) VALUES (?)', const [Value.varchar('Ada@Example.com')]);
 
       await expectLater(
-        db.execute('INSERT INTO people (email) VALUES (?)', const [DatabaseType.varchar('ada@example.com')]),
+        db.execute('INSERT INTO people (email) VALUES (?)', const [Value.varchar('ada@example.com')]),
         throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
@@ -497,7 +497,7 @@ void main() {
 
       await expectLater(
         db.transaction((txn) => txn.execute('INSERT INTO children (id, parent_id) VALUES (1, 7)')),
-        throwsA(isA<DatabaseError>()),
+        throwsA(isA<StoreError>()),
       );
       await db.dispose();
     });
@@ -518,8 +518,8 @@ void main() {
       await db.open();
 
       await expectLater(
-        db.execute('INSERT INTO todos (title) VALUES (?)', const [DatabaseType.varchar('')]),
-        throwsA(isA<DatabaseError>()),
+        db.execute('INSERT INTO todos (title) VALUES (?)', const [Value.varchar('')]),
+        throwsA(isA<StoreError>()),
       );
 
       await db.dispose();
@@ -540,10 +540,10 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO kv (key, value) VALUES (?, ?)', const [
-          DatabaseType.varchar('a'),
-          DatabaseType.varchar('not a number'),
+          Value.varchar('a'),
+          Value.varchar('not a number'),
         ]),
-        throwsA(isA<DatabaseError>()),
+        throwsA(isA<StoreError>()),
       );
 
       await db.dispose();

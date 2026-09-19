@@ -36,17 +36,17 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.update] (or [DatabaseBatch.update]) call. Never
+/// Opens one [LocalDatabase.update] (or [StatementBatch.update]) call. Never
 /// constructed directly — [LocalDatabase.update] hands one to its own
 /// callback. The only method here is [table]: nothing can follow `UPDATE`
 /// before naming a table, so nothing else is offered here either.
 ///
 /// ```dart
 /// final changed = await db.update<Todo>(
-///   (u) => u.table('todos').set(done).where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
+///   (u) => u.table('todos').set(done).where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
 /// );
 /// ```
-final class Update<T extends DatabaseRecord> {
+final class Update<T extends Storable> {
   Update._();
 
   /// Updates rows in [name], the same table name a raw `UPDATE table` names.
@@ -56,12 +56,12 @@ final class Update<T extends DatabaseRecord> {
 /// A [Update] that has named its table, opened by [Update.table].
 /// The only method here is [set]: a raw `UPDATE table` still needs a `SET`
 /// clause before it means anything, so nothing else is offered here either.
-final class UpdateTable<T extends DatabaseRecord> {
+final class UpdateTable<T extends Storable> {
   UpdateTable._(this._table);
 
   final String _table;
 
-  /// Writes [value], read into a row through [DatabaseRecord.toRow], over
+  /// Writes [value], read into a row through [Storable.toRow], over
   /// every matched row.
   UpdateSet<T> set(T value) => UpdateSet._(_table, value);
 }
@@ -70,13 +70,13 @@ final class UpdateTable<T extends DatabaseRecord> {
 /// shape [LocalDatabase.update] accepts back from its own callback. [where]
 /// and [onConflict] refine it further and may be called in either order,
 /// since neither changes what the other is allowed to be.
-final class UpdateSet<T extends DatabaseRecord> {
+final class UpdateSet<T extends Storable> {
   UpdateSet._(this._table, this._data, [this._where, this._whereArgs, this._conflict]);
 
   final String _table;
   final T _data;
   final String? _where;
-  final List<DatabaseType>? _whereArgs;
+  final List<Value>? _whereArgs;
   final ConflictAlgorithm? _conflict;
 
   /// Keeps only the rows [build] matches, composed from an empty

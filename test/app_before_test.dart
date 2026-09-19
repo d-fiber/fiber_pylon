@@ -59,7 +59,7 @@ final class Priority {
 const priorityJson = Json<Priority>(fromJson: Priority.fromJson, toJson: _priorityToJson);
 Map<String, dynamic> _priorityToJson(Priority priority) => priority.toJson();
 
-final class Todo extends Equatable implements DatabaseRecord {
+final class Todo extends Equatable implements Storable {
   const Todo({this.id, required this.title, this.done = false, required this.status, required this.priority, this.due});
 
   final int? id;
@@ -69,7 +69,7 @@ final class Todo extends Equatable implements DatabaseRecord {
   final Priority priority;
   final Date? due;
 
-  static Todo fromRow(DatabaseRow row) => Todo(
+  static Todo fromRow(RawRow row) => Todo(
     id: row['id']!.asInt,
     title: row['title']!.asString,
     done: row['done']!.asBoolean,
@@ -79,52 +79,52 @@ final class Todo extends Equatable implements DatabaseRecord {
   );
 
   @override
-  DatabaseRow toRow() => {
-    'title': DatabaseType.varchar(title),
-    'done': DatabaseType.boolean(done),
-    'status': DatabaseType.enum_(status),
+  RawRow toRow() => {
+    'title': Value.varchar(title),
+    'done': Value.boolean(done),
+    'status': Value.enum_(status),
     'priority': priorityJson.encode(priority),
-    'due': due == null ? const DatabaseType.nil() : DatabaseType.date(due!),
+    'due': due == null ? const Value.nil() : Value.date(due!),
   };
 
   @override
   List<Object?> get props => [id, title, done, status, priority.level, priority.label, due];
 }
 
-final class DonePatch implements DatabaseRecord {
+final class DonePatch implements Storable {
   const DonePatch(this.done);
   final bool done;
 
   @override
-  DatabaseRow toRow() => {'done': DatabaseType.boolean(done)};
+  RawRow toRow() => {'done': Value.boolean(done)};
 }
 
-final class Tag extends Equatable implements DatabaseRecord {
+final class Tag extends Equatable implements Storable {
   const Tag({required this.id, required this.name});
 
   final UuidValue id;
   final String name;
 
-  static Tag fromRow(DatabaseRow row) => Tag(id: row['id']!.asUuid, name: row['name']!.asString);
+  static Tag fromRow(RawRow row) => Tag(id: row['id']!.asUuid, name: row['name']!.asString);
 
   @override
-  DatabaseRow toRow() => {'id': DatabaseType.uuid(id), 'name': DatabaseType.varchar(name)};
+  RawRow toRow() => {'id': Value.uuid(id), 'name': Value.varchar(name)};
 
   @override
   List<Object?> get props => [id, name];
 }
 
-final class TodoTag implements DatabaseRecord {
+final class TodoTag implements Storable {
   const TodoTag({required this.todoId, required this.tagId});
 
   final int todoId;
   final UuidValue tagId;
 
   @override
-  DatabaseRow toRow() => {'todo_id': DatabaseType.integer(todoId), 'tag_id': DatabaseType.uuid(tagId)};
+  RawRow toRow() => {'todo_id': Value.integer(todoId), 'tag_id': Value.uuid(tagId)};
 }
 
-final class Note extends Equatable implements DatabaseRecord {
+final class Note extends Equatable implements Storable {
   const Note({this.id, required this.todoId, required this.body, required this.writtenOn});
 
   final int? id;
@@ -132,7 +132,7 @@ final class Note extends Equatable implements DatabaseRecord {
   final String body;
   final Date writtenOn;
 
-  static Note fromRow(DatabaseRow row) => Note(
+  static Note fromRow(RawRow row) => Note(
     id: row['id']!.asInt,
     todoId: row['todo_id']!.asInt,
     body: row['body']!.asString,
@@ -140,10 +140,10 @@ final class Note extends Equatable implements DatabaseRecord {
   );
 
   @override
-  DatabaseRow toRow() => {
-    'todo_id': DatabaseType.integer(todoId),
-    'body': DatabaseType.varchar(body),
-    'written_on': DatabaseType.date(writtenOn),
+  RawRow toRow() => {
+    'todo_id': Value.integer(todoId),
+    'body': Value.varchar(body),
+    'written_on': Value.date(writtenOn),
   };
 
   @override
@@ -154,7 +154,7 @@ final DeclaredTable todosTable = TableBuilder('todos').columns(
   (c) => {
     'id': c.integer().isPrimary().autoincrement(),
     'title': c.text().isNullable(false),
-    'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
+    'done': c.integer().isNullable(false).default_(Value.boolean(false)),
     'status': c.text().isNullable(false),
     'priority': c.text().isNullable(false),
     'due': c.integer(),
@@ -222,7 +222,7 @@ final class TodoStore {
     final rows = await db.query<Todo>(
       (q) => q
           .from('todos')
-          .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id)))
+          .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id)))
           .limit(1)
           .map(Todo.fromRow),
     );
@@ -234,11 +234,11 @@ final class TodoStore {
         .from('todos')
         .where(
           (w) => w.and([
-            w.isEqualTo(key: 'status', value: DatabaseType.enum_(status)),
-            w.isEqualTo(key: 'done', value: DatabaseType.boolean(false)),
+            w.isEqualTo(key: 'status', value: Value.enum_(status)),
+            w.isEqualTo(key: 'done', value: Value.boolean(false)),
           ]),
         )
-        .orderBy(const [DatabaseOrder.named('title')])
+        .orderBy(const [Sort.named('title')])
         .limit(size)
         .offset(page * size)
         .map(Todo.fromRow),
@@ -248,7 +248,7 @@ final class TodoStore {
     (u) => u
         .table('todos')
         .set(const DonePatch(true))
-        .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
+        .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
   );
 
   Future<int> upsertTag(Tag tag) async {
@@ -257,15 +257,15 @@ final class TodoStore {
   }
 
   Future<int> delete(int id) =>
-      db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))));
+      db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))));
 
   Future<int> countOpen() async {
-    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM todos WHERE done = ?', [DatabaseType.boolean(false)]);
+    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM todos WHERE done = ?', [Value.boolean(false)]);
     return rows.single['n']!.asInt;
   }
 
   Future<bool> exists(int id) async {
-    final rows = await db.rawQuery('SELECT 1 AS present FROM todos WHERE id = ? LIMIT 1', [DatabaseType.integer(id)]);
+    final rows = await db.rawQuery('SELECT 1 AS present FROM todos WHERE id = ? LIMIT 1', [Value.integer(id)]);
     return rows.isNotEmpty;
   }
 
@@ -278,7 +278,7 @@ final class TodoStore {
     final rows = await db.rawQuery(
       'SELECT todos.* FROM todos JOIN todo_tags ON todo_tags.todo_id = todos.id '
       'JOIN tags ON tags.id = todo_tags.tag_id WHERE tags.name = ?',
-      [DatabaseType.varchar(name)],
+      [Value.varchar(name)],
     );
     return rows.map(Todo.fromRow).toList();
   }
@@ -297,7 +297,7 @@ final class TodoStore {
   Future<List<Note>> notesOf(int todoId) => db.query<Note>(
     (q) => q
         .from('notes')
-        .where((w) => w.isEqualTo(key: 'todo_id', value: DatabaseType.integer(todoId)))
+        .where((w) => w.isEqualTo(key: 'todo_id', value: Value.integer(todoId)))
         .map(Note.fromRow),
   );
 
@@ -355,9 +355,9 @@ void main() {
     );
     await v1.open();
     await v1.execute('INSERT INTO todos (title, done, status, priority) VALUES (?, ?, ?, ?)', [
-      const DatabaseType.varchar('Old'),
-      DatabaseType.boolean(false),
-      DatabaseType.enum_(Status.open),
+      const Value.varchar('Old'),
+      Value.boolean(false),
+      Value.enum_(Status.open),
       priorityJson.encode(const Priority(level: 1, label: 'low')),
     ]);
     await v1.dispose();

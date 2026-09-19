@@ -411,11 +411,11 @@ void main() {
   });
 }
 
-final class _Raw implements DatabaseRecord {
+final class _Raw implements Storable {
   const _Raw(this.title);
 
   final String title;
 
   @override
-  DatabaseRow toRow() => {'title': DatabaseType.varchar(title)};
+  RawRow toRow() => {'title': Value.varchar(title)};
 }

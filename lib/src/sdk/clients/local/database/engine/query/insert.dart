@@ -36,7 +36,7 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.insert] (or [DatabaseBatch.insert]) call. Never
+/// Opens one [LocalDatabase.insert] (or [StatementBatch.insert]) call. Never
 /// constructed directly — [LocalDatabase.insert] hands one to its own
 /// callback. The only method here is [into]: nothing can follow `INSERT`
 /// before naming a table, so nothing else is offered here either — the
@@ -46,7 +46,7 @@ part of '../database.dart';
 /// ```dart
 /// final id = await db.insert<Todo>((i) => i.into('todos').values(todo));
 /// ```
-final class Insert<T extends DatabaseRecord> {
+final class Insert<T extends Storable> {
   Insert._();
 
   /// Inserts into [name], the same `INTO` a raw `INSERT INTO ...` names.
@@ -57,12 +57,12 @@ final class Insert<T extends DatabaseRecord> {
 /// The only method here is [values]: a raw `INSERT INTO table` still needs a
 /// `VALUES` clause before it means anything, so nothing else is offered
 /// here either.
-final class InsertInto<T extends DatabaseRecord> {
+final class InsertInto<T extends Storable> {
   InsertInto._(this._table);
 
   final String _table;
 
-  /// Inserts [value], read into a row through [DatabaseRecord.toRow].
+  /// Inserts [value], read into a row through [Storable.toRow].
   InsertValues<T> values(T value) => InsertValues._(_table, value);
 }
 
@@ -70,7 +70,7 @@ final class InsertInto<T extends DatabaseRecord> {
 /// shape [LocalDatabase.insert] accepts back from its own callback, since
 /// naming a table and a value is everything a raw `INSERT INTO ... VALUES
 /// (...)` needs.
-final class InsertValues<T extends DatabaseRecord> {
+final class InsertValues<T extends Storable> {
   InsertValues._(this._table, this._data, [this._conflict]);
 
   final String _table;

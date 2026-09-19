@@ -37,15 +37,15 @@
 part of '../database.dart';
 
 /// A project's own model that knows how to turn its own fields into a
-/// [DatabaseRow] — the same role [PreferenceJson] plays for [PreferencesStorage],
+/// [RawRow] — the same role [PreferenceJson] plays for [PreferencesStorage],
 /// spelled out for a table's own row shape instead of a JSON document.
 ///
 /// [LocalDatabase.insert] and [LocalDatabase.update] never reach into a
 /// model's fields themselves: a project's own type declares [toRow] once,
 /// and every call site after that passes a plain value instead of a row
 /// literal.
-abstract interface class DatabaseRecord {
+abstract interface class Storable {
   /// This value's own fields, ready for [LocalDatabase.insert] or
   /// [LocalDatabase.update] to write.
-  DatabaseRow toRow();
+  RawRow toRow();
 }

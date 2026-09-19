@@ -42,7 +42,7 @@ part of '../database.dart';
 /// Reach for these instead of casting a column to [Integer], [Real],
 /// [Varchar] or [Blob] by hand: a cast that fails throws a [TypeError]
 /// naming no column, while these throw a [StateError] naming the value.
-extension NativeDecoding on DatabaseType {
+extension NativeDecoding on Value {
   /// This value as an [int].
   ///
   /// Throws a [StateError] if this is not an [Integer].

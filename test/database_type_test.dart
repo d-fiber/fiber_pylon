@@ -55,20 +55,20 @@ final class CartItem {
 }
 
 void main() {
-  group('DatabaseType', () {
+  group('Value', () {
     test('boolean round-trips through asBoolean', () {
-      expect(DatabaseType.boolean(true).asBoolean, isTrue);
-      expect(DatabaseType.boolean(false).asBoolean, isFalse);
+      expect(Value.boolean(true).asBoolean, isTrue);
+      expect(Value.boolean(false).asBoolean, isFalse);
     });
 
     test('asBoolean throws on a value that never was one', () {
-      expect(() => const DatabaseType.varchar('nope').asBoolean, throwsStateError);
+      expect(() => const Value.varchar('nope').asBoolean, throwsStateError);
     });
 
     test('timestamp round-trips through asDateTime, always in UTC', () {
       final now = DateTime.now();
 
-      final stored = DatabaseType.timestamp(now.millisecondsSinceEpoch);
+      final stored = Value.timestamp(now.millisecondsSinceEpoch);
 
       expect(stored, isA<Integer>());
       expect(stored.asDateTime.isUtc, isTrue);
@@ -76,26 +76,26 @@ void main() {
     });
 
     test('asDateTime throws on a value that never was a timestamp', () {
-      expect(() => const DatabaseType.varchar('nope').asDateTime, throwsStateError);
+      expect(() => const Value.varchar('nope').asDateTime, throwsStateError);
     });
 
     test('date round-trips through asDate, regardless of time zone', () {
       const bastilleDay = Date(year: 2026, month: 7, day: 14);
 
-      final stored = DatabaseType.date(bastilleDay);
+      final stored = Value.date(bastilleDay);
 
       expect(stored, isA<Integer>());
       expect(stored.asDate, bastilleDay);
     });
 
     test('asDate throws on a value that never was a date', () {
-      expect(() => const DatabaseType.varchar('nope').asDate, throwsStateError);
+      expect(() => const Value.varchar('nope').asDate, throwsStateError);
     });
 
     test('time round-trips through asTime, with no time zone', () {
       const lunch = Time(hour: 12, minute: 30, second: 15, millisecond: 500);
 
-      final stored = DatabaseType.time(lunch);
+      final stored = Value.time(lunch);
 
       expect(stored, isA<Varchar>());
       expect(stored.asTime, lunch);
@@ -105,21 +105,21 @@ void main() {
     test('time round-trips through asTime, carrying its own time zone', () {
       const noonInParis = Time(hour: 12, minute: 0, utcOffset: Duration(hours: 1));
 
-      final decoded = DatabaseType.time(noonInParis).asTime;
+      final decoded = Value.time(noonInParis).asTime;
 
       expect(decoded, noonInParis);
       expect(decoded.utcOffset, const Duration(hours: 1));
     });
 
     test('time is stored as fixed-width text, with its offset when it has one', () {
-      expect(DatabaseType.time(const Time(hour: 9, minute: 5)).value, '09:05:00.000');
-      expect(DatabaseType.time(const Time(hour: 23, minute: 59, second: 58, millisecond: 7)).value, '23:59:58.007');
+      expect(Value.time(const Time(hour: 9, minute: 5)).value, '09:05:00.000');
+      expect(Value.time(const Time(hour: 23, minute: 59, second: 58, millisecond: 7)).value, '23:59:58.007');
       expect(
-        DatabaseType.time(const Time(hour: 12, minute: 0, utcOffset: Duration(hours: 1))).value,
+        Value.time(const Time(hour: 12, minute: 0, utcOffset: Duration(hours: 1))).value,
         '12:00:00.000+01:00',
       );
       expect(
-        DatabaseType.time(const Time(hour: 12, minute: 0, utcOffset: Duration(hours: -3, minutes: -30))).value,
+        Value.time(const Time(hour: 12, minute: 0, utcOffset: Duration(hours: -3, minutes: -30))).value,
         '12:00:00.000-03:30',
       );
     });
@@ -127,7 +127,7 @@ void main() {
     test('time round-trips a negative offset with minutes', () {
       const time = Time(hour: 12, minute: 0, utcOffset: Duration(hours: -3, minutes: -30));
 
-      expect(DatabaseType.time(time).asTime, time);
+      expect(Value.time(time).asTime, time);
     });
 
     test('the text of two times without an offset sorts the way the times do', () {
@@ -138,39 +138,39 @@ void main() {
           Time(hour: 9, minute: 0, millisecond: 1),
           Time(hour: 0, minute: 0),
         ])
-          DatabaseType.time(time).value,
+          Value.time(time).value,
       ]..sort();
 
       expect(texts, ['00:00:00.000', '09:00:00.001', '09:30:00.000', '10:00:00.000']);
     });
 
     test('asTime throws a FormatException on text that is not a time of day', () {
-      expect(() => const DatabaseType.varchar('9:30').asTime, throwsFormatException);
-      expect(() => const DatabaseType.varchar('{"hour":9}').asTime, throwsFormatException);
+      expect(() => const Value.varchar('9:30').asTime, throwsFormatException);
+      expect(() => const Value.varchar('{"hour":9}').asTime, throwsFormatException);
     });
 
     test('a whole number is written the same text whether it was an int or a double', () {
       expect(
-        DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4)),
-        DatabaseType.interval(const IntervalBounds.num(start: 3.0, end: 4.0)),
+        Value.interval(const IntervalBounds.num(start: 3, end: 4)),
+        Value.interval(const IntervalBounds.num(start: 3.0, end: 4.0)),
       );
       expect(
-        DatabaseType.range(const RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1, upper: 10)),
-        DatabaseType.range(const RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1.0, upper: 10.0)),
+        Value.range(const RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1, upper: 10)),
+        Value.range(const RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1.0, upper: 10.0)),
       );
       expect(
-        DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4.5)) ==
-            DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4.25)),
+        Value.interval(const IntervalBounds.num(start: 3, end: 4.5)) ==
+            Value.interval(const IntervalBounds.num(start: 3, end: 4.25)),
         isFalse,
       );
     });
 
     test('asTime throws on a value that never was a time', () {
-      expect(() => const DatabaseType.integer(1).asTime, throwsStateError);
+      expect(() => const Value.integer(1).asTime, throwsStateError);
     });
 
     test('enum_ round-trips through asEnum, by name rather than by index', () {
-      final stored = DatabaseType.enum_(Season.summer);
+      final stored = Value.enum_(Season.summer);
 
       expect(stored, isA<Varchar>());
       expect(stored.value, 'summer');
@@ -178,18 +178,18 @@ void main() {
     });
 
     test('asEnum throws when no member matches by name', () {
-      expect(() => const DatabaseType.varchar('monsoon').asEnum(Season.values), throwsArgumentError);
+      expect(() => const Value.varchar('monsoon').asEnum(Season.values), throwsArgumentError);
     });
 
     test('asEnum throws on a value that never was an enum', () {
-      expect(() => const DatabaseType.integer(1).asEnum(Season.values), throwsStateError);
+      expect(() => const Value.integer(1).asEnum(Season.values), throwsStateError);
     });
 
     test('list round-trips a list of int, double, String and bool', () {
-      expect(DatabaseType.list(const [1, 2, 3]).asList<int>(), [1, 2, 3]);
-      expect(DatabaseType.list(const [1.5, 2.5]).asList<double>(), [1.5, 2.5]);
-      expect(DatabaseType.list(const ['a', 'b']).asList<String>(), ['a', 'b']);
-      expect(DatabaseType.list(const [true, false]).asList<bool>(), [true, false]);
+      expect(Value.list(const [1, 2, 3]).asList<int>(), [1, 2, 3]);
+      expect(Value.list(const [1.5, 2.5]).asList<double>(), [1.5, 2.5]);
+      expect(Value.list(const ['a', 'b']).asList<String>(), ['a', 'b']);
+      expect(Value.list(const [true, false]).asList<bool>(), [true, false]);
     });
 
     test('list round-trips a list of maps', () {
@@ -198,21 +198,21 @@ void main() {
         {'sku': 'mug-02'},
       ];
 
-      expect(DatabaseType.list(maps).asList<Map<String, dynamic>>(), maps);
+      expect(Value.list(maps).asList<Map<String, dynamic>>(), maps);
     });
 
     test('asList throws on a value that never was a list', () {
-      expect(() => const DatabaseType.integer(1).asList<int>(), throwsStateError);
+      expect(() => const Value.integer(1).asList<int>(), throwsStateError);
     });
 
     test('randomUuid generates a well-formed version 4 identifier', () {
-      final value = DatabaseType.randomUuid();
+      final value = Value.randomUuid();
 
       expect(value.value, matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
     });
 
     test('randomUuid never repeats across a burst of rapid generation', () {
-      final generated = {for (var i = 0; i < 2000; i++) DatabaseType.randomUuid().value};
+      final generated = {for (var i = 0; i < 2000; i++) Value.randomUuid().value};
 
       expect(generated, hasLength(2000));
     });
@@ -220,58 +220,58 @@ void main() {
     test('point round-trips through asPoint', () {
       const origin = Location(lat: 48.8566, lng: 2.3522);
 
-      final stored = DatabaseType.point(origin);
+      final stored = Value.point(origin);
 
       expect(stored, isA<Varchar>());
       expect(stored.asPoint, origin);
     });
 
     test('asPoint throws on a value that never was a point', () {
-      expect(() => const DatabaseType.integer(1).asPoint, throwsStateError);
+      expect(() => const Value.integer(1).asPoint, throwsStateError);
     });
 
     test('line round-trips through asLine', () {
       const line = LocationLine(a: Location(lat: 48.85, lng: 2.35), b: Location(lat: 45.75, lng: 4.85));
 
-      expect(DatabaseType.line(line).asLine, line);
+      expect(Value.line(line).asLine, line);
     });
 
     test('asLine throws on a value that never was a line', () {
-      expect(() => const DatabaseType.integer(1).asLine, throwsStateError);
+      expect(() => const Value.integer(1).asLine, throwsStateError);
     });
 
     test('segment round-trips through asSegment', () {
       const segment = LocationSegment(a: Location(lat: 48.85, lng: 2.35), b: Location(lat: 45.75, lng: 4.85));
 
-      expect(DatabaseType.segment(segment).asSegment, segment);
+      expect(Value.segment(segment).asSegment, segment);
     });
 
     test('asSegment throws on a value that never was a segment', () {
-      expect(() => const DatabaseType.integer(1).asSegment, throwsStateError);
+      expect(() => const Value.integer(1).asSegment, throwsStateError);
     });
 
     test('box round-trips through asBox', () {
       const box = LocationBox(low: Location(lat: 45.0, lng: 2.0), high: Location(lat: 49.0, lng: 5.0));
 
-      expect(DatabaseType.box(box).asBox, box);
+      expect(Value.box(box).asBox, box);
     });
 
     test('asBox throws on a value that never was a box', () {
-      expect(() => const DatabaseType.integer(1).asBox, throwsStateError);
+      expect(() => const Value.integer(1).asBox, throwsStateError);
     });
 
     test('path round-trips through asPath, open or closed', () {
       const open = LocationPath(points: [Location(lat: 0, lng: 0), Location(lat: 1, lng: 1)]);
       const closed = LocationPath(points: [Location(lat: 0, lng: 0), Location(lat: 1, lng: 1)], closed: true);
 
-      expect(DatabaseType.path(open).asPath, open);
-      expect(DatabaseType.path(closed).asPath, closed);
-      expect(DatabaseType.path(open).asPath.closed, isFalse);
-      expect(DatabaseType.path(closed).asPath.closed, isTrue);
+      expect(Value.path(open).asPath, open);
+      expect(Value.path(closed).asPath, closed);
+      expect(Value.path(open).asPath.closed, isFalse);
+      expect(Value.path(closed).asPath.closed, isTrue);
     });
 
     test('asPath throws on a value that never was a path', () {
-      expect(() => const DatabaseType.integer(1).asPath, throwsStateError);
+      expect(() => const Value.integer(1).asPath, throwsStateError);
     });
 
     test('polygon round-trips through asPolygon', () {
@@ -279,27 +279,27 @@ void main() {
         points: [Location(lat: 0, lng: 0), Location(lat: 1, lng: 0), Location(lat: 0, lng: 1)],
       );
 
-      expect(DatabaseType.polygon(polygon).asPolygon, polygon);
+      expect(Value.polygon(polygon).asPolygon, polygon);
     });
 
     test('asPolygon throws on a value that never was a polygon', () {
-      expect(() => const DatabaseType.integer(1).asPolygon, throwsStateError);
+      expect(() => const Value.integer(1).asPolygon, throwsStateError);
     });
 
     test('circle round-trips through asCircle', () {
       const circle = LocationCircle(center: Location(lat: 48.85, lng: 2.35), radius: 1500);
 
-      expect(DatabaseType.circle(circle).asCircle, circle);
+      expect(Value.circle(circle).asCircle, circle);
     });
 
     test('asCircle throws on a value that never was a circle', () {
-      expect(() => const DatabaseType.integer(1).asCircle, throwsStateError);
+      expect(() => const Value.integer(1).asCircle, throwsStateError);
     });
 
     test('interval of numbers round-trips through asNumberBounds', () {
       const bounds = IntervalBounds.num(start: 3, end: 4.5);
 
-      final decoded = DatabaseType.interval(bounds).asNumberBounds;
+      final decoded = Value.interval(bounds).asNumberBounds;
 
       expect(decoded, bounds);
       expect(decoded.start, 3);
@@ -310,7 +310,7 @@ void main() {
       final start = DateTime(2026);
       final end = DateTime(2026, 6);
 
-      final decoded = DatabaseType.interval(IntervalBounds.datetime(start: start, end: end)).asDateTimeBounds;
+      final decoded = Value.interval(IntervalBounds.datetime(start: start, end: end)).asDateTimeBounds;
 
       expect(decoded.start.isUtc, isTrue);
       expect(decoded.end.isUtc, isTrue);
@@ -324,14 +324,14 @@ void main() {
     });
 
     test('asNumberBounds and asDateTimeBounds throw on a value that never was an interval', () {
-      expect(() => const DatabaseType.integer(1).asNumberBounds, throwsStateError);
-      expect(() => const DatabaseType.integer(1).asDateTimeBounds, throwsStateError);
+      expect(() => const Value.integer(1).asNumberBounds, throwsStateError);
+      expect(() => const Value.integer(1).asDateTimeBounds, throwsStateError);
     });
 
     test('range of numbers round-trips through asNumberRange, with its default bounds', () {
       const bounds = RangeBounds.num(subtype: NumberRangeSubtype.integer, lower: 1, upper: 10);
 
-      final decoded = DatabaseType.range(bounds).asNumberRange;
+      final decoded = Value.range(bounds).asNumberRange;
 
       expect(decoded, bounds);
       expect(decoded.subtype, NumberRangeSubtype.integer);
@@ -349,7 +349,7 @@ void main() {
         upperInclusive: true,
       );
 
-      final decoded = DatabaseType.range(bounds).asNumberRange;
+      final decoded = Value.range(bounds).asNumberRange;
 
       expect(decoded.lower, isNull);
       expect(decoded.upper, 99.5);
@@ -361,7 +361,7 @@ void main() {
       final lower = DateTime(2026);
       final upper = DateTime(2027);
 
-      final decoded = DatabaseType.range(
+      final decoded = Value.range(
         RangeBounds.datetime(subtype: DateTimeRangeSubtype.timestamptz, lower: lower, upper: upper),
       ).asDateTimeRange;
 
@@ -374,7 +374,7 @@ void main() {
     test('range of dates round-trips an unbounded side', () {
       final lower = DateTime(2026);
 
-      final decoded = DatabaseType.range(
+      final decoded = Value.range(
         RangeBounds.datetime(subtype: DateTimeRangeSubtype.timestamp, lower: lower),
       ).asDateTimeRange;
 
@@ -386,7 +386,7 @@ void main() {
       const lower = Date(year: 2026, month: 7, day: 14);
       const upper = Date(year: 2026, month: 8, day: 31);
 
-      final decoded = DatabaseType.range(const RangeBounds.date(lower: lower, upper: upper)).asDateRange;
+      final decoded = Value.range(const RangeBounds.date(lower: lower, upper: upper)).asDateRange;
 
       expect(decoded, const RangeBounds.date(lower: lower, upper: upper));
       expect(decoded.lower, lower);
@@ -396,7 +396,7 @@ void main() {
     test('range of calendar dates round-trips an unbounded side and explicit inclusivity', () {
       const upper = Date(year: 2026, month: 8, day: 31);
 
-      final decoded = DatabaseType.range(const RangeBounds.date(upper: upper, upperInclusive: true)).asDateRange;
+      final decoded = Value.range(const RangeBounds.date(upper: upper, upperInclusive: true)).asDateRange;
 
       expect(decoded.lower, isNull);
       expect(decoded.upper, upper);
@@ -411,34 +411,34 @@ void main() {
     });
 
     test('asNumberRange, asDateTimeRange and asDateRange throw on a value that never was a range', () {
-      expect(() => const DatabaseType.integer(1).asNumberRange, throwsStateError);
-      expect(() => const DatabaseType.integer(1).asDateTimeRange, throwsStateError);
-      expect(() => const DatabaseType.integer(1).asDateRange, throwsStateError);
+      expect(() => const Value.integer(1).asNumberRange, throwsStateError);
+      expect(() => const Value.integer(1).asDateTimeRange, throwsStateError);
+      expect(() => const Value.integer(1).asDateRange, throwsStateError);
     });
   });
 
   group('NativeDecoding', () {
     test('asInt, asDouble, asString and asBytes read back the storage class they were written as', () {
-      expect(const DatabaseType.integer(42).asInt, 42);
-      expect(const DatabaseType.real(1.5).asDouble, 1.5);
-      expect(const DatabaseType.varchar('hello').asString, 'hello');
-      expect(DatabaseType.blob(Uint8List.fromList([1, 2, 3])).asBytes, [1, 2, 3]);
+      expect(const Value.integer(42).asInt, 42);
+      expect(const Value.real(1.5).asDouble, 1.5);
+      expect(const Value.varchar('hello').asString, 'hello');
+      expect(Value.blob(Uint8List.fromList([1, 2, 3])).asBytes, [1, 2, 3]);
     });
 
     test('each one throws a StateError naming the value when the storage class differs', () {
-      expect(() => const DatabaseType.varchar('nope').asInt, throwsStateError);
-      expect(() => const DatabaseType.varchar('1.5').asDouble, throwsStateError);
-      expect(() => const DatabaseType.integer(1).asString, throwsStateError);
-      expect(() => const DatabaseType.integer(1).asBytes, throwsStateError);
-      expect(() => const DatabaseType.nil().asInt, throwsStateError);
+      expect(() => const Value.varchar('nope').asInt, throwsStateError);
+      expect(() => const Value.varchar('1.5').asDouble, throwsStateError);
+      expect(() => const Value.integer(1).asString, throwsStateError);
+      expect(() => const Value.integer(1).asBytes, throwsStateError);
+      expect(() => const Value.nil().asInt, throwsStateError);
     });
 
     test('a convention factory answers the storage class it is stored as, by its own static type', () {
-      final Integer flag = DatabaseType.boolean(true);
-      final Integer moment = DatabaseType.timestamp(0);
-      final Integer day = DatabaseType.date(const Date(year: 2026, month: 7, day: 14));
-      final Varchar season = DatabaseType.enum_(Season.summer);
-      final Varchar shape = DatabaseType.point(const Location(lat: 0, lng: 0));
+      final Integer flag = Value.boolean(true);
+      final Integer moment = Value.timestamp(0);
+      final Integer day = Value.date(const Date(year: 2026, month: 7, day: 14));
+      final Varchar season = Value.enum_(Season.summer);
+      final Varchar shape = Value.point(const Location(lat: 0, lng: 0));
 
       expect([flag.value, moment.value, day.value], [1, 0, 1783987200000]);
       expect([season.value, shape.value], ['summer', '{"lat":0.0,"lng":0.0}']);
@@ -449,24 +449,24 @@ void main() {
     test('a given UUID round-trips through asUuid, in its canonical lower-case form', () {
       final id = UuidValue.fromString('123E4567-E89B-42D3-A456-426614174000');
 
-      final stored = DatabaseType.uuid(id);
+      final stored = Value.uuid(id);
 
       expect(stored.value, '123e4567-e89b-42d3-a456-426614174000');
       expect(stored.asUuid, id);
     });
 
     test('a generated UUID can be read back as the value it holds', () {
-      final generated = DatabaseType.randomUuid();
+      final generated = Value.randomUuid();
 
       expect(generated.asUuid.uuid, generated.value);
     });
 
     test('asUuid throws a StateError on a value that never was text', () {
-      expect(() => const DatabaseType.integer(1).asUuid, throwsStateError);
+      expect(() => const Value.integer(1).asUuid, throwsStateError);
     });
 
     test('asUuid throws a FormatException on text that is not a UUID', () {
-      expect(() => const DatabaseType.varchar('not-a-uuid').asUuid, throwsFormatException);
+      expect(() => const Value.varchar('not-a-uuid').asUuid, throwsFormatException);
     });
   });
 
@@ -543,7 +543,7 @@ void main() {
     });
 
     test('decode throws on a value that never was JSON', () {
-      expect(() => codec.decode(const DatabaseType.integer(1)), throwsStateError);
+      expect(() => codec.decode(const Value.integer(1)), throwsStateError);
     });
   });
 
@@ -562,7 +562,7 @@ void main() {
     });
 
     test('decode throws on a value that never was JSON', () {
-      expect(() => codec.decode(const DatabaseType.integer(1)), throwsStateError);
+      expect(() => codec.decode(const Value.integer(1)), throwsStateError);
     });
   });
 }

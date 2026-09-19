@@ -49,7 +49,7 @@ import '../../../../../storage/secure_storage.dart' show Fingerprint;
 import 'schema/schema.dart';
 import 'query/sort_order.dart';
 
-part 'types/database_type.dart';
+part 'types/value.dart';
 part 'types/native.dart';
 part 'types/boolean.dart';
 part 'types/temporal.dart';
@@ -62,7 +62,7 @@ part 'types/range.dart';
 part 'types/json.dart';
 part 'types/row.dart';
 part 'query/record.dart';
-part 'schema/database_column.dart';
+part 'schema/column_info.dart';
 part 'schema/drift.dart';
 part 'errors.dart';
 part 'query/filter.dart';
@@ -88,24 +88,24 @@ part 'table/declared.dart';
 /// exist or what a row looks like: a project (or another pylon primitive)
 /// supplies its own schema through [onCreate] and [onUpgrade], then reads
 /// and writes it through [insert], [query], [update], [delete], raw SQL and
-/// [transaction], typed throughout on [DatabaseType] and [DatabaseRow] rather than
+/// [transaction], typed throughout on [Value] and [RawRow] rather than
 /// `Object?`. This adds only the lifecycle sqflite leaves to the caller; it
 /// never reinterprets a column, a table name or a query as meaning
 /// something.
 ///
 /// ```dart
-/// class Todo implements DatabaseRecord {
+/// class Todo implements Storable {
 ///   Todo({required this.title, required this.done});
 ///   final String title;
 ///   final bool done;
 ///
-///   static Todo fromRow(DatabaseRow row) => Todo(
+///   static Todo fromRow(RawRow row) => Todo(
 ///     title: row.required('title').asString,
 ///     done: row.required('done').asBoolean,
 ///   );
 ///
 ///   @override
-///   DatabaseRow toRow() => {'title': DatabaseType.varchar(title), 'done': DatabaseType.boolean(done)};
+///   RawRow toRow() => {'title': Value.varchar(title), 'done': Value.boolean(done)};
 /// }
 ///
 /// final db = LocalDatabase(
@@ -123,18 +123,18 @@ part 'table/declared.dart';
 ///
 /// final id = await db.insert<Todo>((i) => i.into('todos').values(Todo(title: 'Ship it', done: false)));
 /// final open = await db.query<Todo>(
-///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(false))).map(Todo.fromRow),
+///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false))).map(Todo.fromRow),
 /// );
 /// await db.update<Todo>(
 ///   (u) => u
 ///       .table('todos')
 ///       .set(Todo(title: 'Ship it', done: true))
-///       .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
+///       .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
 /// );
-/// await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
+/// await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))));
 /// ```
 ///
-/// Tables declared as [DatabaseTable] classes replace the strings, the
+/// Tables declared as [TypedTable] classes replace the strings, the
 /// callbacks and the row maps above. [LocalDatabase.declared] creates and
 /// migrates them, and each column is a typed [Field], so a filter
 /// takes the Dart type of its own column:
@@ -149,7 +149,7 @@ part 'table/declared.dart';
 /// ```
 ///
 /// A [DatabaseException] sqflite itself throws never escapes: every method
-/// below throws the [DatabaseError] [DatabaseError.from] reads out
+/// below throws the [StoreError] [StoreError.from] reads out
 /// of it instead, so a caller matches a closed set of reasons rather than
 /// sqflite's own message text. A call made before [open] or after [dispose]
 /// throws a [StateError] instead, and a value SQLite cannot store, such as a
@@ -175,7 +175,7 @@ part 'table/declared.dart';
 /// reads again and stays quiet when nothing it watches differs. A write made
 /// by another process, or by another [LocalDatabase] on the same file, is not
 /// heard.
-class LocalDatabase extends DatabaseSession {
+class LocalDatabase extends Connection {
   final String _name;
   final int _version;
   final OnDatabaseConfigureFn? _onConfigure;
@@ -186,7 +186,7 @@ class LocalDatabase extends DatabaseSession {
   final bool _readOnly;
   final bool _singleInstance;
   final DatabaseFactory _factory;
-  List<DatabaseTable<Object>>? _tables;
+  List<TypedTable<Object>>? _tables;
   Future<void> _declaring = Future<void>.value();
   final List<DeclaredTable> _declarations;
   final List<Migration> _migrations;
@@ -224,7 +224,7 @@ class LocalDatabase extends DatabaseSession {
   /// the file without this class knowing that happened.
   ///
   /// [fingerprint] is what opens the whole-database mechanism
-  /// ([wholeDatabase], [DatabaseTable.onWholeDatabase]): without one, that
+  /// ([wholeDatabase], [TypedTable.onWholeDatabase]): without one, that
   /// mechanism is closed on this database, and with one, a call must present
   /// the same fingerprint. With [encrypt] the file is also encrypted with a key
   /// derived from [fingerprint], so a copy of it cannot be read without it. That
@@ -285,12 +285,12 @@ class LocalDatabase extends DatabaseSession {
   /// asked.
   ///
   /// [declarations] adds tables written with [TableBuilder] that no
-  /// [DatabaseTable] describes, such as one reached only through [execute] and
+  /// [TypedTable] describes, such as one reached only through [execute] and
   /// [rawQuery]. [readOnly] opens the file as it is, with no schema work.
   /// [singleInstance] and [factory] are the ones the default constructor takes.
   LocalDatabase.declared({
     required String name,
-    required List<DatabaseTable<Object>> tables,
+    required List<TypedTable<Object>> tables,
     List<DeclaredTable> declarations = const [],
     List<Migration> migrations = const [],
     bool readOnly = false,
@@ -401,7 +401,7 @@ class LocalDatabase extends DatabaseSession {
       }
       _db = db;
     } on DatabaseException catch (error) {
-      final reason = DatabaseError.from(error);
+      final reason = StoreError.from(error);
       throw reason is UnknownError ? OpenFailedError(reason.message) : reason;
     }
   }
@@ -455,18 +455,18 @@ class LocalDatabase extends DatabaseSession {
   /// database as it was, tables and file alike.
   ///
   /// Throws a [StateError] on a read only database, or one that is not open.
-  Future<void> declare(List<DatabaseTable<Object>> tables) {
+  Future<void> declare(List<TypedTable<Object>> tables) {
     final run = _declaring.then((_) => _declare(tables));
     _declaring = run.then((_) {}, onError: (Object _) {});
     return run;
   }
 
-  Future<void> _declare(List<DatabaseTable<Object>> tables) async {
+  Future<void> _declare(List<TypedTable<Object>> tables) async {
     if (_readOnly) throw StateError('$_name is read only: it cannot be declared any table.');
     final db = _requireOpen();
     final before = _tables;
-    final known = {for (final table in before ?? const <DatabaseTable<Object>>[]) table.tableName: table};
-    final added = <DatabaseTable<Object>>[];
+    final known = {for (final table in before ?? const <TypedTable<Object>>[]) table.tableName: table};
+    final added = <TypedTable<Object>>[];
     for (final table in tables) {
       final held = known[table.tableName] ?? added.where((other) => other.tableName == table.tableName).firstOrNull;
       if (held == null) {
@@ -488,7 +488,7 @@ class LocalDatabase extends DatabaseSession {
   /// Runs [sql] directly, for anything [insert], [query], [update] and
   /// [delete] do not cover — a `CREATE TABLE`, a `CREATE INDEX`, a schema
   /// change inside [onUpgrade].
-  Future<void> execute(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
+  Future<void> execute(String sql, [List<Value>? arguments]) => _guarded(() async {
     await _executor().execute(sql, _toNativeArgs(arguments));
     _notifyWrite(null);
   });
@@ -497,7 +497,7 @@ class LocalDatabase extends DatabaseSession {
   /// [build] must return a fully composed [InsertValues], the same way
   /// a raw `INSERT` needs an `INTO` and a `VALUES` before it means anything
   /// — answering the row id sqflite assigned.
-  Future<int> insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) => _guarded(() async {
+  Future<int> insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) => _guarded(() async {
     final spec = build(Insert<T>._());
     final rowId = await _executor().rawInsert(spec._sql, spec._arguments);
     _notifyWrite({_unquotedIdentifier(spec._table)});
@@ -505,11 +505,11 @@ class LocalDatabase extends DatabaseSession {
   });
 
   /// Reads rows, filtered, ordered, paged and decoded exactly as [build]
-  /// composes it from an empty [DatabaseQuery] — [build] must return a
+  /// composes it from an empty [Select] — [build] must return a
   /// [QueryFrom], the same way a raw `SELECT` needs a `FROM` before it
   /// means anything.
-  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(DatabaseQuery<T> query) build) => _guarded(() async {
-    final spec = build(DatabaseQuery<T>._());
+  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(Select<T> query) build) => _guarded(() async {
+    final spec = build(Select<T>._());
     final rows = await _executor().query(
       spec._table,
       distinct: spec._distinct,
@@ -529,7 +529,7 @@ class LocalDatabase extends DatabaseSession {
   /// Runs [sql] directly and answers the rows it selected, for a query
   /// [query] cannot express — a join, an aggregate, anything past one
   /// table's own `WHERE`.
-  Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
+  Future<List<RawRow>> rawQuery(String sql, [List<Value>? arguments]) => _guarded(() async {
     final rows = await _executor().rawQuery(sql, _toNativeArgs(arguments));
     return rows.map(_fromNativeRow).toList();
   });
@@ -538,7 +538,7 @@ class LocalDatabase extends DatabaseSession {
   /// empty [Update] — [build] must return a [UpdateSet], the same
   /// way a raw `UPDATE table` needs a `SET` before it means anything —
   /// answering how many rows changed.
-  Future<int> update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) => _guarded(() async {
+  Future<int> update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) => _guarded(() async {
     final spec = build(Update<T>._());
     final changed = await _executor().update(
       spec._table,
@@ -571,37 +571,37 @@ class LocalDatabase extends DatabaseSession {
   ///
   /// Everything [action] asks of this [LocalDatabase], and of a [batch] made
   /// from it, joins the transaction, the same as if it had gone through the
-  /// [DatabaseTransaction] it is given, because sqflite would otherwise wait
+  /// [TransactionScope] it is given, because sqflite would otherwise wait
   /// forever for a transaction that is itself waiting for the database. That
   /// holds for the code [action] awaits, at any depth. A [transaction] called
   /// inside [action] joins the outer one rather than starting another, so its
   /// writes are kept or undone with the outer transaction, not on their own.
-  Future<T> transaction<T>(Future<T> Function(DatabaseTransaction txn) action) => _guarded(() async {
+  Future<T> transaction<T>(Future<T> Function(TransactionScope txn) action) => _guarded(() async {
     final db = _requireOpen();
     final joined = _joinedTransaction(db);
-    if (joined != null) return action(DatabaseTransaction._(joined, this));
+    if (joined != null) return action(TransactionScope._(joined, this));
     final touched = _TouchedTables();
     final result = await db.transaction(
-      (txn) => _inTransaction(db, txn, touched, () => action(DatabaseTransaction._(txn, this))),
+      (txn) => _inTransaction(db, txn, touched, () => action(TransactionScope._(txn, this))),
     );
     _flush(touched);
     return result;
   });
 
   /// Starts a batch: a sequence of writes queued here, none of which touch
-  /// the database until [DatabaseBatch.commit] or [DatabaseBatch.apply] runs them.
+  /// the database until [StatementBatch.commit] or [StatementBatch.apply] runs them.
   ///
   /// Prefer this over calling [insert] (or [update], or [delete]) once per
   /// row in a loop: each of those otherwise opens and commits its own
   /// implicit transaction, which for anything beyond a handful of rows is
   /// the difference between finishing instantly and taking seconds, since
   /// every commit costs its own fsync.
-  DatabaseBatch batch() => DatabaseBatch._(_executor(), this);
+  StatementBatch batch() => StatementBatch._(_executor(), this);
 
   /// Whether [table] exists in this database.
   Future<bool> tableExists(String table) => _guarded(() async {
     final rows = await rawQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", [
-      DatabaseType.varchar(table),
+      Value.varchar(table),
     ]);
     return rows.isNotEmpty;
   });
@@ -626,11 +626,11 @@ class LocalDatabase extends DatabaseSession {
   ///
   /// Answers an empty list for a table that does not exist; [tableExists]
   /// tells that answer apart from a table that has columns.
-  Future<List<DatabaseColumn>> columns(String table) => _guarded(() async {
+  Future<List<ColumnInfo>> columns(String table) => _guarded(() async {
     final quoted = _quotedIdentifier(table);
     final extended = await rawQuery('PRAGMA table_xinfo($quoted)');
     final rows = extended.isNotEmpty ? extended : await rawQuery('PRAGMA table_info($quoted)');
-    return rows.map(DatabaseColumn._fromRow).toList();
+    return rows.map(ColumnInfo._fromRow).toList();
   });
 
   /// Every way the table [declared] describes differs from the table of that
@@ -737,7 +737,7 @@ class LocalDatabase extends DatabaseSession {
   LocalDatabase get _database => this;
 
   @override
-  Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action) => transaction(action);
+  Future<T> _atomically<T>(Future<T> Function(Connection session) action) => transaction(action);
 
   /// Tells the watchers of [tables] — of every table when it is `null` — that
   /// a write happened: at once, or once the transaction this call runs inside
@@ -759,7 +759,7 @@ class LocalDatabase extends DatabaseSession {
     }
   }
 
-  void _requireDeclared(DatabaseTable<Object> table) {
+  void _requireDeclared(TypedTable<Object> table) {
     final tables = _tables;
     if (tables != null && !tables.any((declared) => declared.tableName == table.tableName)) {
       throw StateError('${table.tableName} is not among the tables this LocalDatabase was declared with.');

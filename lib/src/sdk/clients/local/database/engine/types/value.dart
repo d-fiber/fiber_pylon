@@ -56,34 +56,34 @@ part of '../database.dart';
 /// back is the mirror image and has no such limit: `asBoolean`,
 /// `asDateTime`, `asPoint` and the rest live beside the model each one
 /// returns, as an extension on this class.
-sealed class DatabaseType extends Equatable {
-  const DatabaseType();
+sealed class Value extends Equatable {
+  const Value();
 
   /// A signed integer, up to 64 bits.
-  const factory DatabaseType.integer(int value) = Integer;
+  const factory Value.integer(int value) = Integer;
 
   /// A floating point value.
-  const factory DatabaseType.real(double value) = Real;
+  const factory Value.real(double value) = Real;
 
   /// UTF-8 text. Named after `VARCHAR` rather than `TEXT`, the keyword
   /// [ColumnType.text] itself renders, so the value a project writes and
   /// the type a column declares read as two different words rather than
   /// the same one used for two different things.
-  const factory DatabaseType.varchar(String value) = Varchar;
+  const factory Value.varchar(String value) = Varchar;
 
   /// Raw bytes, stored exactly as given.
-  const factory DatabaseType.blob(Uint8List value) = Blob;
+  const factory Value.blob(Uint8List value) = Blob;
 
   /// The absence of a value.
-  const factory DatabaseType.nil() = Nil;
+  const factory Value.nil() = Nil;
 
   /// [value] encoded by [encode], or [nil] when [value] is `null`.
   ///
   /// The write side of a nullable column, so that a nullable field does not
   /// need a conditional at every call site:
-  /// `DatabaseType.nullable(note, DatabaseType.varchar)`. Read the column
+  /// `Value.nullable(note, Value.varchar)`. Read the column
   /// back with [RowReading.nullable].
-  static DatabaseType nullable<T extends Object>(T? value, DatabaseType Function(T value) encode) =>
+  static Value nullable<T extends Object>(T? value, Value Function(T value) encode) =>
       value == null ? const Nil() : encode(value);
 
   /// [value] as an [Integer] of `1` or `0` — the convention every SQLite
@@ -271,8 +271,8 @@ num? _canonicalNumber(num? number) =>
     : number;
 
 /// The absence of a value — SQL `NULL`.
-final class Nil extends DatabaseType {
-  /// SQL `NULL`. Prefer [DatabaseType.nil] over calling this directly.
+final class Nil extends Value {
+  /// SQL `NULL`. Prefer [Value.nil] over calling this directly.
   const Nil();
 
   @override
@@ -282,12 +282,12 @@ final class Nil extends DatabaseType {
   List<Object?> get props => const [];
 
   @override
-  String toString() => 'DatabaseType.nil()';
+  String toString() => 'Value.nil()';
 }
 
 /// A signed integer, up to 64 bits.
-final class Integer extends DatabaseType {
-  /// Wraps [value]. Prefer [DatabaseType.integer] over calling this
+final class Integer extends Value {
+  /// Wraps [value]. Prefer [Value.integer] over calling this
   /// directly, except where a signature asks for an [Integer] itself, such as
   /// [IntegerColumnBuilder.default_].
   const Integer(this.value);
@@ -302,12 +302,12 @@ final class Integer extends DatabaseType {
   List<Object?> get props => [value];
 
   @override
-  String toString() => 'DatabaseType.integer($value)';
+  String toString() => 'Value.integer($value)';
 }
 
 /// A floating point value.
-final class Real extends DatabaseType {
-  /// Wraps [value]. Prefer [DatabaseType.real] over calling this directly,
+final class Real extends Value {
+  /// Wraps [value]. Prefer [Value.real] over calling this directly,
   /// except where a signature asks for a [Real] itself, such as
   /// [RealColumnBuilder.default_].
   const Real(this.value);
@@ -324,12 +324,12 @@ final class Real extends DatabaseType {
   List<Object?> get props => [value];
 
   @override
-  String toString() => 'DatabaseType.real($value)';
+  String toString() => 'Value.real($value)';
 }
 
 /// UTF-8 text.
-final class Varchar extends DatabaseType {
-  /// Wraps [value]. Prefer [DatabaseType.varchar] over calling this
+final class Varchar extends Value {
+  /// Wraps [value]. Prefer [Value.varchar] over calling this
   /// directly, except where a signature asks for a [Varchar] itself, such as
   /// [TextColumnBuilder.default_].
   const Varchar(this.value);
@@ -344,12 +344,12 @@ final class Varchar extends DatabaseType {
   List<Object?> get props => [value];
 
   @override
-  String toString() => 'DatabaseType.varchar($value)';
+  String toString() => 'Value.varchar($value)';
 }
 
 /// Raw bytes, stored exactly as given.
-final class Blob extends DatabaseType {
-  /// Wraps [value]. Prefer [DatabaseType.blob] over calling this directly,
+final class Blob extends Value {
+  /// Wraps [value]. Prefer [Value.blob] over calling this directly,
   /// except where a signature asks for a [Blob] itself, such as
   /// [BlobColumnBuilder.default_].
   const Blob(this.value);
@@ -364,24 +364,24 @@ final class Blob extends DatabaseType {
   List<Object?> get props => [value];
 
   @override
-  String toString() => 'DatabaseType.blob(${value.length} byte(s))';
+  String toString() => 'Value.blob(${value.length} byte(s))';
 }
 
 /// One row, exactly as [LocalDatabase] reads one back or writes one out:
-/// column name to [DatabaseType]. What a column holds, and what its name
+/// column name to [Value]. What a column holds, and what its name
 /// means, is entirely the caller's own schema.
 ///
 /// Read a column with [RowReading.required] or
 /// [RowReading.nullable] rather than by indexing the map, which
 /// answers `null` for a missing column without naming it.
-typedef DatabaseRow = Map<String, DatabaseType>;
+typedef RawRow = Map<String, Value>;
 
 /// Wraps whatever sqflite itself already handed back for one column.
 ///
 /// Throws an [ArgumentError] if [native] is not one of the native types
 /// sqflite hands back — which should never happen for a value this same
 /// library wrote through `_toNative` in the first place.
-DatabaseType _fromNative(Object? native) => switch (native) {
+Value _fromNative(Object? native) => switch (native) {
   null => const Nil(),
   final int value => Integer(value),
   final double value => Real(value),
@@ -390,10 +390,10 @@ DatabaseType _fromNative(Object? native) => switch (native) {
   _ => throw ArgumentError.value(native, 'native', 'not a SQLite storage class'),
 };
 
-Map<String, Object?> _toNativeRow(DatabaseRow row) =>
+Map<String, Object?> _toNativeRow(RawRow row) =>
     row.map((column, value) => MapEntry(_quotedIdentifier(column), value._toNative()));
 
-DatabaseRow _fromNativeRow(Map<String, Object?> row) =>
+RawRow _fromNativeRow(Map<String, Object?> row) =>
     row.map((column, value) => MapEntry(column, _fromNative(value)));
 
-List<Object?>? _toNativeArgs(List<DatabaseType>? arguments) => arguments?.map((value) => value._toNative()).toList();
+List<Object?>? _toNativeArgs(List<Value>? arguments) => arguments?.map((value) => value._toNative()).toList();

@@ -70,7 +70,7 @@ String _renderDeferral(Deferral deferral) => switch (deferral) {
 
 String _quoteText(String text) => "'${text.replaceAll("'", "''")}'";
 
-String _renderLiteral(DatabaseType value) => switch (value) {
+String _renderLiteral(Value value) => switch (value) {
   Nil() => 'NULL',
   Integer(value: final integer) => '$integer',
   Real(value: final real) => '$real',
@@ -306,7 +306,7 @@ final class DeclaredTable extends Equatable {
 ///     .columns((c) => {
 ///       'id': c.integer().autoincrement(),
 ///       'title': c.text().isNullable(false),
-///       'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
+///       'done': c.integer().isNullable(false).default_(Value.boolean(false)),
 ///     });
 ///
 /// onCreate: (db, version) async {

@@ -41,16 +41,16 @@ import 'package:fiber_pylon/src/sdk/clients/local/database/engine/schema/schema.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-final class Note implements DatabaseRecord {
+final class Note implements Storable {
   const Note({required this.title, this.body});
 
   final String title;
   final String? body;
 
   @override
-  DatabaseRow toRow() => {
-    'title': DatabaseType.varchar(title),
-    'body': DatabaseType.nullable(body, DatabaseType.varchar),
+  RawRow toRow() => {
+    'title': Value.varchar(title),
+    'body': Value.nullable(body, Value.varchar),
   };
 }
 
@@ -136,10 +136,10 @@ void main() {
     });
   });
 
-  group('DatabaseType.nullable', () {
+  group('Value.nullable', () {
     test('writes NULL for a null and the encoded value otherwise', () {
-      expect(DatabaseType.nullable<String>(null, DatabaseType.varchar), const DatabaseType.nil());
-      expect(DatabaseType.nullable('x', DatabaseType.varchar), const DatabaseType.varchar('x'));
+      expect(Value.nullable<String>(null, Value.varchar), const Value.nil());
+      expect(Value.nullable('x', Value.varchar), const Value.varchar('x'));
     });
   });
 
@@ -147,7 +147,7 @@ void main() {
     test('refuses an element of the wrong type when it decodes, not when the element is read', () {
       Object? failure;
       try {
-        const DatabaseType.varchar('["a"]').asList<int>();
+        const Value.varchar('["a"]').asList<int>();
       } on TypeError catch (error) {
         failure = error;
       }
@@ -162,11 +162,11 @@ void main() {
       await db.open();
       final declared = TableBuilder('anys').strict().columns((c) => {'a': c.any()});
       await db.execute(declared.statements.first);
-      await db.execute('INSERT INTO anys VALUES (?)', const [DatabaseType.varchar('007')]);
+      await db.execute('INSERT INTO anys VALUES (?)', const [Value.varchar('007')]);
 
       final rows = await db.rawQuery('SELECT a FROM anys');
 
-      expect(rows.single.required('a'), const DatabaseType.varchar('007'));
+      expect(rows.single.required('a'), const Value.varchar('007'));
       await db.dispose();
     });
   });

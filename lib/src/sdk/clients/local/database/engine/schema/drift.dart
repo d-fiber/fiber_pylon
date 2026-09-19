@@ -138,7 +138,7 @@ final class SchemaDifference extends Equatable {
 }
 
 typedef _TableFacts = ({
-  List<DatabaseColumn> columns,
+  List<ColumnInfo> columns,
   Set<String> keys,
   Set<String> foreignKeys,
   Map<String, String> indexes,
@@ -150,10 +150,10 @@ extension _SchemaComparison on LocalDatabase {
   Future<List<Map<String, Object?>>> _pragma(DatabaseExecutor db, String pragma, String table) =>
       db.rawQuery('PRAGMA $pragma(${_quotedIdentifier(table)})');
 
-  Future<List<DatabaseColumn>> _columnsOf(DatabaseExecutor db, String table) async {
+  Future<List<ColumnInfo>> _columnsOf(DatabaseExecutor db, String table) async {
     final extended = await _pragma(db, 'table_xinfo', table);
     final rows = extended.isNotEmpty ? extended : await _pragma(db, 'table_info', table);
-    return rows.map((row) => DatabaseColumn._fromRow(_fromNativeRow(row))).toList();
+    return rows.map((row) => ColumnInfo._fromRow(_fromNativeRow(row))).toList();
   }
 
   Future<Set<String>> _keysOf(DatabaseExecutor db, String table) async {
@@ -223,7 +223,7 @@ extension _SchemaComparison on LocalDatabase {
   }
 }
 
-String _describeColumn(DatabaseColumn column) => [
+String _describeColumn(ColumnInfo column) => [
   column.declaredType.isEmpty ? 'untyped' : column.declaredType,
   if (column.isNotNull) 'NOT NULL',
   if (column.isPrimaryKey) 'PRIMARY KEY ${column.primaryKeyPosition}',

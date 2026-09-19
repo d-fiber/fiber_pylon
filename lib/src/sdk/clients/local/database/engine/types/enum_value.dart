@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.enum_] wrote it.
-extension EnumDecoding on DatabaseType {
+/// Reads a value back the way [Value.enum_] wrote it.
+extension EnumDecoding on Value {
   /// This value as one of [values], matched by the name [enum_] wrote it
   /// under.
   ///

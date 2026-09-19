@@ -51,7 +51,7 @@ part of 'database.dart';
 final class WriteBatch {
   WriteBatch._();
 
-  final List<Future<void> Function(DatabaseSession session, String? tenant)> _operations = [];
+  final List<Future<void> Function(Connection session, String? tenant)> _operations = [];
   bool _committed = false;
 
   /// Queues [DocumentReference.set].
@@ -83,7 +83,7 @@ final class WriteBatch {
     });
   }
 
-  void _queue(Future<void> Function(DatabaseSession session, String? tenant) operation) {
+  void _queue(Future<void> Function(Connection session, String? tenant) operation) {
     _checkOpen();
     _operations.add(operation);
   }
@@ -101,7 +101,7 @@ final class WriteBatch {
 final class Transaction {
   Transaction._(this._session, this._tenant);
 
-  final DatabaseSession _session;
+  final Connection _session;
   final String? _tenant;
 
   KeyedAccess<R, K> _access<R extends Object, K extends Object>(DocumentReference<R, K> reference) =>

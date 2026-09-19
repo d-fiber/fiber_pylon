@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.point], [DatabaseType.line] and the other shape factories wrote it.
-extension LocationDecoding on DatabaseType {
+/// Reads a value back the way [Value.point], [Value.line] and the other shape factories wrote it.
+extension LocationDecoding on Value {
   /// This value as a [Location], the same convention [point] wrote it
   /// under: its JSON form.
   ///
@@ -81,7 +81,7 @@ extension LocationDecoding on DatabaseType {
   LocationCircle get asCircle => _asJson(LocationCircle.fromJson, 'circle');
 }
 
-/// A point on a map, the shape [DatabaseType.point] and [DatabaseType.asPoint]
+/// A point on a map, the shape [Value.point] and [Value.asPoint]
 /// read and write.
 final class Location extends Equatable {
   /// A point at [lat] degrees of latitude, [lng] degrees of longitude.

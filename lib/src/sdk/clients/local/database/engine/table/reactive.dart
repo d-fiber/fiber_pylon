@@ -110,7 +110,7 @@ Stream<T> _watchTable<T>(
   return controller.stream;
 }
 
-bool _sameRows(List<DatabaseRow> a, List<DatabaseRow> b) {
+bool _sameRows(List<RawRow> a, List<RawRow> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
     final left = a[i];

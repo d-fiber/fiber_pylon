@@ -118,7 +118,7 @@ final class Link {
   final UuidValue labelId;
 }
 
-final class Links extends DatabaseTable<Link> {
+final class Links extends TypedTable<Link> {
   Links() : super('links');
 
   late final itemId = column.integer('item_id').references(items.id, onDelete: ReferentialAction.cascade);
@@ -248,7 +248,7 @@ final class Reserved extends KeyedTable<String, int> {
   List<Assignment> write(String record) => [id.toOrGenerate(null), group.to(record)];
 }
 
-final class Forgetful extends DatabaseTable<String> {
+final class Forgetful extends TypedTable<String> {
   Forgetful() : super('forgetful');
 
   late final kept = column.text('kept');
@@ -279,7 +279,7 @@ final class WrongKey extends KeyedTable<String, String> {
   List<Assignment> write(String record) => [id.toOrGenerate(null)];
 }
 
-final class ItemsV2 extends DatabaseTable<String> {
+final class ItemsV2 extends TypedTable<String> {
   ItemsV2({required this.gainedColumn}) : super('items');
 
   final Field<Object?> Function(Columns column) gainedColumn;
@@ -297,7 +297,7 @@ final class ItemsV2 extends DatabaseTable<String> {
   List<Assignment> write(String record) => [title.to(record)];
 }
 
-final class People extends DatabaseTable<String> {
+final class People extends TypedTable<String> {
   People() : super('people');
 
   late final name = column.text('name').unique().collatedBy(Collation.noCase);
@@ -327,14 +327,14 @@ final class Price {
   final Money amount;
 }
 
-final class Prices extends DatabaseTable<Price> {
+final class Prices extends TypedTable<Price> {
   Prices() : super('prices');
 
   late final amount = column.custom(
     'amount',
-    DatabaseCodec<Money>(
+    ColumnCodec<Money>(
       storage: ColumnType.integer,
-      encode: (money) => DatabaseType.integer(money.cents),
+      encode: (money) => Value.integer(money.cents),
       decode: (stored) => Money(stored.asInt),
     ),
   );
@@ -446,7 +446,7 @@ void main() {
 
       await expectLater(
         links.on(db).insert(Link(itemId: 99, labelId: UuidValue.fromString('11111111-1111-4111-8111-111111111111'))),
-        throwsA(isA<DatabaseError>()),
+        throwsA(isA<StoreError>()),
       );
       await db.dispose();
     });
@@ -484,7 +484,7 @@ void main() {
         tables: [ItemsV2(gainedColumn: (c) => c.text('a').nullable())],
       );
       await older.open();
-      await older.execute('INSERT INTO items (title) VALUES (?)', const [DatabaseType.varchar('old')]);
+      await older.execute('INSERT INTO items (title) VALUES (?)', const [Value.varchar('old')]);
       await older.dispose();
       final newer = LocalDatabase.declared(
         name: 'backfill.db',
@@ -1075,7 +1075,7 @@ void main() {
 
       final rows = items
           .on(db)
-          .where(Filter.raw('rank % 2 = ?', const [DatabaseType.integer(0)]) & items.done.isEqualTo(true));
+          .where(Filter.raw('rank % 2 = ?', const [Value.integer(0)]) & items.done.isEqualTo(true));
 
       expect(await titles(rows), ['beta', 'delta']);
       await db.dispose();
@@ -1331,7 +1331,7 @@ void main() {
   });
 }
 
-final class _ForeignRead extends DatabaseTable<String> {
+final class _ForeignRead extends TypedTable<String> {
   _ForeignRead() : super('foreign_read');
 
   late final own = column.text('own');

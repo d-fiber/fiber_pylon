@@ -40,17 +40,17 @@ part of 'database.dart';
 /// can actually distinguish, through the result code SQLite reported and its own
 /// message-matching predicates, rather than a project matching sqflite's raw
 /// exception text a second time for itself.
-sealed class DatabaseError extends Equatable implements Exception {
-  const DatabaseError(this.message);
+sealed class StoreError extends Equatable implements Exception {
+  const StoreError(this.message);
 
   /// sqflite's own [DatabaseException.toString], verbatim.
   final String message;
 
-  /// Reads which [DatabaseError] [error] actually is, from the result code
+  /// Reads which [StoreError] [error] actually is, from the result code
   /// SQLite reported when there is one and from [DatabaseException]'s own
   /// message predicates otherwise, answering [UnknownError] when
   /// neither recognises it.
-  factory DatabaseError.from(DatabaseException error) {
+  factory StoreError.from(DatabaseException error) {
     final message = error.toString();
     final text = message.toLowerCase();
     final code = error.getResultCode();
@@ -90,39 +90,39 @@ sealed class DatabaseError extends Equatable implements Exception {
 }
 
 /// A write broke a `UNIQUE` (or a primary key's own implicit one) index.
-final class UniqueConstraintError extends DatabaseError {
+final class UniqueConstraintError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const UniqueConstraintError(super.message);
 }
 
 /// A write left a `NOT NULL` column without a value.
-final class NotNullConstraintError extends DatabaseError {
+final class NotNullConstraintError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const NotNullConstraintError(super.message);
 }
 
 /// A statement named a table that does not exist.
-final class NoSuchTableError extends DatabaseError {
+final class NoSuchTableError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const NoSuchTableError(super.message);
 }
 
 /// A statement was not valid SQL.
-final class SyntaxError extends DatabaseError {
+final class SyntaxError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const SyntaxError(super.message);
 }
 
 /// A write reached a database [LocalDatabase.open] opened with
 /// `readOnly: true`.
-final class ReadOnlyError extends DatabaseError {
+final class ReadOnlyError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const ReadOnlyError(super.message);
 }
 
 /// Something reached a [LocalDatabase] after [LocalDatabase.dispose] closed
 /// it.
-final class ClosedError extends DatabaseError {
+final class ClosedError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const ClosedError(super.message);
 }
@@ -130,74 +130,74 @@ final class ClosedError extends DatabaseError {
 /// [LocalDatabase.open] itself failed — a file this process has no permission
 /// to read or write, a read only open of a file that does not exist, or a
 /// failure SQLite gave no more precise reason for.
-final class OpenFailedError extends DatabaseError {
+final class OpenFailedError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const OpenFailedError(super.message);
 }
 
 /// A write left a foreign key pointing at a row that does not exist, or removed
 /// a row a foreign key still points at.
-final class ForeignKeyConstraintError extends DatabaseError {
+final class ForeignKeyConstraintError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const ForeignKeyConstraintError(super.message);
 }
 
 /// A write broke a `CHECK` constraint.
-final class CheckConstraintError extends DatabaseError {
+final class CheckConstraintError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const CheckConstraintError(super.message);
 }
 
 /// A write stored a value of a type a `STRICT` table does not accept for that
 /// column.
-final class DatatypeMismatchError extends DatabaseError {
+final class DatatypeMismatchError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const DatatypeMismatchError(super.message);
 }
 
 /// A statement named a column that the table does not have.
-final class NoSuchColumnError extends DatabaseError {
+final class NoSuchColumnError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const NoSuchColumnError(super.message);
 }
 
 /// A statement created a table, an index, a view or a trigger whose name is
 /// already taken.
-final class AlreadyExistsError extends DatabaseError {
+final class AlreadyExistsError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const AlreadyExistsError(super.message);
 }
 
 /// Another connection to the same file holds a lock this statement needs, and
 /// the statement gave up waiting. Running it again later can succeed.
-final class BusyError extends DatabaseError {
+final class BusyError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const BusyError(super.message);
 }
 
 /// The file is not a database, or is one SQLite finds damaged.
-final class CorruptError extends DatabaseError {
+final class CorruptError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const CorruptError(super.message);
 }
 
 /// The storage under the file failed: the disk or the file is full, or reading
 /// or writing it failed.
-final class StorageError extends DatabaseError {
+final class StorageError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const StorageError(super.message);
 }
 
-/// A [DatabaseTransaction] was used after its transaction had committed or
+/// A [TransactionScope] was used after its transaction had committed or
 /// rolled back.
-final class TransactionClosedError extends DatabaseError {
+final class TransactionClosedError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const TransactionClosedError(super.message);
 }
 
 /// [LocalDatabase.open] found a file written by a newer schema version than
 /// this code declares, and refused to read it wrongly.
-final class SchemaTooNewError extends DatabaseError {
+final class SchemaTooNewError extends StoreError {
   /// Wraps the [message] naming both versions.
   const SchemaTooNewError(super.message);
 }
@@ -205,20 +205,20 @@ final class SchemaTooNewError extends DatabaseError {
 /// A [LocalDatabase] was asked to encrypt its file, and the SQLite it runs on
 /// cannot: it is not SQLCipher. It refused to open, rather than write in clear
 /// what was meant to be unreadable.
-final class EncryptionUnavailableError extends DatabaseError {
+final class EncryptionUnavailableError extends StoreError {
   /// Wraps the [message] naming the database.
   const EncryptionUnavailableError(super.message);
 }
 
 /// [LocalDatabase.open] found a declared column it cannot add to an existing
 /// file by itself. Declare it nullable, give it a default, or add a migration.
-final class MigrationRequiredError extends DatabaseError {
+final class MigrationRequiredError extends StoreError {
   /// Wraps the [message] naming the column and the reason.
   const MigrationRequiredError(super.message);
 }
 
 /// Anything [DatabaseException]'s own predicates do not recognise.
-final class UnknownError extends DatabaseError {
+final class UnknownError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const UnknownError(super.message);
 }
@@ -229,6 +229,6 @@ Future<T> _guarded<T>(Future<T> Function() action) async {
   try {
     return await action();
   } on DatabaseException catch (error) {
-    throw DatabaseError.from(error);
+    throw StoreError.from(error);
   }
 }

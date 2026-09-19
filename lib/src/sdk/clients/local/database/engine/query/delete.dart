@@ -36,13 +36,13 @@
 
 part of '../database.dart';
 
-/// Opens one [LocalDatabase.delete] (or [DatabaseBatch.delete]) call. Never
+/// Opens one [LocalDatabase.delete] (or [StatementBatch.delete]) call. Never
 /// constructed directly — [LocalDatabase.delete] hands one to its own
 /// callback. The only method here is [from]: nothing can follow `DELETE`
 /// before naming a table, so nothing else is offered here either.
 ///
 /// ```dart
-/// final removed = await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
+/// final removed = await db.delete((d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))));
 /// ```
 final class Delete {
   const Delete._();
@@ -59,7 +59,7 @@ final class DeleteFrom {
 
   final String _table;
   final String? _where;
-  final List<DatabaseType>? _whereArgs;
+  final List<Value>? _whereArgs;
 
   /// Keeps only the rows [build] matches, composed from an empty
   /// [FilterBuilder]. Called again, both conditions must hold. Every row

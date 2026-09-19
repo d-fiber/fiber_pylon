@@ -105,7 +105,7 @@ final class Books extends KeyedTable<Book, int> {
   ];
 }
 
-final class Reviews extends DatabaseTable<Author> {
+final class Reviews extends TypedTable<Author> {
   Reviews() : super('reviews');
 
   late final authorId = column

@@ -152,7 +152,7 @@ final class Tags extends KeyedTable<Tag, UuidValue> {
   List<Assignment> write(Tag tag) => [id.toOrGenerate(tag.id), name.to(tag.name)];
 }
 
-final class TodoTags extends DatabaseTable<TodoTag> {
+final class TodoTags extends TypedTable<TodoTag> {
   TodoTags() : super('todo_tags');
 
   late final todoId = column.integer('todo_id').references(todos.id, onDelete: ReferentialAction.cascade);
@@ -297,9 +297,9 @@ void main() {
     );
     await v1.open();
     await v1.execute('INSERT INTO todos (title, done, status, priority) VALUES (?, ?, ?, ?)', [
-      const DatabaseType.varchar('Old'),
-      DatabaseType.boolean(false),
-      DatabaseType.enum_(Status.open),
+      const Value.varchar('Old'),
+      Value.boolean(false),
+      Value.enum_(Status.open),
       priorityJson.encode(const Priority(level: 1, label: 'low')),
     ]);
     await v1.dispose();

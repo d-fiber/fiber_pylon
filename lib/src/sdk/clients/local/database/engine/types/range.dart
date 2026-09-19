@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.range] wrote it.
-extension RangeDecoding on DatabaseType {
+/// Reads a value back the way [Value.range] wrote it.
+extension RangeDecoding on Value {
   /// This value as [NumberRangeBounds], the same convention [range] wrote a
   /// [RangeBounds.num] under: both bounds exactly as given.
   ///
@@ -92,7 +92,7 @@ extension RangeDecoding on DatabaseType {
 ///
 /// Kept for interoperability and self-description: a project's own schema
 /// can say which of the three it means. This package does not read it back,
-/// since [DatabaseType.range] already picks the right encoding from the kind
+/// since [Value.range] already picks the right encoding from the kind
 /// of [RangeBounds] it is given.
 enum NumberRangeSubtype {
   /// Postgres's `int4range`.

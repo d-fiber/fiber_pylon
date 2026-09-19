@@ -36,7 +36,7 @@
 
 part of '../database.dart';
 
-/// How a [DatabaseTable] keeps its rows apart between accounts.
+/// How a [TypedTable] keeps its rows apart between accounts.
 enum Tunnel {
   /// Every tenant has rows of its own. What one tenant writes is invisible to
   /// every other — under the same key, with the same content, or not — and
@@ -47,7 +47,7 @@ enum Tunnel {
   isolated,
 
   /// One copy for everyone, whichever [Tenant] is current. The default of a
-  /// [DatabaseTable], which adds nothing to the table's schema.
+  /// [TypedTable], which adds nothing to the table's schema.
   shared,
 }
 
@@ -62,14 +62,14 @@ enum TransferConflict {
   keepSource,
 }
 
-/// Whose rows the [DatabaseTable]s of the [Tunnel.isolated] tunnel hold right
+/// Whose rows the [TypedTable]s of the [Tunnel.isolated] tunnel hold right
 /// now — the signed-in account, in an app that has one.
 ///
-/// There are two mechanisms, and they do not mix. Reading through [DatabaseTable.on]
+/// There are two mechanisms, and they do not mix. Reading through [TypedTable.on]
 /// is the tenant mechanism: it reaches the current tenant's rows and nothing
 /// else, and no call on what it returns can reach another tenant's — not a
 /// row, not a count, not the name of a tenant. Reading the whole database is
-/// another mechanism, [DatabaseTable.onWholeDatabase] and
+/// another mechanism, [TypedTable.onWholeDatabase] and
 /// [LocalDatabase.wholeDatabase], which you pick on purpose and which reaches
 /// every tenant.
 ///
@@ -129,7 +129,7 @@ sealed class _Scope {
 
   /// The partitions this scope reaches right now on [table], resolved at the
   /// moment an operation starts and held for its whole length.
-  _Reach reach(DatabaseTable<Object> table);
+  _Reach reach(TypedTable<Object> table);
 }
 
 /// Whoever [Tenant.current] is, whenever the operation runs.
@@ -137,7 +137,7 @@ final class _CurrentScope extends _Scope {
   const _CurrentScope();
 
   @override
-  _Reach reach(DatabaseTable<Object> table) => _Reach.one(table.tunnel == Tunnel.shared ? '' : Tenant.current ?? '');
+  _Reach reach(TypedTable<Object> table) => _Reach.one(table.tunnel == Tunnel.shared ? '' : Tenant.current ?? '');
 }
 
 /// One tenant, whichever is current: how the whole-database mechanism narrows
@@ -148,7 +148,7 @@ final class _PinnedScope extends _Scope {
   final String tenant;
 
   @override
-  _Reach reach(DatabaseTable<Object> table) => _Reach.one(table.tunnel == Tunnel.shared ? '' : tenant);
+  _Reach reach(TypedTable<Object> table) => _Reach.one(table.tunnel == Tunnel.shared ? '' : tenant);
 
   @override
   bool operator ==(Object other) => other is _PinnedScope && other.tenant == tenant;
@@ -164,7 +164,7 @@ final class _AllScope extends _Scope {
   final Set<String>? only;
 
   @override
-  _Reach reach(DatabaseTable<Object> table) => _Reach.many(only);
+  _Reach reach(TypedTable<Object> table) => _Reach.many(only);
 }
 
 /// The partitions of a table one operation reads or writes.
@@ -222,7 +222,7 @@ extension LocalDatabaseTenants on LocalDatabase {
   /// The whole-database mechanism for what is not one tenant's business:
   /// listing the tenants, removing one's rows, moving rows from one tenant to
   /// another. A separate entry point on purpose; nothing reachable through
-  /// [DatabaseTable.on] leads here.
+  /// [TypedTable.on] leads here.
   ///
   /// It takes the app's [Fingerprint], which must be the one this database was
   /// opened with: throws a [StateError] when it was opened with none, or with
@@ -233,13 +233,13 @@ extension LocalDatabaseTenants on LocalDatabase {
   }
 
   Iterable<String> get _isolatedTableNames => [
-    for (final table in _tables ?? const <DatabaseTable<Object>>[])
+    for (final table in _tables ?? const <TypedTable<Object>>[])
       if (table.tunnel == Tunnel.isolated) table.tableName,
   ];
 
   Future<int> _moveRows(String? from, String? to, TransferConflict onConflict) {
-    final source = DatabaseType.varchar(from ?? '');
-    final target = DatabaseType.varchar(to ?? '');
+    final source = Value.varchar(from ?? '');
+    final target = Value.varchar(to ?? '');
     final tables = _isolatedTableNames.toList();
     return transaction((txn) async {
       // A row and the rows that point at it change tenant one statement apart:

@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.interval] wrote it.
-extension IntervalDecoding on DatabaseType {
+/// Reads a value back the way [Value.interval] wrote it.
+extension IntervalDecoding on Value {
   /// This value as [NumberBounds], the same convention [interval] wrote a
   /// [IntervalBounds.num] under: both bounds exactly as given.
   ///

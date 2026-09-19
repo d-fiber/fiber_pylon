@@ -58,7 +58,7 @@ sealed class Filter {
   ///
   /// Nothing here validates it, and a raw filter is not checked against the
   /// table a query reads from.
-  factory Filter.raw(String sql, [List<DatabaseType>? arguments]) =>
+  factory Filter.raw(String sql, [List<Value>? arguments]) =>
       _FilterRaw(sql, arguments ?? const []);
 
   /// Rows both this filter and [other] match.
@@ -103,7 +103,7 @@ final class _FilterComparison extends Filter {
 
   final String column;
   final _Comparison comparison;
-  final DatabaseType value;
+  final Value value;
 }
 
 final class _FilterLike extends Filter {
@@ -117,7 +117,7 @@ final class _FilterIn extends Filter {
   const _FilterIn(this.column, this.values);
 
   final String column;
-  final List<DatabaseType> values;
+  final List<Value> values;
 }
 
 final class _FilterNull extends Filter {
@@ -160,7 +160,7 @@ final class _FilterRaw extends Filter {
   const _FilterRaw(this.sql, this.arguments);
 
   final String sql;
-  final List<DatabaseType> arguments;
+  final List<Value> arguments;
 }
 
 String _likeText(String text, String name) => text.contains('\u0000')
@@ -171,11 +171,11 @@ String _bothMatch(String? earlier, String later) => earlier == null ? later : '(
 
 String _escapeLike(String text) => text.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
 
-DatabaseType _orderable(DatabaseType value) => value is Nil
+Value _orderable(Value value) => value is Nil
     ? throw ArgumentError.value(value, 'value', 'NULL has no order to compare against. Use isNull or isNotNull.')
     : value;
 
-(String, List<DatabaseType>) _renderDatabaseFilter(Filter filter) {
+(String, List<Value>) _renderDatabaseFilter(Filter filter) {
   switch (filter) {
     case _FilterComparison(:final column, :final comparison, :final value):
       final name = _quotedIdentifier(column);
@@ -185,7 +185,7 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
         _ => ('$name ${comparison.sql} ?', [value]),
       };
     case _FilterLike(:final column, :final pattern):
-      return ("${_quotedIdentifier(column)} LIKE ? ESCAPE '\\'", [DatabaseType.varchar(pattern)]);
+      return ("${_quotedIdentifier(column)} LIKE ? ESCAPE '\\'", [Value.varchar(pattern)]);
     case _FilterIn(:final column, :final values):
       final name = _quotedIdentifier(column);
       final present = values.where((value) => value is! Nil).toList();
@@ -208,7 +208,7 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
     case _FilterCombination(:final connector, :final filters):
       if (filters.isEmpty) return (connector.whenEmpty, const []);
       final clauses = <String>[];
-      final arguments = <DatabaseType>[];
+      final arguments = <Value>[];
       for (final filter in filters) {
         final (clause, filterArguments) = _renderDatabaseFilter(filter);
         clauses.add('($clause)');
@@ -227,15 +227,15 @@ DatabaseType _orderable(DatabaseType value) => value is Nil
 ///
 /// ```dart
 /// db.query<Todo>(
-///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(false))).map(Todo.fromRow),
+///   (q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false))).map(Todo.fromRow),
 /// );
 /// ```
 ///
-/// What a filter can say depends on how a [DatabaseType] convention is
+/// What a filter can say depends on how a [Value] convention is
 /// stored. [isEqualTo], [isNotEqualTo] and [isIn] work on every one. The
 /// ordering methods ([isGreaterThan] and its siblings) give the order a
 /// person expects on a boolean, a timestamp, a date, a number, a text, a
-/// [DatabaseType.time] and a blob. On a [DatabaseType.enum_] they compare the
+/// [Value.time] and a blob. On a [Value.enum_] they compare the
 /// member names alphabetically, not in declaration order: to filter on "after
 /// spring", pass [isIn] the later members. A list, a shape, an interval or a
 /// range is stored as JSON text, so equality holds only for the exact same
@@ -247,41 +247,41 @@ final class FilterBuilder {
 
   /// Rows where [key] equals [value]. Rows where [key] is null when [value] is
   /// a [Nil], which a plain SQL `=` would never match.
-  Filter isEqualTo({required String key, required DatabaseType value}) =>
+  Filter isEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.equal, value);
 
   /// Rows where [key] differs from [value], the rows where [key] is null
   /// included: a null differs from every value. Rows where [key] is not null
   /// when [value] is a [Nil].
-  Filter isNotEqualTo({required String key, required DatabaseType value}) =>
+  Filter isNotEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.notEqual, value);
 
   /// Rows where [key] is strictly greater than [value].
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  Filter isGreaterThan({required String key, required DatabaseType value}) =>
+  Filter isGreaterThan({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.greaterThan, _orderable(value));
 
   /// Rows where [key] is greater than [value], or equal to it.
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  Filter isGreaterThanOrEqualTo({required String key, required DatabaseType value}) =>
+  Filter isGreaterThanOrEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.greaterThanOrEqual, _orderable(value));
 
   /// Rows where [key] is strictly less than [value].
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  Filter isLessThan({required String key, required DatabaseType value}) =>
+  Filter isLessThan({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.lessThan, _orderable(value));
 
   /// Rows where [key] is less than [value], or equal to it.
   ///
   /// Throws an [ArgumentError] when [value] is a [Nil], which has no order.
   /// A null [key] never matches.
-  Filter isLessThanOrEqualTo({required String key, required DatabaseType value}) =>
+  Filter isLessThanOrEqualTo({required String key, required Value value}) =>
       _FilterComparison(key, _Comparison.lessThanOrEqual, _orderable(value));
 
   /// Rows where [key] matches [pattern], where `%` stands for any run of
@@ -295,7 +295,7 @@ final class FilterBuilder {
   /// Throws an [ArgumentError] when [pattern] holds a NUL character, which
   /// SQLite reads as the end of the pattern.
   Filter isLike({required String key, required String pattern}) =>
-      _FilterComparison(key, _Comparison.like, DatabaseType.varchar(_likeText(pattern, 'pattern')));
+      _FilterComparison(key, _Comparison.like, Value.varchar(_likeText(pattern, 'pattern')));
 
   /// Rows where [key] holds [text] somewhere in it, `%` and `_` in [text]
   /// matching themselves. SQLite ignores the case of ASCII letters here.
@@ -323,7 +323,7 @@ final class FilterBuilder {
 
   /// Rows where [key] is one of [values]. A [Nil] among them matches the rows
   /// where [key] is null.
-  Filter isIn({required String key, required List<DatabaseType> values}) => _FilterIn(key, values);
+  Filter isIn({required String key, required List<Value> values}) => _FilterIn(key, values);
 
   /// Rows where [key] carries no value.
   Filter isNull(String key) => _FilterNull(key, true);
@@ -351,5 +351,5 @@ final class FilterBuilder {
   ///
   /// Nothing here validates it, the same choice pylon makes for every other
   /// raw SQL fragment a caller supplies.
-  Filter raw(String sql, [List<DatabaseType>? arguments]) => _FilterRaw(sql, arguments ?? const []);
+  Filter raw(String sql, [List<Value>? arguments]) => _FilterRaw(sql, arguments ?? const []);
 }

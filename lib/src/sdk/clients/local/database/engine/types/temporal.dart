@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.timestamp], [DatabaseType.date] and [DatabaseType.time] wrote it.
-extension TemporalDecoding on DatabaseType {
+/// Reads a value back the way [Value.timestamp], [Value.date] and [Value.time] wrote it.
+extension TemporalDecoding on Value {
   /// This value as a UTC [DateTime], the same convention [timestamp] wrote
   /// it under: milliseconds since the Unix epoch.
   ///

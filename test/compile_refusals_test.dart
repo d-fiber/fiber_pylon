@@ -42,11 +42,11 @@ const _prelude = '''
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart';
 import 'package:fiber_pylon/src/sdk/clients/local/database/engine/schema/schema.dart';
 
-final class Todo implements DatabaseRecord {
+final class Todo implements Storable {
   const Todo();
 
   @override
-  DatabaseRow toRow() => {'title': DatabaseType.varchar('a')};
+  RawRow toRow() => {'title': Value.varchar('a')};
 }
 
 Future<void> program(LocalDatabase db) async {

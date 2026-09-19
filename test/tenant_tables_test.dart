@@ -159,7 +159,7 @@ final class Settings extends KeyedTable<Setting, String> {
 }
 
 /// Declares the column an isolated table reserves.
-final class Reserved extends DatabaseTable<int> {
+final class Reserved extends TypedTable<int> {
   Reserved() : super('reserved');
 
   late final tenant = column.text('__tenant');
@@ -178,7 +178,7 @@ final class Reserved extends DatabaseTable<int> {
 }
 
 /// A shared table pointing at an isolated one, which no tenant could honour.
-final class SharedPointer extends DatabaseTable<int> {
+final class SharedPointer extends TypedTable<int> {
   SharedPointer(this.notes) : super('shared_pointer');
 
   final Notes notes;
@@ -272,7 +272,7 @@ void main() {
     });
 
     test('reads none of it back as a difference from what was declared', () async {
-      for (final table in <DatabaseTable<Object>>[notes, profiles, comments, settings]) {
+      for (final table in <TypedTable<Object>>[notes, profiles, comments, settings]) {
         expect(await db.differences(table.declaration), isEmpty, reason: table.tableName);
       }
     });

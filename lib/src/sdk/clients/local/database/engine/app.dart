@@ -126,7 +126,7 @@ class AppStorage {
   /// Declares [tables] on the app database, creating what they declare. See
   /// [LocalDatabase.declare].
   @internal
-  static Future<void> declare(List<DatabaseTable<Object>> tables) => database.declare(tables);
+  static Future<void> declare(List<TypedTable<Object>> tables) => database.declare(tables);
 
   /// The database, once [fingerprint] is shown to be the app's own: reading
   /// the whole database is the whole-database mechanism, and it is closed to a
@@ -146,11 +146,11 @@ class AppStorage {
   /// See [LocalDatabase.execute]. Like every call below, it reaches the whole
   /// database, every tenant included, and so takes the app's [Fingerprint]
   /// (`SecureStorage.fingerprint`); a [StateError] answers any other.
-  static Future<void> execute(Fingerprint fingerprint, String sql, [List<DatabaseType>? arguments]) =>
+  static Future<void> execute(Fingerprint fingerprint, String sql, [List<Value>? arguments]) =>
       _whole(fingerprint).execute(sql, arguments);
 
   /// See [LocalDatabase.insert].
-  static Future<int> insert<T extends DatabaseRecord>(
+  static Future<int> insert<T extends Storable>(
     Fingerprint fingerprint,
     InsertValues<T> Function(Insert<T> insert) build,
   ) => _whole(fingerprint).insert<T>(build);
@@ -158,15 +158,15 @@ class AppStorage {
   /// See [LocalDatabase.query].
   static Future<List<T>> query<T extends Object>(
     Fingerprint fingerprint,
-    QueryFrom<T> Function(DatabaseQuery<T> query) build,
+    QueryFrom<T> Function(Select<T> query) build,
   ) => _whole(fingerprint).query<T>(build);
 
   /// See [LocalDatabase.rawQuery].
-  static Future<List<DatabaseRow>> rawQuery(Fingerprint fingerprint, String sql, [List<DatabaseType>? arguments]) =>
+  static Future<List<RawRow>> rawQuery(Fingerprint fingerprint, String sql, [List<Value>? arguments]) =>
       _whole(fingerprint).rawQuery(sql, arguments);
 
   /// See [LocalDatabase.update].
-  static Future<int> update<T extends DatabaseRecord>(
+  static Future<int> update<T extends Storable>(
     Fingerprint fingerprint,
     UpdateSet<T> Function(Update<T> update) build,
   ) => _whole(fingerprint).update<T>(build);
@@ -176,11 +176,11 @@ class AppStorage {
       _whole(fingerprint).delete(build);
 
   /// See [LocalDatabase.transaction].
-  static Future<T> transaction<T>(Fingerprint fingerprint, Future<T> Function(DatabaseTransaction txn) action) =>
+  static Future<T> transaction<T>(Fingerprint fingerprint, Future<T> Function(TransactionScope txn) action) =>
       _whole(fingerprint).transaction<T>(action);
 
   /// See [LocalDatabase.batch].
-  static DatabaseBatch batch(Fingerprint fingerprint) => _whole(fingerprint).batch();
+  static StatementBatch batch(Fingerprint fingerprint) => _whole(fingerprint).batch();
 
   /// See [LocalDatabase.tableExists].
   static Future<bool> tableExists(Fingerprint fingerprint, String table) => _whole(fingerprint).tableExists(table);
@@ -189,7 +189,7 @@ class AppStorage {
   static Future<List<String>> tableNames(Fingerprint fingerprint) => _whole(fingerprint).tableNames();
 
   /// See [LocalDatabase.columns].
-  static Future<List<DatabaseColumn>> columns(Fingerprint fingerprint, String table) =>
+  static Future<List<ColumnInfo>> columns(Fingerprint fingerprint, String table) =>
       _whole(fingerprint).columns(table);
 
   /// See [LocalDatabase.checkpoint].
@@ -220,7 +220,7 @@ String _fileName(String appName) {
 /// [databaseFactory].
 ///
 /// This is what [AppStorage] opens itself with; it is exposed for tests only,
-/// to point it at a temporary directory. Throws the [DatabaseError] the second
+/// to point it at a temporary directory. Throws the [StoreError] the second
 /// attempt fails with, when even a fresh file cannot be opened (a directory
 /// this process may not write to, say): recreating cannot fix that.
 @visibleForTesting
@@ -244,7 +244,7 @@ Future<LocalDatabase> openAppDatabase({
     await _openHealthy(db, name);
   } on EncryptionUnavailableError {
     rethrow; // nothing is wrong with the file: deleting it would only lose it
-  } on DatabaseError {
+  } on StoreError {
     await _deleteFiles(path, resolvedFactory);
     await _openHealthy(db, name);
   }

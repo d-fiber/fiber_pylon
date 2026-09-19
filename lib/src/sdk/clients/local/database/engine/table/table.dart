@@ -36,61 +36,61 @@
 
 part of '../database.dart';
 
-final DatabaseCodec<int> _integerCodec = DatabaseCodec<int>(
+final ColumnCodec<int> _integerCodec = ColumnCodec<int>(
   storage: ColumnType.integer,
-  encode: DatabaseType.integer,
+  encode: Value.integer,
   decode: (stored) => stored.asInt,
 );
 
-final DatabaseCodec<double> _realCodec = DatabaseCodec<double>(
+final ColumnCodec<double> _realCodec = ColumnCodec<double>(
   storage: ColumnType.real,
-  encode: DatabaseType.real,
+  encode: Value.real,
   decode: (stored) => stored.asDouble,
 );
 
-final DatabaseCodec<String> _textCodec = DatabaseCodec<String>(
+final ColumnCodec<String> _textCodec = ColumnCodec<String>(
   storage: ColumnType.text,
-  encode: DatabaseType.varchar,
+  encode: Value.varchar,
   decode: (stored) => stored.asString,
 );
 
-final DatabaseCodec<Uint8List> _blobCodec = DatabaseCodec<Uint8List>(
+final ColumnCodec<Uint8List> _blobCodec = ColumnCodec<Uint8List>(
   storage: ColumnType.blob,
-  encode: DatabaseType.blob,
+  encode: Value.blob,
   decode: (stored) => stored.asBytes,
 );
 
-final DatabaseCodec<bool> _booleanCodec = DatabaseCodec<bool>(
+final ColumnCodec<bool> _booleanCodec = ColumnCodec<bool>(
   storage: ColumnType.integer,
-  encode: DatabaseType.boolean,
+  encode: Value.boolean,
   decode: (stored) => stored.asBoolean,
 );
 
-final DatabaseCodec<DateTime> _timestampCodec = DatabaseCodec<DateTime>(
+final ColumnCodec<DateTime> _timestampCodec = ColumnCodec<DateTime>(
   storage: ColumnType.integer,
-  encode: (value) => DatabaseType.timestamp(value.millisecondsSinceEpoch),
+  encode: (value) => Value.timestamp(value.millisecondsSinceEpoch),
   decode: (stored) => stored.asDateTime,
 );
 
-final DatabaseCodec<Date> _dateCodec = DatabaseCodec<Date>(
+final ColumnCodec<Date> _dateCodec = ColumnCodec<Date>(
   storage: ColumnType.integer,
-  encode: DatabaseType.date,
+  encode: Value.date,
   decode: (stored) => stored.asDate,
 );
 
-final DatabaseCodec<Time> _timeCodec = DatabaseCodec<Time>(
+final ColumnCodec<Time> _timeCodec = ColumnCodec<Time>(
   storage: ColumnType.text,
-  encode: DatabaseType.time,
+  encode: Value.time,
   decode: (stored) => stored.asTime,
 );
 
-final DatabaseCodec<UuidValue> _uuidCodec = DatabaseCodec<UuidValue>(
+final ColumnCodec<UuidValue> _uuidCodec = ColumnCodec<UuidValue>(
   storage: ColumnType.text,
-  encode: DatabaseType.uuid,
+  encode: Value.uuid,
   decode: (stored) => stored.asUuid,
 );
 
-/// Opens the columns of one table, through [DatabaseTable.column]. Each method
+/// Opens the columns of one table, through [TypedTable.column]. Each method
 /// takes the name the column has in the database, and answers a
 /// [Field] typed with the Dart type that column holds.
 ///
@@ -103,7 +103,7 @@ final class Columns {
 
   /// An integer primary key the database numbers itself, and never numbers
   /// twice: a deleted row's key is not handed out again.
-  DatabaseKey<int> key([String name = 'id']) => DatabaseKey<int>._(
+  KeyField<int> key([String name = 'id']) => KeyField<int>._(
     _table,
     name,
     _FieldDefinition(codec: _integerCodec._erased, isPrimary: true, isAutoincrement: true, isolated: _isolated),
@@ -111,13 +111,13 @@ final class Columns {
 
   /// A UUID primary key. The engine generates a random one on insert when a
   /// record does not carry one yet.
-  DatabaseKey<UuidValue> uuidKey([String name = 'id']) => DatabaseKey<UuidValue>._(
+  KeyField<UuidValue> uuidKey([String name = 'id']) => KeyField<UuidValue>._(
     _table,
     name,
     _FieldDefinition(
       codec: _uuidCodec._erased,
       isPrimary: true,
-      generator: DatabaseType.randomUuid,
+      generator: Value.randomUuid,
       isolated: _isolated,
     ),
   );
@@ -154,25 +154,25 @@ final class Columns {
   /// changes what a stored row means.
   Field<E> enumeration<E extends Enum>(String name, List<E> values) => custom(
     name,
-    DatabaseCodec<E>(storage: ColumnType.text, encode: DatabaseType.enum_, decode: (stored) => stored.asEnum(values)),
+    ColumnCodec<E>(storage: ColumnType.text, encode: Value.enum_, decode: (stored) => stored.asEnum(values)),
   );
 
   /// A list of native JSON values, stored as JSON text.
   Field<List<T>> list<T>(String name) => custom(
     name,
-    DatabaseCodec<List<T>>(storage: ColumnType.text, encode: DatabaseType.list, decode: (stored) => stored.asList<T>()),
+    ColumnCodec<List<T>>(storage: ColumnType.text, encode: Value.list, decode: (stored) => stored.asList<T>()),
   );
 
   /// A value of your own type, stored as JSON text through [json].
   Field<T> json<T extends Object>(String name, Json<T> json) =>
-      custom(name, DatabaseCodec<T>(storage: ColumnType.text, encode: json.encode, decode: json.decode));
+      custom(name, ColumnCodec<T>(storage: ColumnType.text, encode: json.encode, decode: json.decode));
 
   /// A value of your own type, stored the way [codec] says.
-  Field<V> custom<V extends Object>(String name, DatabaseCodec<V> codec) =>
+  Field<V> custom<V extends Object>(String name, ColumnCodec<V> codec) =>
       Field<V>._(_table, name, _FieldDefinition(codec: codec._erased, isolated: _isolated));
 }
 
-/// One row of a table as a query read it, handed to [DatabaseTable.read].
+/// One row of a table as a query read it, handed to [TypedTable.read].
 ///
 /// Calling it with a column answers that column's value already decoded to
 /// the Dart type of the column: `row(title)` is a `String`, `row(due)` is a
@@ -181,7 +181,7 @@ final class Reader {
   const Reader._(this._table, this._row);
 
   final String _table;
-  final DatabaseRow _row;
+  final RawRow _row;
 
   /// The value [field] holds in this row.
   ///
@@ -227,9 +227,9 @@ final class Reader {
 /// [columns], [primaryKey], [uniques], [indexes], [read], [write], [on] and
 /// [declaration] belong to this class, so a column cannot be a field called
 /// one of them.
-abstract class DatabaseTable<R extends Object> {
+abstract class TypedTable<R extends Object> {
   /// A table called [tableName] in the database.
-  DatabaseTable(this.tableName);
+  TypedTable(this.tableName);
 
   /// The name of this table in the database.
   final String tableName;
@@ -274,8 +274,8 @@ abstract class DatabaseTable<R extends Object> {
   List<Assignment> write(R record);
 
   /// This table read and written through [session], a [LocalDatabase] or the
-  /// [DatabaseTransaction] of one of its transactions.
-  TableAccess<R> on(DatabaseSession session) {
+  /// [TransactionScope] of one of its transactions.
+  TableAccess<R> on(Connection session) {
     session._database._requireDeclared(this);
     return TableAccess<R>._(session, this);
   }
@@ -286,7 +286,7 @@ abstract class DatabaseTable<R extends Object> {
   ///
   /// Reaching the whole database takes the app's [Fingerprint], which must be
   /// the one the database was opened with: throws a [StateError] otherwise.
-  WholeRows<R> onWholeDatabase(DatabaseSession session, Fingerprint fingerprint) {
+  WholeRows<R> onWholeDatabase(Connection session, Fingerprint fingerprint) {
     session._database._requireDeclared(this);
     session._database._requireFingerprint(fingerprint);
     return WholeRows<R>._(session, this);
@@ -392,7 +392,7 @@ abstract class DatabaseTable<R extends Object> {
       builder.foreignKeys((f) => [for (final field in references) _tenantForeignKey(f, field)]);
     }
     return builder.columns((c) {
-      final map = <String, ColumnBuilder<dynamic, DatabaseType>>{};
+      final map = <String, ColumnBuilder<dynamic, Value>>{};
       for (final field in columns) {
         final definition = field._definition;
         map[field.name] = definition.builder(
@@ -446,18 +446,18 @@ abstract class DatabaseTable<R extends Object> {
     return true;
   }
 
-  Map<String, DatabaseType> _rowOf(R record, {required bool generateKey}) {
+  Map<String, Value> _rowOf(R record, {required bool generateKey}) {
     final row = _valuesOf(write(record));
     final key = _keyField;
-    if (generateKey && key is DatabaseKey<Object> && !row.containsKey(key.name)) {
+    if (generateKey && key is KeyField<Object> && !row.containsKey(key.name)) {
       final generated = key._generate();
       if (generated != null) row[key.name] = generated;
     }
     return row;
   }
 
-  Map<String, DatabaseType> _valuesOf(List<Assignment> assignments) {
-    final row = <String, DatabaseType>{};
+  Map<String, Value> _valuesOf(List<Assignment> assignments) {
+    final row = <String, Value>{};
     for (final assignment in assignments) {
       _requireOwned(assignment.field);
       final value = assignment._value;
@@ -477,10 +477,10 @@ abstract class DatabaseTable<R extends Object> {
 
   /// What an update of [assignments] sets, as the `SET` clauses and the
   /// arguments they bind, in order.
-  ({List<String> clauses, List<DatabaseType> arguments}) _updateOf(List<Assignment> assignments) {
+  ({List<String> clauses, List<Value> arguments}) _updateOf(List<Assignment> assignments) {
     final written = <String>{};
     final clauses = <String>[];
-    final arguments = <DatabaseType>[];
+    final arguments = <Value>[];
     for (final assignment in assignments) {
       _requireOwned(assignment.field);
       final value = assignment._value;
@@ -496,10 +496,10 @@ abstract class DatabaseTable<R extends Object> {
 
   String get _columnList => columns.map((field) => _quotedIdentifier(field.name)).join(', ');
 
-  R _fromRow(DatabaseRow row) => read(Reader._(tableName, row));
+  R _fromRow(RawRow row) => read(Reader._(tableName, row));
 }
 
-/// A [DatabaseTable] whose rows are told apart by one primary key column of
+/// A [TypedTable] whose rows are told apart by one primary key column of
 /// the Dart type [K], which unlocks reading a row by its key, upserting a
 /// record and deleting a row by its key.
 ///
@@ -507,12 +507,12 @@ abstract class DatabaseTable<R extends Object> {
 /// [Columns.key], [Columns.uuidKey] or [Field.primaryKey],
 /// and its Dart type must be [K]. Both are checked when the schema is
 /// declared, which is the first time the database opens.
-abstract class KeyedTable<R extends Object, K extends Object> extends DatabaseTable<R> {
+abstract class KeyedTable<R extends Object, K extends Object> extends TypedTable<R> {
   /// A keyed table called [tableName] in the database.
   KeyedTable(super.tableName);
 
   @override
-  KeyedAccess<R, K> on(DatabaseSession session) {
+  KeyedAccess<R, K> on(Connection session) {
     session._database._requireDeclared(this);
     return KeyedAccess<R, K>._(session, this);
   }
@@ -537,7 +537,7 @@ abstract class KeyedTable<R extends Object, K extends Object> extends DatabaseTa
   /// Not for a project: the tenant mechanism never names a tenant. Only the
   /// package holds one, and only the one that was current when it began.
   @internal
-  KeyedAccess<R, K> onHeldTenant(DatabaseSession session, String? tenant) {
+  KeyedAccess<R, K> onHeldTenant(Connection session, String? tenant) {
     session._database._requireDeclared(this);
     return KeyedAccess<R, K>._(
       session,

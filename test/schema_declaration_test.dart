@@ -68,7 +68,7 @@ void main() {
       expect(
         () => TableBuilder(
           't',
-        ).strict().columns((c) => {'a': c.any().isNullable(false).default_(const DatabaseType.nil())}),
+        ).strict().columns((c) => {'a': c.any().isNullable(false).default_(const Value.nil())}),
         refusedWith(['column "a": a NULL default on a NOT NULL column']),
       );
     });
@@ -166,7 +166,7 @@ void main() {
       expect(
         () => TableBuilder('t').strict().columns(
           (c) => {
-            'x': c.any().isNullable(false).default_(const DatabaseType.nil()),
+            'x': c.any().isNullable(false).default_(const Value.nil()),
             'y': c
                 .integer()
                 .isNullable(false)
@@ -267,7 +267,7 @@ void main() {
       for (final table in ['texts', 'reals', 'blobs']) {
         await expectLater(
           db.execute('INSERT INTO $table (k) VALUES (NULL)'),
-          throwsA(isA<DatabaseError>()),
+          throwsA(isA<StoreError>()),
           reason: '$table accepted a null primary key',
         );
       }
@@ -294,7 +294,7 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO memberships (account_id, group_id) VALUES (NULL, 1)'),
-        throwsA(isA<DatabaseError>()),
+        throwsA(isA<StoreError>()),
       );
       await db.dispose();
     });
@@ -344,7 +344,7 @@ void main() {
       final db = await openWithTables('declaration_not_unique.db', [parent, child]);
       await db.execute('INSERT INTO parent (id, x) VALUES (1, 1)');
 
-      await expectLater(db.execute('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<DatabaseError>()));
+      await expectLater(db.execute('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -354,7 +354,7 @@ void main() {
       );
       final db = await openWithTables('declaration_undeclared.db', [child]);
 
-      await expectLater(db.execute('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<DatabaseError>()));
+      await expectLater(db.execute('INSERT INTO child (id, p) VALUES (1, 1)'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -380,7 +380,7 @@ void main() {
       await db.execute('INSERT INTO parent (id) VALUES (1)');
       await db.execute('INSERT INTO child (p) VALUES (1)');
 
-      await expectLater(db.execute('DELETE FROM parent'), throwsA(isA<DatabaseError>()));
+      await expectLater(db.execute('DELETE FROM parent'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -394,7 +394,7 @@ void main() {
 
       await db.execute('DELETE FROM parent');
 
-      expect((await db.rawQuery('SELECT p FROM child')).single['p'], const DatabaseType.nil());
+      expect((await db.rawQuery('SELECT p FROM child')).single['p'], const Value.nil());
       await db.dispose();
     });
 
@@ -406,7 +406,7 @@ void main() {
       await db.execute('INSERT INTO parent (id) VALUES (1)');
       await db.execute('INSERT INTO child (a) VALUES (1)');
 
-      await expectLater(db.execute('DELETE FROM parent'), throwsA(isA<DatabaseError>()));
+      await expectLater(db.execute('DELETE FROM parent'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -415,7 +415,7 @@ void main() {
         'CREATE TABLE t (a ANY NOT NULL DEFAULT (NULL)) STRICT',
       ]);
 
-      await expectLater(db.execute('INSERT INTO t DEFAULT VALUES'), throwsA(isA<DatabaseError>()));
+      await expectLater(db.execute('INSERT INTO t DEFAULT VALUES'), throwsA(isA<StoreError>()));
       await db.dispose();
     });
 
@@ -427,8 +427,8 @@ void main() {
       await db.execute("INSERT INTO loose VALUES ('007')");
       await db.execute("INSERT INTO tight VALUES ('007')");
 
-      expect((await db.rawQuery('SELECT a FROM loose')).single['a'], const DatabaseType.integer(7));
-      expect((await db.rawQuery('SELECT a FROM tight')).single['a'], const DatabaseType.varchar('007'));
+      expect((await db.rawQuery('SELECT a FROM loose')).single['a'], const Value.integer(7));
+      expect((await db.rawQuery('SELECT a FROM tight')).single['a'], const Value.varchar('007'));
       await db.dispose();
     });
     test('a declared foreign key is not enforced on a connection that switched PRAGMA foreign_keys off', () async {

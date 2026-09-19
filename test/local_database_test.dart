@@ -50,21 +50,21 @@ import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-final class Todo extends Equatable implements DatabaseRecord {
+final class Todo extends Equatable implements Storable {
   const Todo({this.id, required this.title, required this.done});
 
   final int? id;
   final String title;
   final bool done;
 
-  static Todo fromRow(DatabaseRow row) =>
+  static Todo fromRow(RawRow row) =>
       Todo(id: row['id']!.asInt, title: row['title']!.asString, done: row['done']!.asBoolean);
 
   Todo copyWith({int? id, String? title, bool? done}) =>
       Todo(id: id ?? this.id, title: title ?? this.title, done: done ?? this.done);
 
   @override
-  DatabaseRow toRow() => {'title': DatabaseType.varchar(title), 'done': DatabaseType.boolean(done)};
+  RawRow toRow() => {'title': Value.varchar(title), 'done': Value.boolean(done)};
 
   @override
   List<Object?> get props => [id, title, done];
@@ -133,7 +133,7 @@ void main() {
       final open = await db.query<Todo>(
         (q) => q
             .from('todos')
-            .where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(false)))
+            .where((w) => w.isEqualTo(key: 'done', value: Value.boolean(false)))
             .map(Todo.fromRow),
       );
 
@@ -149,7 +149,7 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'A', done: false)));
 
       final page = await db.query<Todo>(
-        (q) => q.from('todos').orderBy(const [DatabaseOrder.named('title')]).limit(1).offset(1).map(Todo.fromRow),
+        (q) => q.from('todos').orderBy(const [Sort.named('title')]).limit(1).offset(1).map(Todo.fromRow),
       );
 
       expect(page.map((todo) => todo.title), ['B']);
@@ -166,7 +166,7 @@ void main() {
       final rows = await db.query<Todo>(
         (q) => q
             .from('todos')
-            .orderBy(const [DatabaseOrder.named('done'), DatabaseOrder.named('title', order: SortOrder.desc)])
+            .orderBy(const [Sort.named('done'), Sort.named('title', order: SortOrder.desc)])
             .map(Todo.fromRow),
       );
 
@@ -182,7 +182,7 @@ void main() {
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'C', done: false)));
 
       final rows = await db.query<Todo>(
-        (q) => q.from('todos').orderBy(const [DatabaseOrder.expression('lower(title)')]).map(Todo.fromRow),
+        (q) => q.from('todos').orderBy(const [Sort.expression('lower(title)')]).map(Todo.fromRow),
       );
 
       expect(rows.map((todo) => todo.title), ['A', 'b', 'C']);
@@ -193,16 +193,16 @@ void main() {
       final db = LocalDatabase(name: 'things_keywords.db', onCreate: _createKeywordColumns);
       await db.open();
       await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
-        DatabaseType.varchar('x'),
-        DatabaseType.integer(1),
+        Value.varchar('x'),
+        Value.integer(1),
       ]);
       await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
-        DatabaseType.varchar('y'),
-        DatabaseType.integer(2),
+        Value.varchar('y'),
+        Value.integer(2),
       ]);
       await db.execute('INSERT INTO things ("group", "order") VALUES (?, ?)', const [
-        DatabaseType.varchar('x'),
-        DatabaseType.integer(3),
+        Value.varchar('x'),
+        Value.integer(3),
       ]);
 
       final groups = await db.query<String>(
@@ -210,7 +210,7 @@ void main() {
             .from('things')
             .select(const ['group'])
             .groupBy(const ['group'])
-            .orderBy(const [DatabaseOrder.named('group', order: SortOrder.desc)])
+            .orderBy(const [Sort.named('group', order: SortOrder.desc)])
             .map((row) => row['group']!.asString),
       );
 
@@ -229,9 +229,9 @@ void main() {
         (q) => q
             .from('todos')
             .select(const ['title'])
-            .where((w) => w.isNotEqualTo(key: 'title', value: const DatabaseType.varchar('B')))
+            .where((w) => w.isNotEqualTo(key: 'title', value: const Value.varchar('B')))
             .groupBy(const ['title'])
-            .having((h) => h.raw('COUNT(*) > ?', const [DatabaseType.integer(1)]))
+            .having((h) => h.raw('COUNT(*) > ?', const [Value.integer(1)]))
             .map((row) => row['title']!.asString),
       );
 
@@ -270,12 +270,12 @@ void main() {
         (u) => u
             .table('todos')
             .set(const Todo(title: 'Ship it', done: true))
-            .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
+            .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
       );
 
       expect(changed, 1);
       final rows = await db.query<Todo>(
-        (q) => q.from('todos').where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))).map(Todo.fromRow),
+        (q) => q.from('todos').where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))).map(Todo.fromRow),
       );
       expect(rows.single.done, isTrue);
       await db.dispose();
@@ -288,7 +288,7 @@ void main() {
       final keep = await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Still open', done: false)));
 
       final removed = await db.delete(
-        (d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))),
+        (d) => d.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))),
       );
 
       expect(removed, 1);
@@ -330,10 +330,10 @@ void main() {
       await db.open();
       await db.insert<Todo>((i) => i.into('todos').values(const Todo(title: 'Ship it', done: false)));
 
-      final rows = await db.rawQuery('SELECT title FROM todos WHERE done = ?', [DatabaseType.boolean(false)]);
+      final rows = await db.rawQuery('SELECT title FROM todos WHERE done = ?', [Value.boolean(false)]);
 
       expect(rows, [
-        const {'title': DatabaseType.varchar('Ship it')},
+        const {'title': Value.varchar('Ship it')},
       ]);
       await db.dispose();
     });
@@ -390,13 +390,13 @@ void main() {
         (u) => u
             .table('todos')
             .set(const Todo(title: 'First', done: true))
-            .where((w) => w.isEqualTo(key: 'title', value: const DatabaseType.varchar('First'))),
+            .where((w) => w.isEqualTo(key: 'title', value: const Value.varchar('First'))),
       );
       batch.delete(
-        (d) => d.from('todos').where((w) => w.isEqualTo(key: 'title', value: const DatabaseType.varchar('Nothing'))),
+        (d) => d.from('todos').where((w) => w.isEqualTo(key: 'title', value: const Value.varchar('Nothing'))),
       );
       batch.execute('SELECT 1');
-      batch.query((q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: DatabaseType.boolean(true))));
+      batch.query((q) => q.from('todos').where((w) => w.isEqualTo(key: 'done', value: Value.boolean(true))));
 
       final results = await batch.commit();
 
@@ -480,10 +480,10 @@ void main() {
             db.execute('CREATE TABLE todos (id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE)'),
       );
       await db.open();
-      await db.execute('INSERT INTO todos (id, title) VALUES (1, ?)', const [DatabaseType.varchar('Ship it')]);
+      await db.execute('INSERT INTO todos (id, title) VALUES (1, ?)', const [Value.varchar('Ship it')]);
 
       await expectLater(
-        db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [DatabaseType.varchar('Ship it')]),
+        db.execute('INSERT INTO todos (id, title) VALUES (2, ?)', const [Value.varchar('Ship it')]),
         throwsA(isA<UniqueConstraintError>()),
       );
       await db.dispose();
@@ -517,9 +517,9 @@ void main() {
       final columns = await db.columns('todos');
 
       expect(columns, [
-        const DatabaseColumn(name: 'id', declaredType: 'INTEGER', isNotNull: false, primaryKeyPosition: 1),
-        const DatabaseColumn(name: 'title', declaredType: 'TEXT', isNotNull: true, primaryKeyPosition: 0),
-        const DatabaseColumn(
+        const ColumnInfo(name: 'id', declaredType: 'INTEGER', isNotNull: false, primaryKeyPosition: 1),
+        const ColumnInfo(name: 'title', declaredType: 'TEXT', isNotNull: true, primaryKeyPosition: 0),
+        const ColumnInfo(
           name: 'done',
           declaredType: 'INTEGER',
           isNotNull: true,
@@ -546,13 +546,13 @@ void main() {
 
     Future<List<String>> titlesWhere(Filter Function(FilterBuilder w) build) async {
       final rows = await db.query<Todo>(
-        (q) => q.from('todos').where(build).orderBy(const [DatabaseOrder.named('title')]).map(Todo.fromRow),
+        (q) => q.from('todos').where(build).orderBy(const [Sort.named('title')]).map(Todo.fromRow),
       );
       return rows.map((todo) => todo.title).toList();
     }
 
     test('isNotEqualTo excludes the matching rows', () async {
-      expect(await titlesWhere((w) => w.isNotEqualTo(key: 'title', value: const DatabaseType.varchar('Bee'))), [
+      expect(await titlesWhere((w) => w.isNotEqualTo(key: 'title', value: const Value.varchar('Bee'))), [
         'Ant',
         'Cat',
       ]);
@@ -560,29 +560,29 @@ void main() {
 
     test('isGreaterThan and isLessThan compare ids', () async {
       final all = await db.query<Todo>(
-        (q) => q.from('todos').orderBy(const [DatabaseOrder.named('id')]).map(Todo.fromRow),
+        (q) => q.from('todos').orderBy(const [Sort.named('id')]).map(Todo.fromRow),
       );
       final firstId = all.first.id!;
 
-      expect(await titlesWhere((w) => w.isGreaterThan(key: 'id', value: DatabaseType.integer(firstId))), [
+      expect(await titlesWhere((w) => w.isGreaterThan(key: 'id', value: Value.integer(firstId))), [
         'Bee',
         'Cat',
       ]);
-      expect(await titlesWhere((w) => w.isLessThan(key: 'id', value: DatabaseType.integer(firstId))), isEmpty);
+      expect(await titlesWhere((w) => w.isLessThan(key: 'id', value: Value.integer(firstId))), isEmpty);
     });
 
     test('isGreaterThanOrEqualTo and isLessThanOrEqualTo include the boundary', () async {
       final all = await db.query<Todo>(
-        (q) => q.from('todos').orderBy(const [DatabaseOrder.named('id')]).map(Todo.fromRow),
+        (q) => q.from('todos').orderBy(const [Sort.named('id')]).map(Todo.fromRow),
       );
       final firstId = all.first.id!;
 
-      expect(await titlesWhere((w) => w.isGreaterThanOrEqualTo(key: 'id', value: DatabaseType.integer(firstId))), [
+      expect(await titlesWhere((w) => w.isGreaterThanOrEqualTo(key: 'id', value: Value.integer(firstId))), [
         'Ant',
         'Bee',
         'Cat',
       ]);
-      expect(await titlesWhere((w) => w.isLessThanOrEqualTo(key: 'id', value: DatabaseType.integer(firstId))), ['Ant']);
+      expect(await titlesWhere((w) => w.isLessThanOrEqualTo(key: 'id', value: Value.integer(firstId))), ['Ant']);
     });
 
     test('isLike matches a pattern', () async {
@@ -592,7 +592,7 @@ void main() {
     test('isIn matches any of a set of values', () async {
       expect(
         await titlesWhere(
-          (w) => w.isIn(key: 'title', values: const [DatabaseType.varchar('Ant'), DatabaseType.varchar('Cat')]),
+          (w) => w.isIn(key: 'title', values: const [Value.varchar('Ant'), Value.varchar('Cat')]),
         ),
         ['Ant', 'Cat'],
       );
@@ -611,7 +611,7 @@ void main() {
       expect(
         await titlesWhere(
           (w) => w.and([
-            w.isEqualTo(key: 'done', value: DatabaseType.boolean(true)),
+            w.isEqualTo(key: 'done', value: Value.boolean(true)),
             w.isLike(key: 'title', pattern: 'B%'),
           ]),
         ),
@@ -623,8 +623,8 @@ void main() {
       expect(
         await titlesWhere(
           (w) => w.or([
-            w.isEqualTo(key: 'title', value: const DatabaseType.varchar('Ant')),
-            w.isEqualTo(key: 'title', value: const DatabaseType.varchar('Cat')),
+            w.isEqualTo(key: 'title', value: const Value.varchar('Ant')),
+            w.isEqualTo(key: 'title', value: const Value.varchar('Cat')),
           ]),
         ),
         ['Ant', 'Cat'],
@@ -632,11 +632,11 @@ void main() {
     });
 
     test('not negates a condition', () async {
-      expect(await titlesWhere((w) => w.not(w.isEqualTo(key: 'done', value: DatabaseType.boolean(true)))), ['Ant']);
+      expect(await titlesWhere((w) => w.not(w.isEqualTo(key: 'done', value: Value.boolean(true)))), ['Ant']);
     });
 
     test('raw carries a predicate the rest of the builder cannot express', () async {
-      expect(await titlesWhere((w) => w.raw('length(title) = ?', const [DatabaseType.integer(3)])), [
+      expect(await titlesWhere((w) => w.raw('length(title) = ?', const [Value.integer(3)])), [
         'Ant',
         'Bee',
         'Cat',
@@ -650,9 +650,9 @@ void main() {
       notes = LocalDatabase(name: 'notes_filters.db', onCreate: _createNotes);
       await notes.open();
       for (final body in [
-        const DatabaseType.varchar('alpha'),
-        const DatabaseType.varchar('beta'),
-        const DatabaseType.nil(),
+        const Value.varchar('alpha'),
+        const Value.varchar('beta'),
+        const Value.nil(),
       ]) {
         await notes.execute('INSERT INTO notes (body) VALUES (?)', [body]);
       }
@@ -665,24 +665,24 @@ void main() {
           .from('notes')
           .select(const ['id'])
           .where(build)
-          .orderBy(const [DatabaseOrder.named('id')])
+          .orderBy(const [Sort.named('id')])
           .map((row) => row['id']!.asInt),
     );
 
     test('isEqualTo a Nil matches the rows where the column is null', () async {
-      expect(await idsWhere((w) => w.isEqualTo(key: 'body', value: const DatabaseType.nil())), [3]);
+      expect(await idsWhere((w) => w.isEqualTo(key: 'body', value: const Value.nil())), [3]);
     });
 
     test('isNotEqualTo a Nil matches the rows where the column has a value', () async {
-      expect(await idsWhere((w) => w.isNotEqualTo(key: 'body', value: const DatabaseType.nil())), [1, 2]);
+      expect(await idsWhere((w) => w.isNotEqualTo(key: 'body', value: const Value.nil())), [1, 2]);
     });
 
     test('isNotEqualTo a value keeps the rows where the column is null', () async {
-      expect(await idsWhere((w) => w.isNotEqualTo(key: 'body', value: const DatabaseType.varchar('alpha'))), [2, 3]);
+      expect(await idsWhere((w) => w.isNotEqualTo(key: 'body', value: const Value.varchar('alpha'))), [2, 3]);
     });
 
     test('not keeps the rows its filter cannot decide on', () async {
-      expect(await idsWhere((w) => w.not(w.isEqualTo(key: 'body', value: const DatabaseType.varchar('alpha')))), [
+      expect(await idsWhere((w) => w.not(w.isEqualTo(key: 'body', value: const Value.varchar('alpha')))), [
         2,
         3,
       ]);
@@ -691,25 +691,25 @@ void main() {
 
     test('isIn with a Nil among its values matches the null rows too', () async {
       expect(
-        await idsWhere((w) => w.isIn(key: 'body', values: const [DatabaseType.varchar('beta'), DatabaseType.nil()])),
+        await idsWhere((w) => w.isIn(key: 'body', values: const [Value.varchar('beta'), Value.nil()])),
         [2, 3],
       );
-      expect(await idsWhere((w) => w.isIn(key: 'body', values: const [DatabaseType.nil()])), [3]);
+      expect(await idsWhere((w) => w.isIn(key: 'body', values: const [Value.nil()])), [3]);
     });
 
     test('an ordering filter refuses a Nil, which has no order', () async {
       await expectLater(
-        idsWhere((w) => w.isGreaterThan(key: 'body', value: const DatabaseType.nil())),
+        idsWhere((w) => w.isGreaterThan(key: 'body', value: const Value.nil())),
         throwsArgumentError,
       );
       await expectLater(
-        idsWhere((w) => w.isLessThanOrEqualTo(key: 'body', value: const DatabaseType.nil())),
+        idsWhere((w) => w.isLessThanOrEqualTo(key: 'body', value: const Value.nil())),
         throwsArgumentError,
       );
     });
 
     test('contains, startsWith and endsWith match the text as written', () async {
-      await notes.execute('INSERT INTO notes (body) VALUES (?)', const [DatabaseType.varchar('50% off_sale\\now')]);
+      await notes.execute('INSERT INTO notes (body) VALUES (?)', const [Value.varchar('50% off_sale\\now')]);
 
       expect(await idsWhere((w) => w.contains(key: 'body', text: 'lph')), [1]);
       expect(await idsWhere((w) => w.startsWith(key: 'body', text: 'be')), [2]);
@@ -732,7 +732,7 @@ void main() {
       const nineThirty = Time(hour: 9, minute: 30, second: 5, millisecond: 250);
       const ten = Time(hour: 10, minute: 0);
       for (final time in [nine, ten, nineThirty]) {
-        await slots.execute('INSERT INTO slots (at) VALUES (?)', [DatabaseType.time(time)]);
+        await slots.execute('INSERT INTO slots (at) VALUES (?)', [Value.time(time)]);
       }
 
       Future<List<int>> idsWhereAt(Filter Function(FilterBuilder w) build) => slots.query<int>(
@@ -740,13 +740,13 @@ void main() {
             .from('slots')
             .select(const ['id'])
             .where(build)
-            .orderBy(const [DatabaseOrder.named('id')])
+            .orderBy(const [Sort.named('id')])
             .map((row) => row['id']!.asInt),
       );
 
-      expect(await idsWhereAt((w) => w.isGreaterThan(key: 'at', value: DatabaseType.time(nine))), [2, 3]);
-      expect(await idsWhereAt((w) => w.isLessThan(key: 'at', value: DatabaseType.time(ten))), [1, 3]);
-      expect(await idsWhereAt((w) => w.isEqualTo(key: 'at', value: DatabaseType.time(nineThirty))), [3]);
+      expect(await idsWhereAt((w) => w.isGreaterThan(key: 'at', value: Value.time(nine))), [2, 3]);
+      expect(await idsWhereAt((w) => w.isLessThan(key: 'at', value: Value.time(ten))), [1, 3]);
+      expect(await idsWhereAt((w) => w.isEqualTo(key: 'at', value: Value.time(nineThirty))), [3]);
       await slots.dispose();
     });
 
@@ -754,7 +754,7 @@ void main() {
       final slots = LocalDatabase(name: 'intervals_filters.db', onCreate: _createSlots);
       await slots.open();
       await slots.execute('INSERT INTO slots (at) VALUES (?)', [
-        DatabaseType.interval(const IntervalBounds.num(start: 3.0, end: 4.5)),
+        Value.interval(const IntervalBounds.num(start: 3.0, end: 4.5)),
       ]);
 
       final ids = await slots.query<int>(
@@ -762,7 +762,7 @@ void main() {
             .from('slots')
             .select(const ['id'])
             .where(
-              (w) => w.isEqualTo(key: 'at', value: DatabaseType.interval(const IntervalBounds.num(start: 3, end: 4.5))),
+              (w) => w.isEqualTo(key: 'at', value: Value.interval(const IntervalBounds.num(start: 3, end: 4.5))),
             )
             .map((row) => row['id']!.asInt),
       );

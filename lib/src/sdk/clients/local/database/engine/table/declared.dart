@@ -39,7 +39,7 @@ part of '../database.dart';
 /// One upgrade of the schema version, run by [LocalDatabase.declared] inside
 /// the transaction that upgrades the file. It receives the transaction and
 /// must not reach for the [LocalDatabase] itself.
-typedef Migration = Future<void> Function(DatabaseTransaction txn);
+typedef Migration = Future<void> Function(TransactionScope txn);
 
 OnDatabaseConfigureFn? _configureDeclared(bool readOnly) =>
     readOnly ? null : (db) => db.rawQuery('PRAGMA journal_mode = WAL');
@@ -54,7 +54,7 @@ Future<void> _synchronizeSchema(LocalDatabase database, Database native) {
   DeclaredTable.checkTogether(declared);
   return _guarded(
     () => native.transaction((nativeTransaction) async {
-      final txn = DatabaseTransaction._(nativeTransaction, database);
+      final txn = TransactionScope._(nativeTransaction, database);
       final latest = database._migrations.length + 1;
       final stored = (await nativeTransaction.rawQuery('PRAGMA user_version')).single['user_version']! as int;
       if (stored > latest) {

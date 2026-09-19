@@ -37,9 +37,9 @@
 part of '../database.dart';
 
 /// One column [LocalDatabase.columns] read out of `PRAGMA table_xinfo`.
-final class DatabaseColumn extends Equatable {
+final class ColumnInfo extends Equatable {
   /// Wraps every field [LocalDatabase.columns] read for one column.
-  const DatabaseColumn({
+  const ColumnInfo({
     required this.name,
     required this.declaredType,
     required this.isNotNull,
@@ -90,7 +90,7 @@ final class DatabaseColumn extends Equatable {
     return null;
   }
 
-  factory DatabaseColumn._fromRow(DatabaseRow row) => DatabaseColumn(
+  factory ColumnInfo._fromRow(RawRow row) => ColumnInfo(
     name: row['name']!.asString,
     declaredType: row['type']!.asString,
     isNotNull: row['notnull']!.asBoolean,

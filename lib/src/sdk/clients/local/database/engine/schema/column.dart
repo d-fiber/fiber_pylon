@@ -38,7 +38,7 @@ part of 'schema.dart';
 
 /// A `CREATE TABLE` column's declared type, spelled the way SQLite's own
 /// `STRICT` tables take it: the only five keywords a `STRICT` column may
-/// name, matching [DatabaseType]'s own five storage classes exactly. A non-`STRICT`
+/// name, matching [Value]'s own five storage classes exactly. A non-`STRICT`
 /// table accepts the same five keywords too; SQLite just does not enforce
 /// them there.
 enum ColumnType {
@@ -125,7 +125,7 @@ enum GeneratedStorage {
 }
 
 /// The value a column takes when a row does not give it one: either a
-/// literal [DatabaseType] or a raw SQL expression.
+/// literal [Value] or a raw SQL expression.
 sealed class ColumnDefault extends Equatable {
   const ColumnDefault();
 }
@@ -139,7 +139,7 @@ final class LiteralDefault extends ColumnDefault {
   const LiteralDefault(this.value);
 
   /// The value a row takes when it gives none.
-  final DatabaseType value;
+  final Value value;
 
   @override
   List<Object?> get props => [value];
@@ -294,14 +294,14 @@ final class ColumnDefinition extends Equatable {
 /// [Self] is the builder every modifier hands back, so a chain keeps the
 /// modifiers of the type it started with: [TextColumnBuilder.collation] and
 /// [IntegerColumnBuilder.autoincrement] stay reachable after any other
-/// modifier. [Value] is the storage class this column holds, and the only one
+/// modifier. [Storage] is the storage class this column holds, and the only one
 /// [default_] accepts.
 ///
 /// Unlike Postgres, SQLite has no per-role privilege to guard and no
 /// server-side identity sequence to configure, so this stays far smaller
 /// than the Postgres builder it mirrors: no `array`, no `identity` options,
 /// no geometric or network types.
-sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extends DatabaseType> {
+sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Storage>, Storage extends Value> {
   ColumnBuilder._(this._type);
 
   final ColumnType _type;
@@ -346,14 +346,14 @@ sealed class ColumnBuilder<Self extends ColumnBuilder<Self, Value>, Value extend
   ///
   /// Accepts only this column's own storage class, so a text column cannot be
   /// handed an [Integer]. Pass the storage class itself, such as `Integer(0)`
-  /// or `Varchar('open')`, or a [DatabaseType] method that answers one, such
-  /// as [DatabaseType.boolean]. The `DatabaseType.integer` and
-  /// `DatabaseType.varchar` factories answer a plain [DatabaseType] and do
+  /// or `Varchar('open')`, or a [Value] method that answers one, such
+  /// as [Value.boolean]. The `Value.integer` and
+  /// `Value.varchar` factories answer a plain [Value] and do
   /// not type-check here.
   ///
   /// Throws an [ArgumentError] for a [Real] that is not finite, since SQL has
   /// no literal for it.
-  Self default_(Value value) {
+  Self default_(Storage value) {
     if (value case Real(value: final number) when !number.isFinite) {
       throw ArgumentError.value(number, 'value', 'A non-finite REAL has no SQL literal.');
     }
@@ -451,7 +451,7 @@ final class BlobColumnBuilder extends ColumnBuilder<BlobColumnBuilder, Blob> {
 
 /// A [ColumnType.any] column under construction, holding whichever storage
 /// class a row gives it.
-final class AnyColumnBuilder extends ColumnBuilder<AnyColumnBuilder, DatabaseType> {
+final class AnyColumnBuilder extends ColumnBuilder<AnyColumnBuilder, Value> {
   AnyColumnBuilder._() : super._(ColumnType.any);
 }
 
@@ -462,7 +462,7 @@ final class AnyColumnBuilder extends ColumnBuilder<AnyColumnBuilder, DatabaseTyp
 /// TableBuilder('todos').columns((c) => {
 ///   'id': c.integer().autoincrement(),
 ///   'title': c.text().isNullable(false).collation(Collation.noCase),
-///   'done': c.integer().isNullable(false).default_(DatabaseType.boolean(false)),
+///   'done': c.integer().isNullable(false).default_(Value.boolean(false)),
 /// });
 /// ```
 final class ColumnFactory {
@@ -498,4 +498,4 @@ final class StrictColumnFactory extends ColumnFactory {
 /// What [TableBuilder.columns] takes: a column builder, by the name it holds
 /// under, in the order they are declared, which is the order [DeclaredTable]
 /// renders them in.
-typedef ColumnMap = Map<String, ColumnBuilder<dynamic, DatabaseType>>;
+typedef ColumnMap = Map<String, ColumnBuilder<dynamic, Value>>;

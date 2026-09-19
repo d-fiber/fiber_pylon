@@ -36,11 +36,11 @@
 
 part of '../database.dart';
 
-/// Encodes a [T] into a JSON-backed [DatabaseType.varchar] and decodes it
+/// Encodes a [T] into a JSON-backed [Value.varchar] and decodes it
 /// back, the same convention [PreferencesStorage] already uses for its own
 /// [Preference.json_] — a column holds one [T] exactly the way a preference
 /// entry does, through a [fromJson] and [toJson] a project supplies once.
-/// [DatabaseType.point] is this same convention, already applied to
+/// [Value.point] is this same convention, already applied to
 /// [Location]; reach for [Json] for every other shape a project
 /// wants a column to hold as JSON.
 ///
@@ -76,13 +76,13 @@ final class Json<T> {
   /// This [T]'s own fields, in the shape [fromJson] rebuilds from.
   final Map<String, dynamic> Function(T value) toJson;
 
-  /// Encodes [value] into a [DatabaseType.varchar] holding its JSON form.
-  DatabaseType encode(T value) => DatabaseType.varchar(jsonEncode(toJson(value)));
+  /// Encodes [value] into a [Value.varchar] holding its JSON form.
+  Value encode(T value) => Value.varchar(jsonEncode(toJson(value)));
 
   /// Decodes [value], read back from a column [encode] wrote.
   ///
   /// Throws a [StateError] if [value] is not a [Varchar].
-  T decode(DatabaseType value) {
+  T decode(Value value) {
     if (value case Varchar(value: final stored)) {
       return fromJson(jsonDecode(stored) as Map<String, dynamic>);
     }
@@ -90,12 +90,12 @@ final class Json<T> {
   }
 }
 
-/// Encodes a `List<T>` into a JSON-backed [DatabaseType.varchar] and
+/// Encodes a `List<T>` into a JSON-backed [Value.varchar] and
 /// decodes it back, each element read and written through a [fromJson] and
 /// [toJson] a project supplies once for its own [T] — [Json]'s own
 /// convention, applied once per element rather than once for a whole value.
 ///
-/// [DatabaseType.list] already covers a list whose elements are native
+/// [Value.list] already covers a list whose elements are native
 /// JSON values on their own — an [int], a [double], a [String], a [bool],
 /// a `Map<String, dynamic>` — with no [fromJson]/[toJson] to write. Reach
 /// for this only when [T] is a project's own type instead.
@@ -110,13 +110,13 @@ final class ListJson<T> {
   /// One element's own fields, in the shape [fromJson] rebuilds from.
   final Map<String, dynamic> Function(T value) toJson;
 
-  /// Encodes [value] into a [DatabaseType.varchar] holding its JSON form.
-  DatabaseType encode(List<T> value) => DatabaseType.varchar(jsonEncode(value.map(toJson).toList()));
+  /// Encodes [value] into a [Value.varchar] holding its JSON form.
+  Value encode(List<T> value) => Value.varchar(jsonEncode(value.map(toJson).toList()));
 
   /// Decodes [value], read back from a column [encode] wrote.
   ///
   /// Throws a [StateError] if [value] is not a [Varchar].
-  List<T> decode(DatabaseType value) {
+  List<T> decode(Value value) {
     if (value case Varchar(value: final stored)) {
       return (jsonDecode(stored) as List<dynamic>).map((json) => fromJson(json as Map<String, dynamic>)).toList();
     }

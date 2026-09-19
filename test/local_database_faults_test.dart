@@ -41,39 +41,39 @@ import 'package:fiber_pylon/src/sdk/clients/local/database/engine/database.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-final class Note implements DatabaseRecord {
+final class Note implements Storable {
   const Note(this.body);
 
   final String body;
 
   @override
-  DatabaseRow toRow() => {'body': DatabaseType.varchar(body)};
+  RawRow toRow() => {'body': Value.varchar(body)};
 }
 
-final class NoColumns implements DatabaseRecord {
+final class NoColumns implements Storable {
   const NoColumns();
 
   @override
-  DatabaseRow toRow() => {};
+  RawRow toRow() => {};
 }
 
-final class Spaced implements DatabaseRecord {
+final class Spaced implements Storable {
   const Spaced(this.value);
 
   final int value;
 
   @override
-  DatabaseRow toRow() => {'my col': DatabaseType.integer(value)};
+  RawRow toRow() => {'my col': Value.integer(value)};
 }
 
-final class Cells implements DatabaseRecord {
+final class Cells implements Storable {
   const Cells(this.n, this.g);
 
   final int n;
   final String g;
 
   @override
-  DatabaseRow toRow() => {'n': DatabaseType.integer(n), 'g': DatabaseType.varchar(g)};
+  RawRow toRow() => {'n': Value.integer(n), 'g': Value.varchar(g)};
 }
 
 const String _notes = 'CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL DEFAULT \'\')';
@@ -220,7 +220,7 @@ void main() {
 
     test('reports a transaction used after it finished as TransactionClosedError', () async {
       final db = await openWith('txn_closed.db', [_notes]);
-      late DatabaseTransaction finished;
+      late TransactionScope finished;
       await db.transaction((txn) async {
         finished = txn;
       });
@@ -265,7 +265,7 @@ void main() {
       final db = await openWith('error_strict.db', ['CREATE TABLE ages (n INTEGER) STRICT']);
 
       await expectLater(
-        db.execute('INSERT INTO ages (n) VALUES (?)', [const DatabaseType.varchar('old')]),
+        db.execute('INSERT INTO ages (n) VALUES (?)', [const Value.varchar('old')]),
         throwsA(isA<DatatypeMismatchError>()),
       );
       await db.dispose();
@@ -289,7 +289,7 @@ void main() {
         db.query<int>(
           (q) => q
               .from('notes')
-              .where((w) => w.isEqualTo(key: 'missing', value: const DatabaseType.integer(1)))
+              .where((w) => w.isEqualTo(key: 'missing', value: const Value.integer(1)))
               .map((row) => 1),
         ),
         throwsA(isA<NoSuchColumnError>()),
@@ -367,7 +367,7 @@ void main() {
 
       await expectLater(
         db.execute('INSERT INTO children (parent_id) VALUES (99)'),
-        throwsA(isA<DatabaseError>()),
+        throwsA(isA<StoreError>()),
         reason: 'a declared FOREIGN KEY that SQLite ignores protects nothing',
       );
       await db.dispose();
@@ -456,7 +456,7 @@ void main() {
     });
   });
 
-  group('DatabaseBatch reuse', () {
+  group('StatementBatch reuse', () {
     test('does not run a statement again when the batch is committed twice', () async {
       final db = await openWith('batch_twice.db', [_notes]);
       final batch = db.batch();
@@ -493,9 +493,9 @@ void main() {
       final rows = await readNs(
         db,
         (q) => q
-            .where((w) => w.isEqualTo(key: 'g', value: const DatabaseType.varchar('a')))
-            .where((w) => w.isGreaterThan(key: 'n', value: const DatabaseType.integer(1)))
-            .orderBy([const DatabaseOrder.named('n')]),
+            .where((w) => w.isEqualTo(key: 'g', value: const Value.varchar('a')))
+            .where((w) => w.isGreaterThan(key: 'n', value: const Value.integer(1)))
+            .orderBy([const Sort.named('n')]),
       );
 
       expect(rows, [2, 5], reason: 'the second where narrows the first instead of replacing it');
@@ -510,8 +510,8 @@ void main() {
         (u) => u
             .table('cells')
             .set(const Cells(0, 'z'))
-            .where((w) => w.isEqualTo(key: 'g', value: const DatabaseType.varchar('a')))
-            .where((w) => w.isGreaterThan(key: 'n', value: const DatabaseType.integer(1))),
+            .where((w) => w.isEqualTo(key: 'g', value: const Value.varchar('a')))
+            .where((w) => w.isGreaterThan(key: 'n', value: const Value.integer(1))),
       );
 
       expect(changed, 2);
@@ -525,8 +525,8 @@ void main() {
       final removed = await db.delete(
         (d) => d
             .from('cells')
-            .where((w) => w.isEqualTo(key: 'g', value: const DatabaseType.varchar('a')))
-            .where((w) => w.isGreaterThan(key: 'n', value: const DatabaseType.integer(1))),
+            .where((w) => w.isEqualTo(key: 'g', value: const Value.varchar('a')))
+            .where((w) => w.isGreaterThan(key: 'n', value: const Value.integer(1))),
       );
 
       expect(removed, 2);
@@ -543,8 +543,8 @@ void main() {
             .from('cells')
             .select(['g'])
             .groupBy(['g'])
-            .having((w) => w.raw('COUNT(*) >= ?', [const DatabaseType.integer(3)]))
-            .having((w) => w.raw('COUNT(*) < ?', [const DatabaseType.integer(10)]))
+            .having((w) => w.raw('COUNT(*) >= ?', [const Value.integer(3)]))
+            .having((w) => w.raw('COUNT(*) < ?', [const Value.integer(10)]))
             .map((row) => row['g']!.asString),
       );
 
@@ -570,8 +570,8 @@ void main() {
 
       final rows = await readNs(
         db,
-        (q) => q.orderBy([const DatabaseOrder.named('g')]).orderBy([
-          const DatabaseOrder.named('n', order: SortOrder.desc),
+        (q) => q.orderBy([const Sort.named('g')]).orderBy([
+          const Sort.named('n', order: SortOrder.desc),
         ]),
       );
 
@@ -669,7 +669,7 @@ void main() {
       final db = await openWith('nan.db', ['CREATE TABLE measures (id INTEGER PRIMARY KEY, value REAL)']);
 
       await expectLater(
-        db.execute('INSERT INTO measures (value) VALUES (?)', [const DatabaseType.real(double.nan)]),
+        db.execute('INSERT INTO measures (value) VALUES (?)', [const Value.real(double.nan)]),
         throwsArgumentError,
       );
       expect(await countOf(db, 'measures'), 0);
@@ -678,7 +678,7 @@ void main() {
 
     test('reads a whole number back from a NUMERIC column as a double', () async {
       final db = await openWith('numeric.db', ['CREATE TABLE prices (amount DECIMAL(10, 2))']);
-      await db.execute('INSERT INTO prices (amount) VALUES (?)', [const DatabaseType.real(3.0)]);
+      await db.execute('INSERT INTO prices (amount) VALUES (?)', [const Value.real(3.0)]);
 
       final rows = await db.rawQuery('SELECT amount FROM prices');
 
@@ -689,13 +689,13 @@ void main() {
     test('refuses a time whose offset is not a whole number of minutes', () {
       const time = Time(hour: 1, minute: 2, utcOffset: Duration(seconds: 90));
 
-      expect(() => DatabaseType.time(time), throwsArgumentError);
+      expect(() => Value.time(time), throwsArgumentError);
     });
 
     test('refuses a time whose offset is a day or more', () {
       const time = Time(hour: 1, minute: 2, utcOffset: Duration(hours: 100));
 
-      expect(() => DatabaseType.time(time), throwsArgumentError);
+      expect(() => Value.time(time), throwsArgumentError);
     });
   });
 }

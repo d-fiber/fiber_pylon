@@ -41,8 +41,8 @@ enum _BatchStatement { insert, update, delete, execute, query }
 /// A sequence of writes queued against a [LocalDatabase], none of which
 /// touch it until [commit] or [apply] runs them. Never constructed directly;
 /// [LocalDatabase.batch] hands one back.
-final class DatabaseBatch {
-  DatabaseBatch._(this._executor, this._owner) : _batch = _executor.batch();
+final class StatementBatch {
+  StatementBatch._(this._executor, this._owner) : _batch = _executor.batch();
 
   final DatabaseExecutor _executor;
   final LocalDatabase _owner;
@@ -50,14 +50,14 @@ final class DatabaseBatch {
   List<_BatchStatement> _statements = [];
 
   /// Queues a [LocalDatabase.insert].
-  void insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) {
+  void insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) {
     final spec = build(Insert<T>._());
     _batch.rawInsert(spec._sql, spec._arguments);
     _statements.add(_BatchStatement.insert);
   }
 
   /// Queues a [LocalDatabase.update].
-  void update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) {
+  void update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) {
     final spec = build(Update<T>._());
     _batch.update(
       spec._table,
@@ -77,20 +77,20 @@ final class DatabaseBatch {
   }
 
   /// Queues a [LocalDatabase.execute].
-  void execute(String sql, [List<DatabaseType>? arguments]) {
+  void execute(String sql, [List<Value>? arguments]) {
     _batch.execute(sql, _toNativeArgs(arguments));
     _statements.add(_BatchStatement.execute);
   }
 
-  /// Queues a query composed by [build] from an empty [DatabaseQuery], the
+  /// Queues a query composed by [build] from an empty [Select], the
   /// same builder [LocalDatabase.query] takes.
   ///
   /// Its rows come back as a [BatchRows] at this call's own position
   /// in the list [commit] or [apply] answers, undecoded: a batch runs every
   /// statement before it hands anything back, so [QueryFrom.map] has
   /// nothing to map yet and is never read.
-  void query(QueryFrom<Object> Function(DatabaseQuery<Object> query) build) {
-    final spec = build(DatabaseQuery<Object>._());
+  void query(QueryFrom<Object> Function(Select<Object> query) build) {
+    final spec = build(Select<Object>._());
     _batch.query(
       spec._table,
       distinct: spec._distinct,
@@ -153,7 +153,7 @@ final class DatabaseBatch {
 }
 
 BatchResult _typedResult(_BatchStatement statement, Object? result) {
-  if (result is DatabaseException) return BatchFailed(DatabaseError.from(result));
+  if (result is DatabaseException) return BatchFailed(StoreError.from(result));
   return switch (statement) {
     _BatchStatement.insert => BatchInserted(result as int?),
     _BatchStatement.update || _BatchStatement.delete => BatchChanged(result as int),
@@ -164,13 +164,13 @@ BatchResult _typedResult(_BatchStatement statement, Object? result) {
   };
 }
 
-/// What one statement of a [DatabaseBatch] came to, at the position it was
+/// What one statement of a [StatementBatch] came to, at the position it was
 /// queued in.
 sealed class BatchResult extends Equatable {
   const BatchResult();
 }
 
-/// The outcome of a queued [DatabaseBatch.insert].
+/// The outcome of a queued [StatementBatch.insert].
 final class BatchInserted extends BatchResult {
   /// Wraps the [rowId] sqflite answered.
   const BatchInserted(this.rowId);
@@ -183,7 +183,7 @@ final class BatchInserted extends BatchResult {
   List<Object?> get props => [rowId];
 }
 
-/// The outcome of a queued [DatabaseBatch.update] or [DatabaseBatch.delete].
+/// The outcome of a queued [StatementBatch.update] or [StatementBatch.delete].
 final class BatchChanged extends BatchResult {
   /// Wraps the [count] sqflite answered.
   const BatchChanged(this.count);
@@ -195,7 +195,7 @@ final class BatchChanged extends BatchResult {
   List<Object?> get props => [count];
 }
 
-/// The outcome of a queued [DatabaseBatch.execute], which answers nothing.
+/// The outcome of a queued [StatementBatch.execute], which answers nothing.
 final class BatchExecuted extends BatchResult {
   /// The outcome of a statement that ran.
   const BatchExecuted();
@@ -204,13 +204,13 @@ final class BatchExecuted extends BatchResult {
   List<Object?> get props => const [];
 }
 
-/// The outcome of a queued [DatabaseBatch.query].
+/// The outcome of a queued [StatementBatch.query].
 final class BatchRows extends BatchResult {
   /// Wraps the [rows] the query selected.
   const BatchRows(this.rows);
 
   /// The rows the query selected, undecoded.
-  final List<DatabaseRow> rows;
+  final List<RawRow> rows;
 
   @override
   List<Object?> get props => [rows];
@@ -223,7 +223,7 @@ final class BatchFailed extends BatchResult {
 
   /// Why the statement failed, read the way every other method here reads a
   /// sqflite failure.
-  final DatabaseError error;
+  final StoreError error;
 
   @override
   List<Object?> get props => [error];

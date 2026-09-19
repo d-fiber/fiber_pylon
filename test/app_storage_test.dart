@@ -51,13 +51,13 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-class _Note implements DatabaseRecord {
+class _Note implements Storable {
   const _Note(this.body);
 
   final String body;
 
   @override
-  DatabaseRow toRow() => {'body': DatabaseType.varchar(body)};
+  RawRow toRow() => {'body': Value.varchar(body)};
 }
 
 Future<List<String>> _bodies() =>
@@ -112,7 +112,7 @@ void main() {
     test('keeps using the file it finds', () async {
       final first = await openAppDatabase(appName: 'Fiber');
       await first.execute('CREATE TABLE notes (body TEXT)');
-      await first.execute('INSERT INTO notes (body) VALUES (?)', [const DatabaseType.varchar('kept')]);
+      await first.execute('INSERT INTO notes (body) VALUES (?)', [const Value.varchar('kept')]);
       await first.dispose();
 
       final second = await openAppDatabase(appName: 'Fiber');
@@ -298,7 +298,7 @@ void main() {
         (u) => u
             .table('notes')
             .set(const _Note('second'))
-            .where((w) => w.isEqualTo(key: 'id', value: DatabaseType.integer(id))),
+            .where((w) => w.isEqualTo(key: 'id', value: Value.integer(id))),
       );
       expect(await _bodies(), ['second']);
 
@@ -309,7 +309,7 @@ void main() {
     test('stays open across calls, with no reopening in between', () async {
       await AppStorage.execute(SecureStorage.fingerprint, 'CREATE TABLE IF NOT EXISTS notes (body TEXT)');
       await AppStorage.execute(SecureStorage.fingerprint, 'INSERT INTO notes (body) VALUES (?)', [
-        const DatabaseType.varchar('x'),
+        const Value.varchar('x'),
       ]);
 
       expect(await AppStorage.tableNames(SecureStorage.fingerprint), ['notes']);

@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.list] wrote it.
-extension ListDecoding on DatabaseType {
+/// Reads a value back the way [Value.list] wrote it.
+extension ListDecoding on Value {
   /// This value as a `List<T>`, the same convention [list] wrote it under.
   ///
   /// [T] must already be a native JSON value — the same requirement [list]

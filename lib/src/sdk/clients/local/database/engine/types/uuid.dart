@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.uuid] and [DatabaseType.randomUuid] wrote it.
-extension UuidDecoding on DatabaseType {
+/// Reads a value back the way [Value.uuid] and [Value.randomUuid] wrote it.
+extension UuidDecoding on Value {
   /// This value as a [UuidValue], the same convention [uuid] wrote it under:
   /// its canonical text form.
   ///

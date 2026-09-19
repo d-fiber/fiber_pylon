@@ -36,23 +36,23 @@
 
 part of '../database.dart';
 
-/// Reads a column out of a [DatabaseRow] by name, and says in the type
+/// Reads a column out of a [RawRow] by name, and says in the type
 /// whether it may be NULL.
 ///
 /// `row['title']!` fails with a null check that names nothing, and a NULL
 /// column read with `asString` fails deep inside the decoder. These two
 /// methods fail at the column instead, naming it, and split the two cases so
 /// the compiler holds the difference: [required] never answers a [Nil], and
-/// [nullable] answers a `DatabaseType?`, so forgetting the `?.` before a
+/// [nullable] answers a `Value?`, so forgetting the `?.` before a
 /// decoder does not compile.
 ///
 /// ```dart
-/// static Todo fromRow(DatabaseRow row) => Todo(
+/// static Todo fromRow(RawRow row) => Todo(
 ///   title: row.required('title').asString,
 ///   note: row.nullable('note')?.asString,
 /// );
 /// ```
-extension RowReading on DatabaseRow {
+extension RowReading on RawRow {
   /// The value of [column], for a column that is never NULL.
   ///
   /// Throws a [StateError] naming [column] and the columns the row does carry
@@ -60,7 +60,7 @@ extension RowReading on DatabaseRow {
   /// out. Throws a [StateError] naming [column] when it is NULL, in which
   /// case the column is [nullable], and the decoder would only have failed
   /// later with a message that names no column.
-  DatabaseType required(String column) {
+  Value required(String column) {
     final value = _lookup(column);
     if (value is Nil) {
       throw StateError('Column "$column" is NULL where a value was required. Read a nullable column with nullable.');
@@ -72,11 +72,11 @@ extension RowReading on DatabaseRow {
   ///
   /// Throws a [StateError] naming [column] and the columns the row does carry
   /// when it has no such column: a missing column is a mistake, not a NULL.
-  DatabaseType? nullable(String column) {
+  Value? nullable(String column) {
     final value = _lookup(column);
     return value is Nil ? null : value;
   }
 
-  DatabaseType _lookup(String column) =>
+  Value _lookup(String column) =>
       this[column] ?? (throw StateError('The row has no column "$column". Its columns are: ${keys.join(', ')}.'));
 }

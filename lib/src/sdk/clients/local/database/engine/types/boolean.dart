@@ -36,8 +36,8 @@
 
 part of '../database.dart';
 
-/// Reads a value back the way [DatabaseType.boolean] wrote it.
-extension BooleanDecoding on DatabaseType {
+/// Reads a value back the way [Value.boolean] wrote it.
+extension BooleanDecoding on Value {
   /// This value as a [bool], the same convention [boolean] wrote it under:
   /// any non-zero [Integer] is `true`, zero is `false`.
   ///

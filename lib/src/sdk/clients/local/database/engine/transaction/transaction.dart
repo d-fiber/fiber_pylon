@@ -40,8 +40,8 @@ part of '../database.dart';
 /// [LocalDatabase.update] and [LocalDatabase.delete] a [LocalDatabase]
 /// offers, scoped to one [LocalDatabase.transaction]. Never constructed
 /// directly; [LocalDatabase.transaction] hands one to its own callback.
-final class DatabaseTransaction extends DatabaseSession {
-  DatabaseTransaction._(this._txn, this._owner);
+final class TransactionScope extends Connection {
+  TransactionScope._(this._txn, this._owner);
 
   final Transaction _txn;
   final LocalDatabase _owner;
@@ -53,16 +53,16 @@ final class DatabaseTransaction extends DatabaseSession {
   DatabaseExecutor _executor() => _txn;
 
   @override
-  Future<T> _atomically<T>(Future<T> Function(DatabaseSession session) action) => action(this);
+  Future<T> _atomically<T>(Future<T> Function(Connection session) action) => action(this);
 
   /// See [LocalDatabase.execute].
-  Future<void> execute(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
+  Future<void> execute(String sql, [List<Value>? arguments]) => _guarded(() async {
     await _txn.execute(sql, _toNativeArgs(arguments));
     _owner._notifyWrite(null);
   });
 
   /// See [LocalDatabase.insert].
-  Future<int> insert<T extends DatabaseRecord>(InsertValues<T> Function(Insert<T> insert) build) =>
+  Future<int> insert<T extends Storable>(InsertValues<T> Function(Insert<T> insert) build) =>
       _guarded(() async {
         final spec = build(Insert<T>._());
         final rowId = await _txn.rawInsert(spec._sql, spec._arguments);
@@ -71,9 +71,9 @@ final class DatabaseTransaction extends DatabaseSession {
       });
 
   /// See [LocalDatabase.query].
-  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(DatabaseQuery<T> query) build) =>
+  Future<List<T>> query<T extends Object>(QueryFrom<T> Function(Select<T> query) build) =>
       _guarded(() async {
-        final spec = build(DatabaseQuery<T>._());
+        final spec = build(Select<T>._());
         final rows = await _txn.query(
           spec._table,
           distinct: spec._distinct,
@@ -91,13 +91,13 @@ final class DatabaseTransaction extends DatabaseSession {
       });
 
   /// See [LocalDatabase.rawQuery].
-  Future<List<DatabaseRow>> rawQuery(String sql, [List<DatabaseType>? arguments]) => _guarded(() async {
+  Future<List<RawRow>> rawQuery(String sql, [List<Value>? arguments]) => _guarded(() async {
     final rows = await _txn.rawQuery(sql, _toNativeArgs(arguments));
     return rows.map(_fromNativeRow).toList();
   });
 
   /// See [LocalDatabase.update].
-  Future<int> update<T extends DatabaseRecord>(UpdateSet<T> Function(Update<T> update) build) =>
+  Future<int> update<T extends Storable>(UpdateSet<T> Function(Update<T> update) build) =>
       _guarded(() async {
         final spec = build(Update<T>._());
         final changed = await _txn.update(
