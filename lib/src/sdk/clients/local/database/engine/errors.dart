@@ -36,20 +36,20 @@
 
 part of 'database.dart';
 
-/// What went wrong inside SQLite, closed over the causes [DatabaseException]
-/// can actually distinguish, through the result code SQLite reported and its own
-/// message-matching predicates, rather than a project matching sqflite's raw
-/// exception text a second time for itself.
+/// A failure of the local database, named by its cause.
+///
+/// Every [DatabaseException] sqflite throws reaches the caller as one subclass of this, so a caller matches a reason
+/// instead of sqflite's message text. The class is sealed, which makes a `switch` over it exhaustive.
 sealed class StoreError extends Equatable implements Exception {
   const StoreError(this.message);
 
-  /// sqflite's own [DatabaseException.toString], verbatim.
+  /// The text of the failure: sqflite's [DatabaseException.toString] verbatim when the failure came from sqflite, and
+  /// a sentence of this package's own otherwise.
   final String message;
 
-  /// Reads which [StoreError] [error] actually is, from the result code
-  /// SQLite reported when there is one and from [DatabaseException]'s own
-  /// message predicates otherwise, answering [UnknownError] when
-  /// neither recognises it.
+  /// The [StoreError] that describes [error], or an [UnknownError] when none of the others fits.
+  ///
+  /// It goes by the result code SQLite reported when there is one, and by the exception's own message otherwise.
   factory StoreError.from(DatabaseException error) {
     final message = error.toString();
     final text = message.toLowerCase();
@@ -89,7 +89,7 @@ sealed class StoreError extends Equatable implements Exception {
   String toString() => '$runtimeType($message)';
 }
 
-/// A write broke a `UNIQUE` (or a primary key's own implicit one) index.
+/// A write broke a `UNIQUE` constraint or a primary key.
 final class UniqueConstraintError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const UniqueConstraintError(super.message);
@@ -113,23 +113,22 @@ final class SyntaxError extends StoreError {
   const SyntaxError(super.message);
 }
 
-/// A write reached a database [LocalDatabase.open] opened with
-/// `readOnly: true`.
+/// A write reached a database SQLite cannot write to, such as one opened read only.
 final class ReadOnlyError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const ReadOnlyError(super.message);
 }
 
-/// Something reached a [LocalDatabase] after [LocalDatabase.dispose] closed
-/// it.
+/// A statement reached a connection that sqflite reports as closed.
+///
+/// A call on a [LocalDatabase] after [LocalDatabase.dispose] throws a [StateError] before it gets that far.
 final class ClosedError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const ClosedError(super.message);
 }
 
-/// [LocalDatabase.open] itself failed — a file this process has no permission
-/// to read or write, a read only open of a file that does not exist, or a
-/// failure SQLite gave no more precise reason for.
+/// [LocalDatabase.open] could not open the file: this process may not read or write it, a read only open found no
+/// file, the app database failed its integrity check, or SQLite gave no more precise reason.
 final class OpenFailedError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const OpenFailedError(super.message);
@@ -148,8 +147,7 @@ final class CheckConstraintError extends StoreError {
   const CheckConstraintError(super.message);
 }
 
-/// A write stored a value of a type a `STRICT` table does not accept for that
-/// column.
+/// A write gave a column of a `STRICT` table a value of a type it does not accept.
 final class DatatypeMismatchError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const DatatypeMismatchError(super.message);
@@ -195,36 +193,39 @@ final class TransactionClosedError extends StoreError {
   const TransactionClosedError(super.message);
 }
 
-/// [LocalDatabase.open] found a file written by a newer schema version than
-/// this code declares, and refused to read it wrongly.
+/// [LocalDatabase.open] found a file written by a newer schema version than this code declares, and refused it rather
+/// than read it wrongly.
 final class SchemaTooNewError extends StoreError {
   /// Wraps the [message] naming both versions.
   const SchemaTooNewError(super.message);
 }
 
-/// A [LocalDatabase] was asked to encrypt its file, and the SQLite it runs on
-/// cannot: it is not SQLCipher. It refused to open, rather than write in clear
-/// what was meant to be unreadable.
+/// A [LocalDatabase] was asked to encrypt its file and the SQLite it runs on cannot, because it is not SQLCipher.
+///
+/// The database refuses to open, rather than write in clear what was meant to be unreadable.
 final class EncryptionUnavailableError extends StoreError {
   /// Wraps the [message] naming the database.
   const EncryptionUnavailableError(super.message);
 }
 
-/// [LocalDatabase.open] found a declared column it cannot add to an existing
-/// file by itself. Declare it nullable, give it a default, or add a migration.
+/// [LocalDatabase.open] found a declared column it cannot add to an existing file by itself.
+///
+/// Declare the column nullable, give it a default, or add a migration.
 final class MigrationRequiredError extends StoreError {
   /// Wraps the [message] naming the column and the reason.
   const MigrationRequiredError(super.message);
 }
 
-/// Anything [DatabaseException]'s own predicates do not recognise.
+/// A failure that none of the other errors recognises.
 final class UnknownError extends StoreError {
   /// Wraps sqflite's own [DatabaseException.toString] as [message].
   const UnknownError(super.message);
 }
 
+/// Keeps the primary part of an extended SQLite result code, which is its low byte.
 const int _primaryCodeMask = 0xFF;
 
+/// Runs [action] and rethrows any [DatabaseException] it throws as the [StoreError] that describes it.
 Future<T> _guarded<T>(Future<T> Function() action) async {
   try {
     return await action();

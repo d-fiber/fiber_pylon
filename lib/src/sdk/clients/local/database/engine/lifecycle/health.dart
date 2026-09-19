@@ -36,17 +36,16 @@
 
 part of '../database.dart';
 
-/// Whether the file of the app database is encrypted.
+/// A rule for whether the file of the app database is encrypted, see [LocalDatabase.encryption].
 enum EncryptionPolicy {
-  /// Always: the app refuses to start on a SQLite that cannot encrypt, rather
-  /// than keep its data in clear.
+  /// Always encrypted: the app refuses to start on a SQLite that cannot encrypt, rather than keep its data in clear.
   required,
 
-  /// Where SQLCipher exists (Android, iOS and macOS) and in clear elsewhere,
-  /// which [LocalDatabase.isEncrypted] then says. The default.
+  /// Encrypted where SQLCipher exists (Android, iOS and macOS) and in clear elsewhere, which
+  /// [LocalDatabase.isEncrypted] then says. The default.
   whenAvailable,
 
-  /// Never. For a test, or a platform with no SQLCipher that must still run.
+  /// Never encrypted. For a test, or for a platform with no SQLCipher that must still run.
   off,
 }
 
@@ -57,9 +56,9 @@ final RegExp _lowerThenUpper = RegExp(r'([a-z0-9])([A-Z])');
 final RegExp _acronymThenWord = RegExp(r'([A-Z]+)([A-Z][a-z])');
 final RegExp _notLetterOrDigit = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
 
-/// [appName] in snake case: words split where the case changes or where a
-/// character is neither a letter nor a digit, lower-cased, joined by `_`.
-/// `MyApp`, `My App` and `my-app` all give `my_app`. A name with no letter or
+/// [appName] in snake case, so that `MyApp`, `My App` and `my-app` all give `my_app`.
+///
+/// Words split where the case changes or where a character is neither a letter nor a digit. A name with no letter or
 /// digit gives `app`.
 String _snakeCase(String appName) {
   final words = appName
@@ -72,28 +71,24 @@ String _snakeCase(String appName) {
   return words.isEmpty ? 'app' : words.join('_');
 }
 
-/// The file name the app's database gets: [appName] in snake case followed by
-/// `.db`.
+/// The file name the app database gets: [appName] in snake case followed by `.db`.
 String _fileName(String appName) => '${_snakeCase(appName)}.db';
 
-/// Opens `<app name>.db` and hands it back healthy, whatever state the file
-/// was left in:
+/// Opens the app database, named `<app name>.db`, and hands it back healthy whatever state its file was left in.
 ///
-/// - it does not exist yet (first launch, or deleted since the last one):
-///   SQLite creates it empty;
-/// - it exists and reads fine: it is used as it is, nothing is recreated;
-/// - it exists but cannot be opened, or `PRAGMA quick_check` finds it
-///   corrupted: it is deleted, along with its `-wal`, `-shm` and `-journal`
-///   siblings, and created again. Its content is lost, since there is
-///   nothing left in it to read.
+/// - The file does not exist yet, on a first launch or after it was deleted: SQLite creates it empty.
+/// - The file exists and reads fine: it is used as it is.
+/// - The file exists but cannot be opened, or `PRAGMA quick_check` finds it corrupted: it is deleted, along with its
+///   `-wal`, `-shm` and `-journal` siblings, and created again. Its content is lost, since nothing in it can be read.
 ///
-/// The app's name is read from the platform through `package_info_plus`
-/// unless [appName] is given. [factory] defaults to sqflite's own
-/// [databaseFactory].
+/// The app name is the one the platform reports through `package_info_plus` unless [appName] is given. [factory]
+/// defaults to sqflite's [databaseFactory], or to the SQLCipher one when the database is encrypted. Whether it is
+/// encrypted follows [encryption] and needs a [fingerprint].
 ///
-/// Throws the [StoreError] the second attempt fails with, when even a fresh
-/// file cannot be opened (a directory this process may not write to, say):
-/// recreating cannot fix that.
+/// Throws the [StoreError] the second attempt fails with, when even a fresh file cannot be opened, in a directory this
+/// process may not write to for instance: recreating cannot fix that. Throws an [EncryptionUnavailableError] without
+/// deleting anything when the database is to be encrypted on a SQLite that cannot. Throws a [StateError] when it is to
+/// be encrypted and the file is a database in clear.
 Future<LocalDatabase> _openAppDatabase({
   String? appName,
   DatabaseFactory? factory,
@@ -124,12 +119,10 @@ Future<LocalDatabase> _openAppDatabase({
 /// The first bytes of every SQLite file that is not encrypted.
 const _clearFileHeader = 'SQLite format 3\u0000';
 
-/// Refuses to encrypt over a database that is in clear.
+/// Throws a [StateError] if the file at [path] is a database in clear, so that it is not encrypted over.
 ///
-/// Opening it with a key would fail as if it were corrupt, and the repair
-/// would then delete it: a database from before encryption existed, with the
-/// data in it, would be lost silently. Delete it, or move its rows over, on
-/// purpose.
+/// Opening it with a key would fail as if it were corrupt and the repair would delete it, so a database from before
+/// encryption existed would lose its data silently. The caller deletes it, or moves its rows over, on purpose.
 void _refuseClearFile(String path, String name) {
   final file = File(path);
   if (!file.existsSync()) return;
@@ -147,8 +140,9 @@ void _refuseClearFile(String path, String name) {
   }
 }
 
-/// Opens [db] and runs `PRAGMA quick_check` on it, closing it again and
-/// throwing [OpenFailedError] when the check finds a problem.
+/// Opens [db] and runs `PRAGMA quick_check` on it, and disposes it again if either step fails.
+///
+/// Throws an [OpenFailedError] when the check finds a problem.
 Future<void> _openHealthy(LocalDatabase db, String name) async {
   try {
     await db.open();
@@ -163,6 +157,7 @@ Future<void> _openHealthy(LocalDatabase db, String name) async {
   }
 }
 
+/// Deletes the database file at [path] and its `-wal`, `-shm` and `-journal` siblings, which belong to the old file.
 Future<void> _deleteFiles(String path, DatabaseFactory factory) async {
   await factory.deleteDatabase(path);
   for (final suffix in const ['-wal', '-shm', '-journal']) {
