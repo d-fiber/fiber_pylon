@@ -119,9 +119,6 @@ final class NotesList extends SdkRepository<List<Note>, List<Note>, HouseError, 
   });
 
   @override
-  Future<List<Note>?> initial() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).select();
-
-  @override
   Stream<List<Note>> stream() => _database.from(_database.notes).orderBy([_database.notes.id.asc()]).watch();
 
   @override

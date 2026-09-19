@@ -60,13 +60,12 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
   final bool readFails;
   final bool holdsNothing;
   final List<int> stored;
-  final StreamController<List<int>> _changes = StreamController<List<int>>.broadcast();
+  final StreamController<List<int>?> _changes = StreamController<List<int>?>.broadcast();
 
   List<int> answer = [1, 2, 3];
   Object? failure;
   Completer<List<int>>? gate;
   int fetches = 0;
-  int reads = 0;
   int watches = 0;
 
   @override
@@ -76,17 +75,14 @@ final class Shelf extends SdkRepository<List<int>, List<int>, HouseError, HouseS
   bool get observesConnection => observes;
 
   @override
-  Future<List<int>?> initial() async {
-    reads++;
-    if (readFails) throw StateError('the database failed');
-    return holdsNothing ? null : [...stored];
-  }
-
-  @override
-  Stream<List<int>> stream() {
+  Stream<List<int>?> stream() {
     watches++;
-    return Stream<List<int>>.multi((controller) {
-      if (!holdsNothing) controller.add([...stored]);
+    return Stream<List<int>?>.multi((controller) {
+      if (readFails) {
+        controller.addError(StateError('the database failed'));
+      } else {
+        controller.add(holdsNothing ? null : [...stored]);
+      }
       final subscription = _changes.stream.listen(controller.add, onError: controller.addError);
       controller.onCancel = subscription.cancel;
     });
@@ -156,31 +152,42 @@ void main() {
       await shelf.dispose();
     });
 
-    test('does not read the database until it is asked to', () async {
-      final shelf = Shelf();
-      expect(shelf.reads, 0);
-      expect(shelf.watches, 0);
-
-      shelf.data;
-      shelf.data.value;
-      shelf.data.stream;
-      await pumpEventQueue();
-
-      expect(shelf.reads, 1);
-      expect(shelf.watches, 1);
-      await shelf.dispose();
-    });
-
-    test('reads what the database holds once, and then follows it', () async {
+    test('starts listening to the database right after it is made, without being asked', () async {
       final shelf = Shelf(stored: [7]);
-
-      shelf.data;
-      expect(shelf.reads, 1);
       expect(shelf.watches, 0);
+
       await pumpEventQueue();
 
       expect(shelf.watches, 1);
       expect(shelf.data.value, [7]);
+      await shelf.dispose();
+    });
+
+    test('listens to the database once, however it is reached', () async {
+      final shelf = Shelf();
+
+      shelf.data;
+      shelf.data.value;
+      shelf.status;
+      unawaited(shelf.refresh());
+      await pumpEventQueue();
+
+      expect(shelf.watches, 1);
+      await shelf.dispose();
+    });
+
+    test('has the stored value already for a screen that asks later', () async {
+      final shelf = Shelf(stored: [7]);
+      await pumpEventQueue();
+      final seen = <List<int>?>[];
+
+      shelf.data.stream.listen(seen.add);
+      await pumpEventQueue();
+
+      expect(shelf.data.value, [7]);
+      expect(seen, [
+        [7],
+      ]);
       await shelf.dispose();
     });
 
@@ -196,8 +203,9 @@ void main() {
       await shelf.dispose();
     });
 
-    test('gives a new listener nothing at first, then what the database holds and each change', () async {
+    test('gives a new listener what the database holds, then each change', () async {
       final shelf = Shelf(stored: [7]);
+      await pumpEventQueue();
       final seen = <List<int>?>[];
       shelf.data.stream.listen(seen.add);
       await pumpEventQueue();
@@ -205,9 +213,22 @@ void main() {
       await shelf.refresh();
       await pumpEventQueue();
 
-      expect(seen.first, isNull);
-      expect(seen[1], [7]);
+      expect(seen.first, [7]);
       expect(seen.last, [1, 2, 3]);
+      await shelf.dispose();
+    });
+
+    test('gives a screen that asks within the first moments nothing, then the stored value', () async {
+      final shelf = Shelf(stored: [7]);
+      final seen = <List<int>?>[];
+
+      shelf.data.stream.listen(seen.add);
+      await pumpEventQueue();
+
+      expect(seen, [
+        null,
+        [7],
+      ]);
       await shelf.dispose();
     });
 
@@ -626,13 +647,12 @@ void main() {
       await expectLater(statusDone, completes);
     });
 
-    test('can be disposed before it was ever read', () async {
+    test('can be disposed before it started listening', () async {
       final shelf = Shelf();
 
       await shelf.dispose();
 
       expect(shelf.data.value, isNull);
-      expect(shelf.reads, 0);
       expect(shelf.watches, 0);
     });
   });

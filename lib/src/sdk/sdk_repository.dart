@@ -65,8 +65,9 @@ import 'status.dart';
 ///
 /// A repository stands for one piece of data, not for a kind of data, so what
 /// tells it which one is in its own fields, fixed when it is made. A project
-/// writes one small class per piece of data it shows and makes one where a
-/// screen needs it:
+/// writes one small class per piece of data it shows, with all its actions, and
+/// makes one where a screen needs it. It listens to the database right after it
+/// is made, so [data] already holds the stored value by the time a screen asks:
 ///
 /// ```dart
 /// final class AdultsList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
@@ -97,9 +98,6 @@ import 'status.dart';
 ///   });
 ///
 ///   @override
-///   Future<List<User>?> initial() => _adults.select();
-///
-///   @override
 ///   Stream<List<User>> stream() => _adults.watch();
 ///
 ///   @override
@@ -110,12 +108,10 @@ import 'status.dart';
 /// }
 /// ```
 ///
-/// [fetch], [response], [initial] and [stream] all read the same fields, so what
-/// is asked of the network is exactly what is read from the database, and they
-/// cannot drift apart. Write the query once and use it in both [initial] and
-/// [stream]: were they to read different slices, [data] would change shape at
-/// its first change. Two repositories with different parameters do not disturb
-/// each other, and a refresh is only joined within one of them.
+/// [fetch], [response] and [stream] all read the same fields, so what is asked of
+/// the network is exactly what is read from the database, and they cannot drift
+/// apart. Two repositories with different parameters do not disturb each other,
+/// and a refresh is only joined within one of them.
 ///
 /// When a parameter changes while the screen is open, a search text or the next
 /// page, make another repository and [dispose] the first. Nothing can be changed
@@ -126,21 +122,23 @@ import 'status.dart';
 /// screen reads, `E` the project's own error, and `S` the signal of the adapter
 /// [fetch] fails with.
 abstract base class SdkRepository<R, T, E, S extends Object> {
-  /// A repository whose [data] is empty until it has read what the database holds.
+  /// A repository whose [data] is empty until the database has told what it holds,
+  /// which it starts listening to right after it is made.
   ///
   /// [offlineSignals] lists the signals that mean the network is out of reach. A
   /// [Fault] carrying one of them makes the refresh [StatusOffline] rather than
   /// [StatusFailed]. It is required and has no default: pylon cannot know which of
   /// an adapter's signals means the network rather than the server, and a project
   /// that has none says so with an empty set.
-  SdkRepository({required Set<S> offlineSignals}) : _offlineSignals = offlineSignals;
+  SdkRepository({required Set<S> offlineSignals}) : _offlineSignals = offlineSignals {
+    scheduleMicrotask(_follow);
+  }
 
   final MutableObservable<T?> _data = MutableObservable<T?>(null);
   final Set<S> _offlineSignals;
   final MutableObservable<Status<E>> _status = MutableObservable<Status<E>>(StatusRunning<E>());
 
   final List<StreamSubscription<bool>> _waiting = [];
-  StreamSubscription<T>? _following;
   Future<Status<E>>? _running;
   bool _started = false;
   bool _disposed = false;
@@ -165,21 +163,15 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   /// says `true`.
   bool get observesConnection;
 
-  /// Asks the database for what it holds for this repository, once, and answers
-  /// it.
+  /// The database's own stream for this repository: what it holds now, first,
+  /// then every change to it.
   ///
-  /// It is what [data] starts from, in place of a value the project would have
-  /// to invent: it may hold something or nothing, and answers `null` for nothing
-  /// when there is no such thing as an empty list of it. Called the first time
-  /// [data] or [status] is read, while [status] is [StatusRunning].
-  Future<T?> initial();
-
-  /// The database's own stream for this repository: what it holds now, then every
-  /// change to it.
-  ///
-  /// It is what [data] follows once [initial] has answered, and it is subscribed
-  /// to once.
-  Stream<T> stream();
+  /// The only way this repository reads the database, and the answer to what it
+  /// listens to: it is subscribed to once, right after the repository is made,
+  /// and each event becomes [data]. It emits `null` for nothing when there is no
+  /// such thing as an empty list of it. Its first event is the stored value, so
+  /// there is no separate initial value to give.
+  Stream<T?> stream();
 
   /// Asks the network, and only the network.
   ///
@@ -199,12 +191,13 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   /// What the database holds, read with `data.value` and followed with
   /// `data.stream`, which gives a new listener the current value first.
   ///
-  /// `null` until [initial] has answered, and after it when the database holds
-  /// nothing. It follows the database a moment after a refresh completes, not
-  /// before: it is `data.stream` that a screen follows.
+  /// `null` until the first event of [stream], and after it when the database
+  /// holds nothing. It follows the database a moment after a refresh completes,
+  /// not before: it is `data.stream` that a screen follows.
   ///
-  /// Reading it for the first time asks the database, which is why nothing
-  /// touches it until a screen asks.
+  /// The repository has been listening to the database since it was made, so a
+  /// screen that asks later finds the stored value already here. One that asks
+  /// within the first moments gets `null` first, then the value.
   Observable<T?> get data {
     _follow();
     return _data;
@@ -221,7 +214,8 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   /// already [StatusIdle] by then. The exception is [StatusOffline], which stays
   /// while the repository [observesConnection] and the connection is out.
   ///
-  /// Reading it for the first time starts loading [data], like [data] does.
+  /// Starts loading [data] if it has not started, which it does on its own right
+  /// after the repository is made.
   Observable<Status<E>> get status {
     _follow();
     return _status;
@@ -254,8 +248,6 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   Future<void> dispose() async {
     _disposed = true;
     _release();
-    await _following?.cancel();
-    _following = null;
     await _data.dispose();
     await _status.dispose();
   }
@@ -267,16 +259,13 @@ abstract base class SdkRepository<R, T, E, S extends Object> {
   }
 
   Future<void> _load() async {
-    var read = true;
+    var read = false;
     try {
-      _data.value = await initial();
+      read = await _data.follow(stream());
     } catch (error, stackTrace) {
-      read = false;
       _data.emitError(error, stackTrace);
     }
-    if (_disposed) return;
-    _following = stream().listen((stored) => _data.value = stored, onError: _data.emitError);
-    if (_busy) return;
+    if (_disposed || _busy) return;
     if (read) {
       _announce(StatusSucceeded<E>());
     } else {
