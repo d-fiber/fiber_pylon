@@ -537,6 +537,56 @@ The rest of the engine — the schema DSL, the migrations, the drift report — 
 own plumbing and is not exported. `LocalDatabase` cannot be built by hand either: only its
 static calls are for a project.
 
+## Repositories that read the cache
+
+A screen never reads the network. It reads the local database, and a refresh only brings the
+database up to date. `SdkRepository` is where it reads: a small class a project writes per
+piece of data it shows, with its parameters in its own fields.
+
+```dart
+final class UsersList extends SdkRepository<List<User>, List<User>, UsersError, RestSignal> {
+  UsersList() : super(initial: const [], offlineSignals: const {RestSignal.noRoute});
+
+  @override bool get isAuthenticated => true;
+  @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
+  @override Future<void> response(List<User> users) => ...;                        // the database
+  @override Stream<List<User>> watchLocal() => db.from(db.users).watch();          // what is read
+  @override UsersError resolve(Fault<RestSignal> fault) => ...;
+}
+
+final users = GroundSdk.I.users.list();   // a repository, made where the screen needs it
+users.value;                          // what is stored, or `initial` until the database has answered
+users.stream.listen(show);            // the value now, then every change
+await users.refresh();                // fetch, then response: the database moves, so does the stream
+```
+
+One way only: `refresh` writes, the database's own `watch` emits, `value` follows. There is no
+second source for a screen to reconcile with the first, and a change of tenant swaps what
+`value` holds along with the rows. It reads like a `Preference`, on the same `BehaviorSubject`:
+`value`, a call, `stream` and `values`.
+
+What the last refresh did is a second observable, `status`, and it is independent of the
+first: when a refresh fails or the network is out, `value` is still what is stored.
+
+```dart
+users.status.stream.listen((status) => switch (status) {
+  StatusRunning() => showSpinner(),
+  StatusOffline() => showBanner('no network, showing what is stored'),
+  StatusUnauthenticated() => showSignIn(),
+  StatusFailed(:final error) => showError(error),
+  StatusIdle() || StatusSucceeded() => hideBanner(),
+});
+```
+
+The variants are only what pylon can decide by itself: the life of the refresh, whether a
+credential was held to make it (`isAuthenticated` and `Credentials`), and whether the network
+was reachable (a `HealthMonitor`, or the `offlineSignals` the project listed). Everything else
+is the project's own error `E`, which `resolve` produces from the fault, as a `FaultResolver`
+does. `offlineSignals` has no default, for the reason `fatalSignals` has none.
+
+Six screens asking at once make one request: a `refresh` under way is joined. An error that is
+not a `Fault` is a bug and propagates.
+
 ## What is deliberately absent
 
 No token format, no notion of a session, no list of error kinds, no envelope around a
