@@ -34,10 +34,12 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+
 import 'sign_in.dart';
 
 final class Auth {
   const Auth();
 
-  SignIn get signIn => const SignIn();
+  /// One attempt to sign in, made where a screen needs it and disposed with it.
+  SignIn signIn({required String email, required String password}) => SignIn(email: email, password: password);
 }

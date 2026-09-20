@@ -34,9 +34,11 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 import '../../clients/rest/rest.dart';
+import '../../clients/rest/signal.dart';
 
 final class Session {
   final String token;
@@ -46,11 +48,33 @@ final class Session {
 
 enum SignInError { invalidCredentials, networkError, unknown }
 
-final class SignIn {
-  const SignIn();
+/// Signing in with an email and a password.
+///
+/// Made for one attempt: `refresh()` sends it and `status` announces how it
+/// went, [StatusSucceeded] once the credential is held. `data` says whether one
+/// is.
+final class SignIn extends Repository<Session, bool, SignInError, RestSignal> {
+  SignIn({required this.email, required this.password});
 
-  Future<Result<Session, SignInError>> call({
-    required String email,
-    required String password,
-  }) => RestGroundSdk.I.auth.signIn(email: email, password: password);
+  final String email;
+  final String password;
+
+  @override
+  bool get requiresCredential => false;
+
+  @override
+  Future<Session> fetch() => RestGroundSdk.I.auth.signIn(email: email, password: password);
+
+  @override
+  Future<void> response(Session session) => Credentials.set(Credential(token: session.token));
+
+  @override
+  Stream<bool> stream() => Credentials.held.stream;
+
+  @override
+  SignInError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
+    RestSignal.unauthorized => SignInError.invalidCredentials,
+    RestSignal.noRoute => SignInError.networkError,
+    _ => SignInError.unknown,
+  };
 }

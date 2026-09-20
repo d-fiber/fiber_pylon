@@ -34,42 +34,26 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 import '../../../../src/auth/sign_in.dart';
 import '../../caller.dart';
-import '../../signal.dart';
 
 final class GroundSdkAuthResetSignIn {
   final Caller _caller;
 
   GroundSdkAuthResetSignIn(this._caller);
 
-  static final FaultResolver<RestSignal, SignInError> _resolver =
-      FaultResolver(
-        (signal) => switch (signal) {
-          RestSignal.unauthorized => SignInError.invalidCredentials,
-          RestSignal.noRoute => SignInError.networkError,
-          _ => SignInError.unknown,
-        },
-      );
+  /// Signs in and answers the session the server opened.
+  ///
+  /// Throws a [Fault] naming what went wrong, which is what `Repository.fetch`
+  /// promises.
+  Future<Session> call({required String email, required String password}) async {
+    final call = _caller.path((p) => p.segment('auth/sign_in')).post()
+      ..body((b) => b.value('email', email).value('password', password));
 
-  Future<Result<Session, SignInError>> call({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      final call = _caller
-          .path((p) => p.segment('auth/sign_in'))
-          .unauthenticated()
-          .post()
-        ..body((b) => b.value('email', email).value('password', password));
-
-      final response = await call.send();
-      final token = response.map['token'] as String;
-      return OK(Session(token: token));
-    } on Fault<RestSignal> catch (fault) {
-      return Failure(_resolver.call(fault));
-    }
+    final response = await call.send();
+    return Session(token: response.map['token'] as String);
   }
 }
