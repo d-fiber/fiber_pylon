@@ -36,6 +36,4 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'signal.dart';
-
-typedef Caller = RestNode<RestSignal>;
+typedef Caller = RestNode;

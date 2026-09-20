@@ -49,13 +49,13 @@ import 'response.dart';
 /// always a complete address — there is no partly-composed state left to
 /// protect against, as long as every parameter it carries has been resolved
 /// by [parameters] first.
-final class RestNode<S extends Object> {
+final class RestNode {
   /// The root of [client]'s resource tree.
-  RestNode(RestClient<S> client) : this._(client, const [], const {});
+  RestNode(RestClient client) : this._(client, const [], const {});
 
   RestNode._(this._client, this._segments, this._headers);
 
-  final RestClient<S> _client;
+  final RestClient _client;
   final List<_PathPart> _segments;
   final Map<String, String> _headers;
 
@@ -90,7 +90,7 @@ final class RestNode<S extends Object> {
   /// any value that did not originate in this SDK's own source belongs —
   /// never interpolated into a [RestPath.segment] directly, which would let
   /// it inject extra segments unnoticed.
-  RestNode<S> path(RestPath Function(RestPath) build) => RestNode._(
+  RestNode path(RestPath Function(RestPath) build) => RestNode._(
     _client,
     [..._segments, ...build(const RestPath._([]))._parts],
     _headers,
@@ -110,7 +110,7 @@ final class RestNode<S extends Object> {
   /// nothing supplied for it, and one naming what is unused when [build]
   /// supplies a name no parameter asked for — a call is only ready once the
   /// two match exactly.
-  RestNode<S> parameters(RestParameters Function(RestParameters) build) {
+  RestNode parameters(RestParameters Function(RestParameters) build) {
     final values = build(const RestParameters._({}))._values;
     final used = <String>{};
     final resolved = _segments.map((part) {
@@ -147,7 +147,7 @@ final class RestNode<S extends Object> {
   ///   (h) => h.add('x-app-key', appKey),
   /// );
   /// ```
-  RestNode<S> headers(RestCallHeaders Function(RestCallHeaders) build) =>
+  RestNode headers(RestCallHeaders Function(RestCallHeaders) build) =>
       RestNode._(
         _client,
         _segments,
@@ -155,7 +155,7 @@ final class RestNode<S extends Object> {
       );
 
   /// Reads this resource. See [RestCall] for what it can carry.
-  RestCall<S> get() => RestCall._(
+  RestCall get() => RestCall._(
     _client,
     resolvedPath,
     RestMethod.get,
@@ -164,7 +164,7 @@ final class RestNode<S extends Object> {
 
   /// Reads this resource's headers, without its body. See [RestCall] for
   /// what it can carry.
-  RestCall<S> head() => RestCall._(
+  RestCall head() => RestCall._(
     _client,
     resolvedPath,
     RestMethod.head,
@@ -173,7 +173,7 @@ final class RestNode<S extends Object> {
 
   /// Creates this resource, or submits something that is not a replacement.
   /// See [RestCall] for what it can carry.
-  RestCall<S> post() => RestCall._(
+  RestCall post() => RestCall._(
     _client,
     resolvedPath,
     RestMethod.post,
@@ -181,7 +181,7 @@ final class RestNode<S extends Object> {
   );
 
   /// Replaces this resource whole. See [RestCall] for what it can carry.
-  RestCall<S> put() => RestCall._(
+  RestCall put() => RestCall._(
     _client,
     resolvedPath,
     RestMethod.put,
@@ -189,7 +189,7 @@ final class RestNode<S extends Object> {
   );
 
   /// Changes part of this resource. See [RestCall] for what it can carry.
-  RestCall<S> patch() => RestCall._(
+  RestCall patch() => RestCall._(
     _client,
     resolvedPath,
     RestMethod.patch,
@@ -197,7 +197,7 @@ final class RestNode<S extends Object> {
   );
 
   /// Removes this resource. See [RestCall] for what it can carry.
-  RestCall<S> delete() => RestCall._(
+  RestCall delete() => RestCall._(
     _client,
     resolvedPath,
     RestMethod.delete,
@@ -269,7 +269,7 @@ final class _Parameter extends _PathPart {
 ///   ..timeout(const Duration(seconds: 5));
 /// final response = await request.send();
 /// ```
-final class RestCall<S extends Object> {
+final class RestCall {
   RestCall._(
     this._client,
     this._path,
@@ -277,7 +277,7 @@ final class RestCall<S extends Object> {
     this._headers,
   );
 
-  final RestClient<S> _client;
+  final RestClient _client;
   final String _path;
   final RestMethod _method;
   final Map<String, String> _headers;

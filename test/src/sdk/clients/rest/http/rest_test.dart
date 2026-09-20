@@ -43,29 +43,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-enum _Signal { notFound, duplicateCall, unknown }
-
-RestClient<_Signal> _client({
+RestClient _client({
   required http.Client http,
   RestHeaders? headers,
-}) => RestClient<_Signal>(
+}) => RestClient(
   baseUrl: Uri.parse('https://api.example.test/v1/'),
-  classifier: const _Classifier(),
-  guard: CallGuard<_Signal>(duplicateSignal: _Signal.duplicateCall),
+  guard: CallGuard(),
   httpClient: http,
   headers: headers,
 );
-
-class _Classifier implements RestClassifier<_Signal> {
-  const _Classifier();
-
-  @override
-  _Signal? ofResponse(RestResponse response) =>
-      response.status == 404 ? _Signal.notFound : null;
-
-  @override
-  _Signal ofTransport(Object error, StackTrace stackTrace) => _Signal.unknown;
-}
 
 http.Response _jsonResponseWithContentType(String body, {int status = 200}) =>
     http.Response(body, status, headers: {'content-type': 'application/json'});
@@ -76,7 +62,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final node = RestNode<_Signal>(
+      final node = RestNode(
         client,
       ).path((p) => p.segment('v1/store')).path((p) => p.segment('status'));
       expect(node.resolvedPath, 'v1/store/status');
@@ -86,7 +72,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final root = RestNode<_Signal>(client);
+      final root = RestNode(client);
 
       expect(() => root.path((p) => p.segment('..')), throwsArgumentError);
       expect(
@@ -102,7 +88,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('store').parameter('id'))
           .parameters((p) => p.parameter('id', 'a/b'));
       expect(node.resolvedPath, 'store/a%2Fb');
@@ -112,7 +98,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('store').parameter('id'))
           .parameters((p) => p.parameter('id', '7?admin=true'));
       expect(node.resolvedPath, 'store/7%3Fadmin%3Dtrue');
@@ -127,7 +113,7 @@ void main() {
           return http.Response('{}', 200);
         }),
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('store').parameter('id'))
           .parameters((p) => p.parameter('id', '../../admin/secret'));
 
@@ -142,7 +128,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final store = RestNode<_Signal>(
+      final store = RestNode(
         client,
       ).path((p) => p.segment('store').parameter('id'));
 
@@ -166,7 +152,7 @@ void main() {
           return http.Response('{}', 200);
         }),
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('store').parameter('id'))
           .parameters((p) => p.parameter('id', '7'));
 
@@ -180,7 +166,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('city').parameter('id').segment('review'))
           .path((p) => p.parameter('reviewId'))
           .parameters(
@@ -194,7 +180,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final store = RestNode<_Signal>(
+      final store = RestNode(
         client,
       ).path((p) => p.segment('store').parameter('id'));
 
@@ -205,7 +191,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final store = RestNode<_Signal>(
+      final store = RestNode(
         client,
       ).path((p) => p.segment('store').parameter('id'));
 
@@ -221,7 +207,7 @@ void main() {
       final client = _client(
         http: MockClient((_) async => http.Response('', 200)),
       );
-      final store = RestNode<_Signal>(
+      final store = RestNode(
         client,
       ).path((p) => p.segment('store').parameter('id'));
 
@@ -238,7 +224,7 @@ void main() {
           return http.Response('', 200);
         }),
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('store'))
           .headers((h) => h.add('x-app-key', 'demo'));
 
@@ -257,7 +243,7 @@ void main() {
         }),
         headers: (request) async => {'x-app-key': 'from-client'},
       );
-      final node = RestNode<_Signal>(client)
+      final node = RestNode(client)
           .path((p) => p.segment('store'))
           .headers((h) => h.add('x-app-key', 'from-node'));
 
@@ -275,7 +261,7 @@ void main() {
           return http.Response('', 200);
         }),
       );
-      final api = RestNode<_Signal>(
+      final api = RestNode(
         client,
       ).headers((h) => h.add('x-app-key', 'root'));
       final store = api
@@ -297,7 +283,7 @@ void main() {
           return _jsonResponseWithContentType('{}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first = node
           .headers((h) => h.add('accept-language', 'fr'))
@@ -324,7 +310,7 @@ void main() {
           return _jsonResponseWithContentType('{}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first = node.get().send();
       final second = runUnauthenticated(() => node.get().send());
@@ -345,7 +331,7 @@ void main() {
           return _jsonResponseWithContentType('{"page":1}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first = node.get().send();
       final second = node.get().send();
@@ -367,7 +353,7 @@ void main() {
           return _jsonResponseWithContentType('{"cursor":"$cursor"}');
         }),
       );
-      final node = RestNode<_Signal>(
+      final node = RestNode(
         client,
       ).path((p) => p.segment('store')).path((p) => p.segment('sync'));
 
@@ -397,7 +383,7 @@ void main() {
           return http.Response('', 200);
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first = node.head().send();
       final second = node.head().send();
@@ -419,13 +405,13 @@ void main() {
           return _jsonResponseWithContentType('{"id":"1"}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first = (node.post()..body((b) => b.value('title', 'Acme'))).send();
       final second = (node.post()..body((b) => b.value('title', 'Acme')))
           .send();
 
-      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await expectLater(second, throwsA(isA<Fault>()));
       await first;
 
       expect(calls, 1);
@@ -441,7 +427,7 @@ void main() {
           return _jsonResponseWithContentType('{"id":"$calls"}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first = (node.post()..body((b) => b.value('title', 'Acme'))).send();
       final second = (node.post()..body((b) => b.value('title', 'Other')))
@@ -461,7 +447,7 @@ void main() {
           return _jsonResponseWithContentType('{}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       final first =
           (node.post()
@@ -472,7 +458,7 @@ void main() {
                 ..body((b) => b.value('draft', true).value('title', 'Acme')))
               .send();
 
-      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await expectLater(second, throwsA(isA<Fault>()));
       await first;
 
       expect(calls, 1);
@@ -490,7 +476,7 @@ void main() {
           return _jsonResponseWithContentType('{"id":"1"}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
       final upload = RestUpload(
         field: 'logo',
         bytes: Uint8List.fromList([1, 2, 3]),
@@ -505,7 +491,7 @@ void main() {
           (node.post()..multipart((m) => m.field('title', 'Acme').file(upload)))
               .send();
 
-      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await expectLater(second, throwsA(isA<Fault>()));
       await first;
 
       expect(calls, 1);
@@ -521,7 +507,7 @@ void main() {
           return _jsonResponseWithContentType('{}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       await (node.post()
             ..body((b) => b.value('title', 'Acme'))
@@ -540,7 +526,7 @@ void main() {
           return http.Response('', 200);
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
 
       await (node.get()
             ..queryParameters((p) => p.parameter('limit', '10'))
@@ -560,7 +546,7 @@ void main() {
           return _jsonResponseWithContentType('{"id":"1"}');
         }),
       );
-      final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
+      final node = RestNode(client).path((p) => p.segment('store'));
       final logo = RestUpload(
         field: 'logo',
         bytes: Uint8List.fromList([1, 2, 3]),
@@ -591,7 +577,7 @@ void main() {
                 ..multipart((m) => m.file(banner)))
               .send();
 
-      await expectLater(second, throwsA(isA<Fault<_Signal>>()));
+      await expectLater(second, throwsA(isA<Fault>()));
       await first;
 
       expect(calls, 1);

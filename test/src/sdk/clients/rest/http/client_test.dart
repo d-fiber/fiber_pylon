@@ -46,53 +46,15 @@ import 'package:fiber_pylon/src/common/unauthenticated_scope.dart';
 import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:get_it/get_it.dart';
 
-enum HouseSignal {
-  unauthorized,
-  forbidden,
-  vpnRequired,
-  notFound,
-  nameEmpty,
-  timedOut,
-  noRoute,
-  duplicate,
-  unknown,
-}
-
-class HouseClassifier implements RestClassifier<HouseSignal> {
-  const HouseClassifier();
-
-  @override
-  HouseSignal? ofResponse(RestResponse response) {
-    if (response.status >= 200 && response.status < 300) return null;
-
-    final body = response.body;
-    final code = body is Map<String, dynamic> ? body['code'] : null;
-    if (code == 'vpn_required') return HouseSignal.vpnRequired;
-    if (code == 'name_empty') return HouseSignal.nameEmpty;
-
-    return switch (response.status) {
-      401 => HouseSignal.unauthorized,
-      403 => HouseSignal.forbidden,
-      404 => HouseSignal.notFound,
-      _ => HouseSignal.unknown,
-    };
-  }
-
-  @override
-  HouseSignal ofTransport(Object error, StackTrace stackTrace) =>
-      error is TimeoutException ? HouseSignal.timedOut : HouseSignal.noRoute;
-}
-
 final Uri houseBase = Uri.parse('https://house.test/v1/admin/');
 
-RestClient<HouseSignal> clientAnswering(
+RestClient clientAnswering(
   Future<http.Response> Function(http.Request request) handler, {
   RestHeaders? headers,
   Uri? baseUrl,
-}) => RestClient<HouseSignal>(
+}) => RestClient(
   baseUrl: baseUrl ?? houseBase,
-  classifier: const HouseClassifier(),
-  guard: CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate),
+  guard: CallGuard(),
   headers: headers,
   httpClient: MockClient(handler),
 );
@@ -125,20 +87,12 @@ Future<void> holdStaleCredential() async {
         expiresAt: DateTime.now().add(const Duration(hours: 1)),
       );
     },
-    fatalSignals: const {HouseSignal.forbidden},
+    fatalStatuses: const {403},
   );
 }
 
-RestClient<HouseSignal> renewingClient(Future<http.Response> Function(http.Request request) handler) =>
-    RestClient<HouseSignal>(
-      baseUrl: houseBase,
-      classifier: const HouseClassifier(),
-      guard: CallGuard<HouseSignal>.renewing(
-        duplicateSignal: HouseSignal.duplicate,
-        renewOn: const {HouseSignal.unauthorized},
-      ),
-      httpClient: MockClient(handler),
-    );
+RestClient renewingClient(Future<http.Response> Function(http.Request request) handler) =>
+    RestClient(baseUrl: houseBase, guard: CallGuard.renewing(renewOn: const {401}), httpClient: MockClient(handler));
 
 void main() {
   group('RestClient credential', () {
@@ -179,7 +133,7 @@ void main() {
 
       await expectLater(
         runUnauthenticated(() => client.send(const RestRequest(path: 'brand'))),
-        throwsA(isA<Fault<HouseSignal>>().having((fault) => fault.signal, 'signal', HouseSignal.unauthorized)),
+        throwsA(isA<Fault>().having((fault) => fault.status, 'status', 401)),
       );
 
       expect(requests, 1);
@@ -284,10 +238,33 @@ void main() {
       await client.dispose();
     });
 
-    test('throws the signal the classifier gave a failing status', () async {
+    test('carries the status and the decoded body of a failing answer', () async {
+      const statuses = [400, 401, 403, 404, 409, 418, 422, 429, 500, 503, 302];
+
+      for (final status in statuses) {
+        final client = clientAnswering(
+          (request) async =>
+              http.Response('{"code":"c$status"}', status, headers: {'content-type': 'application/json'}),
+        );
+
+        await expectLater(
+          client.send(const RestRequest(path: 'brand/7')),
+          throwsA(
+            isA<Fault>()
+                .having((fault) => fault.status, 'status', status)
+                .having((fault) => fault.details, 'details', {'code': 'c$status'})
+                .having((fault) => fault.cause, 'cause', isNull),
+          ),
+          reason: 'status $status',
+        );
+        await client.dispose();
+      }
+    });
+
+    test('carries the decoded error body as the details of the fault', () async {
       final client = clientAnswering(
         (request) async => http.Response(
-          '{}',
+          jsonEncode({'code': 'vpn_required'}),
           403,
           headers: {'content-type': 'application/json'},
         ),
@@ -296,42 +273,15 @@ void main() {
       await expectLater(
         client.send(const RestRequest(path: 'brand/7')),
         throwsA(
-          isA<Fault<HouseSignal>>().having(
-            (fault) => fault.signal,
-            'signal',
-            HouseSignal.forbidden,
-          ),
+          isA<Fault>()
+              .having((fault) => fault.status, 'status', 403)
+              .having((fault) => (fault.details as Map<String, dynamic>)['code'], 'details.code', 'vpn_required'),
         ),
       );
       await client.dispose();
     });
 
-    test(
-      'lets the classifier read the error body to refine a status',
-      () async {
-        final client = clientAnswering(
-          (request) async => http.Response(
-            jsonEncode({'code': 'vpn_required'}),
-            403,
-            headers: {'content-type': 'application/json'},
-          ),
-        );
-
-        await expectLater(
-          client.send(const RestRequest(path: 'brand/7')),
-          throwsA(
-            isA<Fault<HouseSignal>>().having(
-              (fault) => fault.signal,
-              'signal',
-              HouseSignal.vpnRequired,
-            ),
-          ),
-        );
-        await client.dispose();
-      },
-    );
-
-    test('carries the error body as the details of the fault', () async {
+    test('carries a validation body as the details of a bad request', () async {
       final client = clientAnswering(
         (request) async => http.Response(
           jsonEncode({'code': 'name_empty', 'field': 'name'}),
@@ -343,17 +293,31 @@ void main() {
       await expectLater(
         client.send(const RestRequest(path: 'brand')),
         throwsA(
-          isA<Fault<HouseSignal>>().having(
-            (fault) => (fault.details as Map<String, dynamic>)['field'],
-            'details.field',
-            'name',
-          ),
+          isA<Fault>()
+              .having((fault) => fault.status, 'status', 400)
+              .having((fault) => (fault.details as Map<String, dynamic>)['field'], 'details.field', 'name'),
         ),
       );
       await client.dispose();
     });
 
-    test('throws the transport signal when the call never landed', () async {
+    test('leaves the details empty when the error answer was not JSON', () async {
+      final client = clientAnswering(
+        (request) async => http.Response('gateway down', 502, headers: {'content-type': 'text/plain'}),
+      );
+
+      await expectLater(
+        client.send(const RestRequest(path: 'brand/7')),
+        throwsA(
+          isA<Fault>()
+              .having((fault) => fault.status, 'status', 502)
+              .having((fault) => fault.details, 'details', isNull),
+        ),
+      );
+      await client.dispose();
+    });
+
+    test('gives a call that never landed no status and the exception as its cause', () async {
       final client = clientAnswering(
         (request) async => throw const SocketFailure(),
       );
@@ -361,15 +325,15 @@ void main() {
       await expectLater(
         client.send(const RestRequest(path: 'brand/7')),
         throwsA(
-          isA<Fault<HouseSignal>>()
-              .having((fault) => fault.signal, 'signal', HouseSignal.noRoute)
+          isA<Fault>()
+              .having((fault) => fault.status, 'status', isNull)
               .having((fault) => fault.cause, 'cause', isA<SocketFailure>()),
         ),
       );
       await client.dispose();
     });
 
-    test('distinguishes a timeout from an unreachable host', () async {
+    test('gives a call that timed out no status and a TimeoutException as its cause', () async {
       final client = clientAnswering(
         (request) async => throw TimeoutException('too slow'),
       );
@@ -377,11 +341,9 @@ void main() {
       await expectLater(
         client.send(const RestRequest(path: 'brand/7')),
         throwsA(
-          isA<Fault<HouseSignal>>().having(
-            (fault) => fault.signal,
-            'signal',
-            HouseSignal.timedOut,
-          ),
+          isA<Fault>()
+              .having((fault) => fault.status, 'status', isNull)
+              .having((fault) => fault.cause, 'cause', isA<TimeoutException>()),
         ),
       );
       await client.dispose();
@@ -458,11 +420,9 @@ void main() {
       await expectLater(
         client.send(const RestRequest(path: 'brand/7', dedupKey: 'brand/7')),
         throwsA(
-          isA<Fault<HouseSignal>>().having(
-            (fault) => fault.signal,
-            'signal',
-            HouseSignal.duplicate,
-          ),
+          isA<Fault>()
+              .having((fault) => fault.status, 'status', isNull)
+              .having((fault) => fault.cause, 'cause', isA<DuplicateCall>()),
         ),
       );
 
@@ -505,11 +465,7 @@ void main() {
       });
 
       final expected = throwsA(
-        isA<Fault<HouseSignal>>().having(
-          (fault) => fault.signal,
-          'signal',
-          HouseSignal.notFound,
-        ),
+        isA<Fault>().having((fault) => fault.status, 'status', 404),
       );
       final waiting = [
         expectLater(
@@ -529,10 +485,9 @@ void main() {
 
     test('keeps a client it was handed open when disposed', () async {
       final shared = MockClient((request) async => jsonOk({'ok': true}));
-      final client = RestClient<HouseSignal>(
+      final client = RestClient(
         baseUrl: houseBase,
-        classifier: const HouseClassifier(),
-        guard: CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate),
+        guard: CallGuard(),
         httpClient: shared,
       );
 

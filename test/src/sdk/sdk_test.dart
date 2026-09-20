@@ -90,27 +90,14 @@ final class _TestSdk extends Sdk {
 
 final class _NeverInitializedSdk extends Sdk {}
 
-enum _Signal { refused, unreachable }
-
-final class _Classifier implements RestClassifier<_Signal> {
-  const _Classifier();
-
-  @override
-  _Signal? ofResponse(RestResponse response) => response.status < 300 ? null : _Signal.refused;
-
-  @override
-  _Signal ofTransport(Object error, StackTrace stackTrace) => _Signal.unreachable;
-}
-
-final class _Api extends RestSdk<_Signal> {
+final class _Api extends RestSdk {
   _Api() : this._([]);
 
   _Api._(this.reached)
     : super(
-        RestClient<_Signal>(
+        RestClient(
           baseUrl: Uri.parse('https://house.test/v1/'),
-          classifier: const _Classifier(),
-          guard: CallGuard<_Signal>(duplicateSignal: _Signal.refused),
+          guard: CallGuard(),
           httpClient: MockClient((request) async {
             reached.add(request.url);
             return http.Response('{}', 200, headers: {'content-type': 'application/json'});
@@ -120,7 +107,7 @@ final class _Api extends RestSdk<_Signal> {
 
   final List<Uri> reached;
 
-  RestNode<_Signal> get users => RestNode<_Signal>(client).path((p) => p.segment('users'));
+  RestNode get users => RestNode(client).path((p) => p.segment('users'));
 
   @override
   Future<void> dispose() async {

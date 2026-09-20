@@ -47,8 +47,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart';
 
-enum HouseSignal { rejected, unreachable }
-
 const String _vaultKey = 'pylon.credential.v1';
 
 Credential credentialLasting(Duration lifetime, {String token = 'first', String? refreshToken = 'again'}) =>
@@ -178,7 +176,7 @@ void main() {
           asked.add(current);
           return renewed;
         },
-        fatalSignals: const {HouseSignal.rejected},
+        fatalStatuses: const {401},
       );
       await pumpEventQueue();
 
@@ -194,7 +192,7 @@ void main() {
           unauthenticated = isUnauthenticated;
           return credentialLasting(const Duration(hours: 1), token: 'second');
         },
-        fatalSignals: const {HouseSignal.rejected},
+        fatalStatuses: const {401},
       );
 
       await Credentials.renew();
@@ -207,7 +205,7 @@ void main() {
       final first = credentialLasting(const Duration(hours: 1), token: 'first');
       final second = credentialLasting(const Duration(hours: 1), token: 'second');
       await hold(first);
-      Credentials.renewWith(refresh: (current) async => second, fatalSignals: const {HouseSignal.rejected});
+      Credentials.renewWith(refresh: (current) async => second, fatalStatuses: const {401});
 
       await Credentials.renew();
 
@@ -222,7 +220,7 @@ void main() {
           asked++;
           return current;
         },
-        fatalSignals: const {HouseSignal.rejected},
+        fatalStatuses: const {401},
       );
 
       await Credentials.renew();
@@ -244,8 +242,8 @@ void main() {
     test('clears the credential when the backend rejects it', () async {
       await hold(credentialLasting(const Duration(minutes: 2)));
       Credentials.renewWith(
-        refresh: (current) async => throw const Fault<HouseSignal>(HouseSignal.rejected),
-        fatalSignals: const {HouseSignal.rejected},
+        refresh: (current) async => throw const Fault(status: 401),
+        fatalStatuses: const {401},
       );
 
       await Credentials.renew();
@@ -257,8 +255,8 @@ void main() {
       final stored = credentialLasting(const Duration(minutes: 2));
       await hold(stored);
       Credentials.renewWith(
-        refresh: (current) async => throw const Fault<HouseSignal>(HouseSignal.unreachable),
-        fatalSignals: const {HouseSignal.rejected},
+        refresh: (current) async => throw Fault(cause: StateError('offline')),
+        fatalStatuses: const {401},
       );
 
       await Credentials.renew();
@@ -266,15 +264,15 @@ void main() {
       expect(Credentials.value, same(stored));
     });
 
-    test('replaces the exchange and its fatal signals when plugged in again', () async {
+    test('replaces the exchange and its fatal statuses when plugged in again', () async {
       await hold(credentialLasting(const Duration(minutes: 2)));
       Credentials.renewWith(
-        refresh: (current) async => throw const Fault<HouseSignal>(HouseSignal.rejected),
-        fatalSignals: const {HouseSignal.rejected},
+        refresh: (current) async => throw const Fault(status: 401),
+        fatalStatuses: const {401},
       );
       Credentials.renewWith(
-        refresh: (current) async => throw const Fault<HouseSignal>(HouseSignal.rejected),
-        fatalSignals: const {HouseSignal.unreachable},
+        refresh: (current) async => throw const Fault(status: 401),
+        fatalStatuses: const {503},
       );
 
       await Credentials.renew();

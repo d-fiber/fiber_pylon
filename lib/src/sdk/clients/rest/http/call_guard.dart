@@ -53,25 +53,21 @@ import '../../../../credential/credentials.dart';
 /// asking for the same resource into one request. A read wants the second, a
 /// creation wants the first, and only the caller knows which it is.
 ///
-/// It decides no meaning of its own. Which signals are worth renewing for is
-/// asked as a set, and even the refusal it issues itself is named by the
-/// project, because pylon has no vocabulary to name it in.
+/// A call it refuses as a duplicate throws a [Fault] caused by a
+/// [DuplicateCall], and one that renews the credential does so on the statuses
+/// it is given.
 ///
 /// ```dart
-/// final guard = CallGuard<RestSignal>.renewing(
-///   renewOn: {RestSignal.unauthorized},
-///   duplicateSignal: RestSignal.duplicateCall,
-/// );
+/// final guard = CallGuard.renewing(renewOn: {401});
 ///
 /// Future<Map<String, dynamic>> read(String id) => guard.run(
 ///   () => _http.get('brand/$id'),
 ///   dedupKey: 'brand/$id',
 /// );
 /// ```
-class CallGuard<S extends Object> {
-  final S _duplicateSignal;
+class CallGuard {
   final bool _renewing;
-  final Set<S> _renewOn;
+  final Set<int> _renewOn;
   final Set<String> _inFlight = <String>{};
   final Map<String, Future<Object?>> _shared = <String, Future<Object?>>{};
 
@@ -79,38 +75,27 @@ class CallGuard<S extends Object> {
   ///
   /// Only deduplication is left, which is what an adapter with no notion of a
   /// credential needs.
-  ///
-  /// [duplicateSignal] names the refusal issued when a call duplicates one in
-  /// flight. It is required because pylon would otherwise have to invent a name
-  /// in a vocabulary that is not its own, and the project would have no typed
-  /// value to match it against.
-  CallGuard({required S duplicateSignal}) : _duplicateSignal = duplicateSignal, _renewing = false, _renewOn = const {};
+  CallGuard() : _renewing = false, _renewOn = const {};
 
   /// Guards calls made against the app's `Credentials`, which must have been set
   /// up by `configureSdk`.
   ///
-  /// [renewOn] lists the signals for which it is worth renewing the credential
-  /// and trying the call again. It is required and has no default: pylon cannot
-  /// know which of an adapter's signals means a stale credential, and guessing
-  /// would wire a renewal onto a refusal that had nothing to do with one.
+  /// [renewOn] lists the statuses for which it is worth renewing the credential
+  /// and trying the call again. It is required and has no default: which status
+  /// means a stale credential depends on the backend, and guessing would wire a
+  /// renewal onto a refusal that had nothing to do with one.
   ///
-  /// The same set decides revocation. When a replayed call fails with a signal
+  /// The same set decides revocation. When a replayed call fails with a status
   /// that is still in [renewOn], the credential could not be made to work and is
   /// cleared, because every subsequent call would otherwise rediscover that one
   /// at a time.
-  ///
-  /// [duplicateSignal] names the refusal issued for a duplicate call, as in the
-  /// unauthenticated constructor.
-  CallGuard.renewing({required S duplicateSignal, required Set<S> renewOn})
-    : _duplicateSignal = duplicateSignal,
-      _renewing = true,
-      _renewOn = renewOn;
+  CallGuard.renewing({required Set<int> renewOn}) : _renewing = true, _renewOn = renewOn;
 
   /// Runs [call] under the policy.
   ///
   /// [dedupKey] identifies what would be a duplicate. Two calls sharing a key
-  /// cannot be in flight at once: the second throws a [Fault] carrying the
-  /// signal this guard was given for duplicates, rather than waiting, because
+  /// cannot be in flight at once: the second throws a [Fault] caused by a
+  /// [DuplicateCall], rather than waiting, because
   /// the caller that lost the race wanted a fresh answer and the winner is
   /// already producing one. Leave it `null` for a call that may legitimately
   /// overlap with itself.
@@ -122,7 +107,7 @@ class CallGuard<S extends Object> {
   /// is always a [Fault].
   Future<T> run<T>(Future<T> Function() call, {String? dedupKey, bool authenticated = true}) async {
     if (dedupKey != null && !_inFlight.add(dedupKey)) {
-      throw Fault<S>(_duplicateSignal);
+      throw const Fault(cause: DuplicateCall());
     }
 
     try {
@@ -183,8 +168,8 @@ class CallGuard<S extends Object> {
   Future<T> _attempt<T>(Future<T> Function() call, {required bool authenticated}) async {
     try {
       return await call();
-    } on Fault<S> catch (fault) {
-      if (!authenticated || !_renewing || !_renewOn.contains(fault.signal)) rethrow;
+    } on Fault catch (fault) {
+      if (!authenticated || !_renewing || !_renewOn.contains(fault.status)) rethrow;
 
       final before = Credentials.value;
       await Credentials.renew();
@@ -193,8 +178,8 @@ class CallGuard<S extends Object> {
 
       try {
         return await call();
-      } on Fault<S> catch (replayed) {
-        if (_renewOn.contains(replayed.signal)) await Credentials.clear();
+      } on Fault catch (replayed) {
+        if (_renewOn.contains(replayed.status)) await Credentials.clear();
         rethrow;
       }
     }

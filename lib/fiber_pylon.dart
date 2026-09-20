@@ -53,7 +53,7 @@
 /// **The barrier**, which a port touches: [RestNode], [RestPath],
 /// [RestParameters] and [RestCall] for a REST call, [RealtimeNode],
 /// [RealtimePath], [RealtimeParameters] and [RealtimeTopic] for a live one,
-/// [Result] and its two variants, [Fault], [FaultResolver], [Sdk],
+/// [Result] and its two variants, [Fault], [Sdk],
 /// [SdkClientKind], [SdkClient], [RestSdkClient], [LocalSdkClient],
 /// [VendorSdkClient], [Repository] and its [Status], [Environments]. This is what a service
 /// layer sees, and it does not
@@ -76,7 +76,7 @@
 /// [RestNode], rooted once on the [Sdk] implementation's own [RestClient]:
 ///
 /// ```dart
-/// final api = RestNode<RestSignal>(client).path((p) => p.segment('v1'));
+/// final api = RestNode(client).path((p) => p.segment('v1'));
 /// final brand = api.path((p) => p.segment('brand'));
 ///
 /// Future<Result<Brand, ReadBrandError>> read(String id) async {
@@ -87,8 +87,8 @@
 ///         .get()
 ///         .send();
 ///     return OK(Brand.fromResponse(response));
-///   } on Fault<RestSignal> catch (fault) {
-///     return Failure(readBrand.call(fault));
+///   } on Fault catch (fault) {
+///     return Failure(readBrandError(fault));
 ///   }
 /// }
 /// ```
@@ -115,35 +115,28 @@
 /// That both ends of the swap are REST. [RestClient] therefore speaks HTTP, and
 /// [RestMethod] is a closed list, because these are a protocol's own words
 /// rather than a guess about a project. What stays outside is every judgement
-/// the protocol does not make: which statuses are failures, what an error body
-/// looks like, how a call is authenticated. Those are asked for, through a
-/// [RestClassifier] and a [RestHeaders].
+/// the protocol does not make: what an error body looks like and how a call is
+/// authenticated. Those are asked for, through a [RestHeaders], and read from
+/// [Fault.details] by the operation that wants them.
 ///
 /// ## Where the boundary actually is
 ///
-/// It is [Fault], and what makes it work is that pylon never reads it. A fault
-/// carries a signal from the adapter's own vocabulary, an enum the adapter
-/// declares:
+/// It is [Fault], and what makes it work is that pylon never names a failure. A
+/// fault carries the status the server answered and the body it sent, or the
+/// exception a call that got no answer failed with. Each operation declares its
+/// own error enum, complete, and its `resolve` turns a fault into one of its
+/// members through a switch the project wrote, on the status and the cause it
+/// cares about. Two operations that fail the same way list it twice, on
+/// purpose: neither depends on the other.
 ///
-/// ```dart
-/// enum RestSignal { unauthorized, forbidden, vpnRequired, nameEmpty, noRoute }
-/// ```
-///
-/// A [FaultResolver] then turns that signal into the error one operation
-/// declares, through a switch the project wrote, with both sides typed and
-/// checked by the compiler. Where pylon needs to act on a failure, it is
-/// handed a set of signals rather than left to interpret one:
-/// [Credentials.renewWith] is told which signals mean the credential is dead,
-/// [CallGuard] which are worth renewing for, and even the refusal [CallGuard]
-/// issues for a duplicate call is named by the project.
-///
-/// That is the whole discipline. Any list of failure kinds pylon offered would
-/// be a guess about the projects it has not met.
+/// Where pylon needs to act on a failure it is handed a set of statuses:
+/// [Credentials.renewWith] is told which mean the credential is dead, and
+/// [CallGuard] which are worth renewing for.
 ///
 /// ## What is deliberately absent
 ///
 /// No token format, since a [Credential] carries one opaque string and never
-/// looks inside it, no notion of a session beyond it, no list of error kinds, no envelope
+/// looks inside it, no notion of a session beyond it, no envelope
 /// around a response body, no rule about which status means what, no environment
 /// reading, no code generation, no automatic retry, no request cancellation, no
 /// response cache, no offline queue. Every one of those belongs to one server,
@@ -170,7 +163,6 @@ export 'src/sdk/clients/local/database/engine/query/sort_order.dart';
 export 'src/sdk/clients/local/local_sdk.dart';
 export 'src/sdk/clients/rest/http/cache_policy.dart';
 export 'src/sdk/clients/rest/http/call_guard.dart';
-export 'src/sdk/clients/rest/http/classifier.dart';
 export 'src/sdk/clients/rest/http/client.dart';
 export 'src/sdk/clients/rest/http/request.dart';
 export 'src/sdk/clients/rest/http/response.dart';

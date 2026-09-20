@@ -40,10 +40,10 @@ import 'response.dart';
 /// How a project decides whether a cached answer is still worth trusting,
 /// and how fresh a new one is compared to what is already held.
 ///
-/// The direct analogue of `RestClassifier`: pylon has no opinion of its own
-/// about what freshness or a version means for one particular server, so a
-/// project supplies this once, when it wants caching at all, the same
-/// discipline `Credentials.renewWith`'s `fatalSignals` already holds for renewal.
+/// Pylon has no opinion of its own about what freshness or a version means for
+/// one particular server, so a project supplies this once, when it wants caching
+/// at all, the same discipline `Credentials.renewWith`'s `fatalStatuses` holds for
+/// renewal.
 ///
 /// ```dart
 /// class AdminCachePolicy implements CachePolicy {

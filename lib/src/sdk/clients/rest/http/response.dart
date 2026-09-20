@@ -41,9 +41,8 @@ import 'package:equatable/equatable.dart';
 /// What the server answered.
 ///
 /// Carries the status, the headers and the body, and interprets none of them.
-/// Whether a given status is a success is a question for the project's
-/// [RestClassifier], not for this: an API that answers `200` with an error
-/// payload, or one for which `404` is an ordinary answer, is entitled to say so.
+/// Whether a given status is a success is for `RestClient` to say, not this:
+/// it throws a [Fault] for anything outside `200` to `299`.
 ///
 /// The body is not unwrapped either. An envelope like `{"data": ...}` belongs to
 /// one server's conventions, so an adapter reads `response.map['data']` itself
@@ -79,9 +78,8 @@ class RestResponse extends Equatable {
 
   /// The decoded body as a JSON object.
   ///
-  /// Throws a [TypeError] when the body was something else, which a port's
-  /// `FaultResolver.guard` turns into its fallback error and reports. That is
-  /// the wanted outcome: a server answering a shape nobody expected is a fact
+  /// Throws a [TypeError] when the body was something else, which a port turns
+  /// into its fallback error and reports. That is the wanted outcome: a server answering a shape nobody expected is a fact
   /// worth seeing, not one to paper over.
   Map<String, dynamic> get map => body as Map<String, dynamic>;
 

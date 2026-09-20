@@ -50,8 +50,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_common_ffi.dart' hide Database;
 
-enum HouseSignal { noRoute, unknown }
-
 enum HouseError { unknown }
 
 final class Note {
@@ -96,7 +94,7 @@ final class NotesDatabase extends pylon.Database {
   List<KeyedTable<Object, Object>> get tables => [notes];
 }
 
-final class NotesList extends Repository<List<Note>, List<Note>, HouseError, HouseSignal> {
+final class NotesList extends Repository<List<Note>, List<Note>, HouseError> {
   NotesList(this._database, this.answer);
 
   final NotesDatabase _database;
@@ -122,7 +120,7 @@ final class NotesList extends Repository<List<Note>, List<Note>, HouseError, Hou
   Stream<List<Note>> stream() => _database.from(_database.notes).orderBy((o) => o.asc(_database.notes.id)).stream();
 
   @override
-  HouseError resolve(Fault<HouseSignal> fault) => HouseError.unknown;
+  HouseError resolve(Fault fault) => HouseError.unknown;
 }
 
 Future<List<Note>> becomes(NotesList call, bool Function(List<Note> notes) test) => call.data.stream
@@ -228,5 +226,5 @@ final class _Failing extends NotesList {
   _Failing(NotesDatabase database) : super(database, const []);
 
   @override
-  Future<List<Note>> fetch() async => throw const Fault<HouseSignal>(HouseSignal.noRoute);
+  Future<List<Note>> fetch() async => throw Fault(cause: StateError('offline'));
 }

@@ -140,20 +140,18 @@ base class LocalSdk extends Sdk {}
 /// every call goes through. The nodes it builds for its ports are made from that
 /// client, so a project states where the server is once.
 ///
-/// [S] is the signal the classifier of that client gives to a failure.
-///
 /// ```dart
-/// final class MySdk extends RestSdk<MySignal> {
-///   MySdk() : super(RestClient<MySignal>(...));
+/// final class MySdk extends RestSdk {
+///   MySdk() : super(RestClient(...));
 ///
-///   late final Users users = Users(RestNode<MySignal>(client));
+///   late final Users users = Users(RestNode(client));
 /// }
 /// ```
-abstract base class RestSdk<S extends Object> extends Sdk {
+abstract base class RestSdk extends Sdk {
   /// Makes an implementation that sends every call through [client].
-  RestSdk(RestClient<S> client) : _client = client;
+  RestSdk(RestClient client) : _client = client;
 
-  final RestClient<S> _client;
+  final RestClient _client;
 
   /// The client every REST call of this implementation goes through.
   ///
@@ -162,7 +160,7 @@ abstract base class RestSdk<S extends Object> extends Sdk {
   /// overridden, since the one given to the constructor is the one to use.
   @protected
   @nonVirtual
-  RestClient<S> get client => _client;
+  RestClient get client => _client;
 }
 
 /// An [Sdk] that reaches an external service through a vendor's own package.

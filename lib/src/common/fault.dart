@@ -34,97 +34,61 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+
 import 'package:equatable/equatable.dart';
 
 /// A failure crossing from a backend adapter to the contract built on top of it.
 ///
-/// [S] is the adapter's own set of failure signals, usually an enum it declares.
-/// Pylon carries it and never interprets it: the adapter decides what its
-/// signals are, and the project decides what each one becomes, through a
-/// [FaultResolver].
+/// It carries what happened and nothing about what it means: pylon names no
+/// failure. An operation turns it into its own error, an enum it declares and
+/// completes itself, in the `resolve` it writes.
 ///
 /// ```dart
-/// enum RestSignal { unauthorized, forbidden, notFound, nameEmpty, unknown }
-///
-/// throw const Fault(RestSignal.nameEmpty);
+/// UsersError resolve(Fault fault) => switch (fault.status) {
+///   401 || 403 => UsersError.signedOut,
+///   null => fault.cause is TimeoutException ? UsersError.timedOut : UsersError.network,
+///   _ => UsersError.unknown,
+/// };
 /// ```
-///
-/// An adapter has to name its failures, and name them the same way every time,
-/// since the contract keys on them. A REST adapter turns a status and a body
-/// into a signal, a Firebase adapter turns a platform exception into one, and
-/// the two do not need to agree with each other.
-class Fault<S extends Object> extends Equatable implements Exception {
-  /// What went wrong, in the adapter's own vocabulary.
-  ///
-  /// Usually a member of an enum the adapter declares.
-  final S signal;
+class Fault extends Equatable implements Exception {
+  /// The status the server answered, or `null` when it gave no answer.
+  final int? status;
 
-  /// What the backend sent alongside the failure, for the project to read.
+  /// What the backend sent alongside the failure, for the operation to read.
   ///
   /// Usually a decoded error body. Its shape is up to the backend.
   final Object? details;
 
   /// The original exception this fault was built from, when there was one.
   ///
-  /// Kept for crash reports and debugging.
+  /// What a call that got no answer failed with: a `TimeoutException` when it
+  /// waited too long, a `SocketException` without a network, and a
+  /// [DuplicateCall] when an identical call was already in flight.
   final Object? cause;
 
   /// The stack trace of [cause], when the adapter captured it.
   final StackTrace? stackTrace;
 
-  /// A fault reporting that [signal] went wrong.
-  const Fault(this.signal, {this.details, this.cause, this.stackTrace});
+  /// A fault with what an adapter knows of the failure.
+  const Fault({this.status, this.details, this.cause, this.stackTrace});
 
   @override
-  String toString() => 'Fault($signal)';
+  String toString() => 'Fault(${status ?? cause.runtimeType})';
 
-  /// Two faults are equal when they have the same [signal] and [details].
+  /// Two faults are equal when they have the same [status] and [details] and
+  /// were caused by the same type of exception.
   ///
-  /// [cause] and [stackTrace] are debugging context and are ignored.
+  /// [stackTrace] is debugging context and is ignored.
   @override
-  List<Object?> get props => [signal, details];
+  List<Object?> get props => [status, details, cause?.runtimeType];
 }
 
-/// Turns a [Fault] into the error type one operation declares.
-///
-/// The signals of an adapter are its own, while an operation can fail for a
-/// closed set of reasons of its own. A resolver is the `switch` that maps one to
-/// the other. It is written next to the adapter, so that swapping backends means
-/// writing new resolvers and nothing above them changes. Both sides are typed, so
-/// a member that is renamed or does not exist fails to compile:
-///
-/// ```dart
-/// final createBrand = FaultResolver<RestSignal, CreateBrandError>(
-///   (signal) => switch (signal) {
-///     RestSignal.unauthorized => CreateBrandError.unauthorized,
-///     RestSignal.forbidden => CreateBrandError.notPermitted,
-///     RestSignal.nameEmpty => CreateBrandError.nameEmpty,
-///     _ => CreateBrandError.unknown,
-///   },
-/// );
-/// ```
-///
-/// Nothing is inferred. The resolver runs the `switch` the project wrote and
-/// answers whatever its `_` case decided for a signal the `switch` does not
-/// name.
-class FaultResolver<S extends Object, E> {
-  /// Backs [resolve] and [fallback].
-  final E Function(S? signal) _resolve;
+/// What a [Fault] is caused by when an identical call was already in flight and
+/// this one was refused.
+final class DuplicateCall implements Exception {
+  /// A call refused as a duplicate.
+  const DuplicateCall();
 
-  /// Declares how a signal becomes this operation's own error.
-  ///
-  /// The `switch` names the failures the operation distinguishes and ends with a
-  /// `_` case for the rest, which covers the failure nobody thought of and the
-  /// one an adapter starts sending after a change. It also receives `null` for
-  /// [fallback], which only that `_` case matches.
-  const FaultResolver(this._resolve);
-
-  /// The error [fault] corresponds to.
-  E call(Fault<S> fault) => resolve(fault.signal);
-
-  /// The error [signal] corresponds to.
-  E resolve(S signal) => _resolve(signal);
-
-  /// The error every unlisted signal resolves to.
-  E get fallback => _resolve(null);
+  @override
+  String toString() => 'DuplicateCall';
 }

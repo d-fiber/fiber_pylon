@@ -42,11 +42,9 @@ import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
-enum HouseSignal { unauthorized, noRoute, unknown }
-
 enum HouseError { signedOut, unknown }
 
-final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSignal> {
+final class Shelf extends Repository<List<int>, List<int>, HouseError> {
   Shelf({
     this.credentialed = false,
     this.requires = false,
@@ -109,8 +107,8 @@ final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSign
   }
 
   @override
-  HouseError resolve(Fault<HouseSignal> fault) =>
-      fault.signal == HouseSignal.unauthorized ? HouseError.signedOut : HouseError.unknown;
+  HouseError resolve(Fault fault) =>
+      fault.status == 401 ? HouseError.signedOut : HouseError.unknown;
 }
 
 Future<void> connect({required bool reachable}) async {
@@ -249,7 +247,7 @@ void main() {
     });
 
     test('keeps reading what is stored when a refresh fails', () async {
-      final shelf = Shelf(stored: [7])..failure = const Fault<HouseSignal>(HouseSignal.unknown);
+      final shelf = Shelf(stored: [7])..failure = const Fault(status: 400);
       shelf.data.value;
       await pumpEventQueue();
 
@@ -298,24 +296,16 @@ void main() {
     });
 
     test('ends failed with the project error when the request could not be made', () async {
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
+      final shelf = Shelf()..failure = Fault(cause: StateError('offline'));
 
       expect(await shelf.refresh(), const StatusFailed<HouseError>(HouseError.unknown));
       await shelf.dispose();
     });
 
     test('ends failed with the project error for any other signal', () async {
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.unauthorized);
+      final shelf = Shelf()..failure = const Fault(status: 401);
 
       expect(await shelf.refresh(), const StatusFailed<HouseError>(HouseError.signedOut));
-      await shelf.dispose();
-    });
-
-    test('takes a fault of another adapter for a bug and lets it propagate', () async {
-      final shelf = Shelf()..failure = const Fault<String>('elsewhere');
-
-      await expectLater(shelf.refresh(), throwsA(isA<Fault<String>>()));
-      expect(shelf.status.value, const StatusIdle<HouseError>());
       await shelf.dispose();
     });
 
@@ -369,7 +359,7 @@ void main() {
 
     test('ends failed, and never offline, when it does not require a connection', () async {
       await connect(reachable: false);
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.noRoute);
+      final shelf = Shelf()..failure = Fault(cause: StateError('offline'));
 
       expect(await shelf.refresh(), const StatusFailed<HouseError>(HouseError.unknown));
       expect(shelf.fetches, 1);
@@ -502,7 +492,7 @@ void main() {
     });
 
     test('announces a failure with the project error, then goes back to idle', () async {
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.unknown);
+      final shelf = Shelf()..failure = const Fault(status: 400);
       final seen = await watching(shelf);
 
       await shelf.refresh();
@@ -517,7 +507,7 @@ void main() {
     });
 
     test('announces the same failure again when the next refresh fails the same way', () async {
-      final shelf = Shelf()..failure = const Fault<HouseSignal>(HouseSignal.unknown);
+      final shelf = Shelf()..failure = const Fault(status: 400);
       final seen = await watching(shelf);
 
       await shelf.refresh();

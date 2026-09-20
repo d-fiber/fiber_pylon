@@ -34,14 +34,15 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
+import 'dart:async';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 import '../../clients/rest/rest.dart';
-import '../../clients/rest/signal.dart';
 import '../database/own_database.dart';
 import '../database/user.dart';
 
-enum UsersError { signedOut, network, unknown }
+enum UsersError { unauthorized, forbidden, notFound, tooManyRequests, serverDown, timedOut, offline, unknown }
 
 /// The users of the account, read from the local database and refreshed from the
 /// network.
@@ -49,7 +50,7 @@ enum UsersError { signedOut, network, unknown }
 /// A screen reads `data.value` and follows `data.stream`, which are always what is stored,
 /// and calls `refresh()` to bring it up to date. `status` announces how each
 /// refresh went, and the users stay readable whatever it says.
-final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
+final class UsersList extends Repository<List<User>, List<User>, UsersError> {
   @override
   Future<List<User>> fetch() => RestGroundSdk.I.users.list();
 
@@ -70,9 +71,13 @@ final class UsersList extends Repository<List<User>, List<User>, UsersError, Res
   }
 
   @override
-  UsersError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
-    RestSignal.unauthorized || RestSignal.forbidden => UsersError.signedOut,
-    RestSignal.noRoute => UsersError.network,
+  UsersError resolve(Fault fault) => switch (fault.status) {
+    401 => UsersError.unauthorized,
+    403 => UsersError.forbidden,
+    404 => UsersError.notFound,
+    429 => UsersError.tooManyRequests,
+    final int status when status >= 500 => UsersError.serverDown,
+    null => fault.cause is TimeoutException ? UsersError.timedOut : UsersError.offline,
     _ => UsersError.unknown,
   };
 }

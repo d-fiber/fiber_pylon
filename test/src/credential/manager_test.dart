@@ -51,8 +51,6 @@ class Ticket {
 
 Ticket ticketLasting(Duration lifetime, {String value = 'first'}) => Ticket(value, DateTime.now().add(lifetime));
 
-enum HouseSignal { rejected, unreachable }
-
 class ScriptedRefresher implements CredentialRefresher<Ticket> {
   final List<Object> script;
   final List<Ticket> received = [];
@@ -82,16 +80,16 @@ class BlockingRefresher implements CredentialRefresher<Ticket> {
   }
 }
 
-CredentialManager<Ticket, HouseSignal> managerFor(
+CredentialManager<Ticket> managerFor(
   CredentialRefresher<Ticket> refresher, {
   Ticket? stored,
   Duration buffer = const Duration(minutes: 10),
   Duration retryDelay = const Duration(milliseconds: 50),
-}) => CredentialManager<Ticket, HouseSignal>(
+}) => CredentialManager<Ticket>(
   store: MemoryCredentialStore<Ticket>(stored),
   refresher: refresher,
   expiresAt: (ticket) => ticket.expiresAt,
-  fatalSignals: const {HouseSignal.rejected},
+  fatalStatuses: const {401},
   buffer: buffer,
   retryDelay: retryDelay,
 );
@@ -162,7 +160,7 @@ void main() {
     });
 
     test('revokes when the backend refuses the credential', () async {
-      final refresher = ScriptedRefresher([const Fault(HouseSignal.rejected)]);
+      final refresher = ScriptedRefresher([const Fault(status: 401)]);
       final manager = managerFor(refresher, stored: ticketLasting(const Duration(minutes: 2)));
       final seen = <Ticket?>[];
       await manager.start();
@@ -177,7 +175,7 @@ void main() {
 
     test('keeps the credential when renewal fails for a transient reason', () async {
       final stored = ticketLasting(const Duration(minutes: 2));
-      final refresher = ScriptedRefresher([const Fault(HouseSignal.unreachable)]);
+      final refresher = ScriptedRefresher([Fault(cause: StateError('offline'))]);
       final manager = managerFor(refresher, stored: stored);
       await manager.start();
 
@@ -190,7 +188,7 @@ void main() {
 
     test('retries a deferred renewal as soon as connectivity is restored', () async {
       final renewed = ticketLasting(const Duration(hours: 1), value: 'second');
-      final refresher = ScriptedRefresher([const Fault(HouseSignal.unreachable), renewed]);
+      final refresher = ScriptedRefresher([Fault(cause: StateError('offline')), renewed]);
       final manager = managerFor(
         refresher,
         stored: ticketLasting(const Duration(minutes: 2)),
@@ -211,11 +209,11 @@ void main() {
       var pluggedIn = false;
       final renewed = ticketLasting(const Duration(hours: 1), value: 'second');
       final refresher = ScriptedRefresher([renewed]);
-      final manager = CredentialManager<Ticket, HouseSignal>(
+      final manager = CredentialManager<Ticket>(
         store: MemoryCredentialStore<Ticket>(ticketLasting(const Duration(milliseconds: 120))),
         refresher: refresher,
         expiresAt: (ticket) => ticket.expiresAt,
-        fatalSignals: const {HouseSignal.rejected},
+        fatalStatuses: const {401},
         isRenewable: (ticket) => pluggedIn,
         buffer: const Duration(milliseconds: 100),
       );
@@ -256,11 +254,11 @@ void main() {
 
     test('never renews a credential it was told is not renewable', () async {
       final refresher = ScriptedRefresher([]);
-      final manager = CredentialManager<Ticket, HouseSignal>(
+      final manager = CredentialManager<Ticket>(
         store: MemoryCredentialStore<Ticket>(ticketLasting(const Duration(minutes: 2))),
         refresher: refresher,
         expiresAt: (ticket) => ticket.expiresAt,
-        fatalSignals: const {HouseSignal.rejected},
+        fatalStatuses: const {401},
         isRenewable: (ticket) => false,
       );
       await manager.start();
@@ -382,7 +380,7 @@ void main() {
 
     test('is dropped when the backend rejects the credential', () async {
       final manager = managerFor(
-        ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.rejected)]),
+        ScriptedRefresher([const Fault(status: 401)]),
         stored: ticketLasting(const Duration(minutes: 2)),
       );
       await manager.start();
@@ -395,7 +393,7 @@ void main() {
 
     test('stays held when the backend is only unreachable', () async {
       final manager = managerFor(
-        ScriptedRefresher([const Fault<HouseSignal>(HouseSignal.unreachable)]),
+        ScriptedRefresher([Fault(cause: StateError('offline'))]),
         stored: ticketLasting(const Duration(minutes: 2)),
         retryDelay: const Duration(seconds: 30),
       );

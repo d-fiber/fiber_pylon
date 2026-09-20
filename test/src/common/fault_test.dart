@@ -34,68 +34,78 @@
 // This header is a summary written for convenience. Where it differs from the
 // LICENSE file, the LICENSE file governs.
 
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:async';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
-
-enum HouseSignal {
-  unauthorized,
-  forbidden,
-  vpnRequired,
-  nameEmpty,
-  noRoute,
-  teapot,
-}
-
-enum CreateThing {
-  unauthorized,
-  notPermitted,
-  vpnRequired,
-  nameEmpty,
-  networkError,
-  unknown,
-}
-
-final createThing = FaultResolver<HouseSignal, CreateThing>(
-  (signal) => switch (signal) {
-    HouseSignal.unauthorized => CreateThing.unauthorized,
-    HouseSignal.forbidden => CreateThing.notPermitted,
-    HouseSignal.vpnRequired => CreateThing.vpnRequired,
-    HouseSignal.nameEmpty => CreateThing.nameEmpty,
-    HouseSignal.noRoute => CreateThing.networkError,
-    _ => CreateThing.unknown,
-  },
-);
+import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('FaultResolver', () {
-    test('resolves a listed signal to the declared error', () {
-      expect(
-        createThing(const Fault(HouseSignal.forbidden)),
-        CreateThing.notPermitted,
-      );
+  group('Fault', () {
+    test('carries the status, details, cause and stack trace it was given', () {
+      final cause = StateError('boom');
+      final trace = StackTrace.current;
+
+      final fault = Fault(status: 503, details: 'down', cause: cause, stackTrace: trace);
+
+      expect(fault.status, 503);
+      expect(fault.details, 'down');
+      expect(fault.cause, same(cause));
+      expect(fault.stackTrace, same(trace));
     });
 
-    test('resolves an unlisted signal to the fallback', () {
-      expect(createThing(const Fault(HouseSignal.teapot)), CreateThing.unknown);
+    test('has no status, details, cause or stack trace unless given', () {
+      const fault = Fault();
+
+      expect(fault.status, isNull);
+      expect(fault.details, isNull);
+      expect(fault.cause, isNull);
+      expect(fault.stackTrace, isNull);
     });
 
-    test('distinguishes two signals the backend refuses alike', () {
-      expect(
-        createThing(const Fault(HouseSignal.forbidden)),
-        CreateThing.notPermitted,
-      );
-      expect(
-        createThing(const Fault(HouseSignal.vpnRequired)),
-        CreateThing.vpnRequired,
-      );
+    test('is equal to a fault with the same status and details', () {
+      expect(const Fault(status: 422, details: 'name'), const Fault(status: 422, details: 'name'));
+      expect(const Fault(status: 409), const Fault(status: 409));
     });
 
-    test('resolves a signal without building a fault around it', () {
-      expect(createThing.resolve(HouseSignal.nameEmpty), CreateThing.nameEmpty);
+    test('differs when the status, the details or the type of the cause differ', () {
+      const base = Fault(status: 400, details: 'name');
+
+      expect(base, isNot(const Fault(status: 422, details: 'name')));
+      expect(base, isNot(const Fault(status: 400, details: 'email')));
+      expect(base, isNot(const Fault(status: 400, details: 'name', cause: DuplicateCall())));
+      expect(Fault(cause: StateError('one')), isNot(Fault(cause: ArgumentError('two'))));
     });
 
-    test('fallback answers the same as an unlisted signal', () {
-      expect(createThing.fallback, CreateThing.unknown);
+    test('ignores the stack trace and the message of the cause when comparing', () {
+      final first = Fault(status: 500, cause: StateError('one'), stackTrace: StackTrace.current);
+      final second = Fault(status: 500, cause: StateError('two'));
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+    });
+
+    test('prints its status when it has one', () {
+      expect(const Fault(status: 429).toString(), 'Fault(429)');
+    });
+
+    test('prints the type of its cause when it has no status', () {
+      expect(Fault(cause: TimeoutException('late')).toString(), 'Fault(TimeoutException)');
+      expect(const Fault(cause: DuplicateCall()).toString(), 'Fault(DuplicateCall)');
+    });
+
+    test('can be thrown and caught as an Exception', () {
+      expect(() => throw const Fault(status: 403), throwsA(isA<Exception>()));
+      expect(() => throw const Fault(status: 403), throwsA(const Fault(status: 403)));
+    });
+  });
+
+  group('DuplicateCall', () {
+    test('is an Exception', () {
+      expect(const DuplicateCall(), isA<Exception>());
+    });
+
+    test('prints its name', () {
+      expect(const DuplicateCall().toString(), 'DuplicateCall');
     });
   });
 }

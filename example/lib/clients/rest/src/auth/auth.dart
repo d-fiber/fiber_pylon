@@ -36,11 +36,10 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import '../../signal.dart';
 import 'sign_in.dart';
 
 class AuthGroundSdk {
-  final RestNode<RestSignal> _rest;
+  final RestNode _rest;
 
   AuthGroundSdk(this._rest);
 

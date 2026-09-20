@@ -135,7 +135,7 @@ final class SocketIgnored<E> extends SocketFrame<E> with Equatable {
 /// What the frames of one server look like.
 ///
 /// The channel owns when to send and what to do with what comes back; this owns
-/// what the bytes are. The split is the same one as [RestClassifier]: swapping a
+/// what the bytes are. Swapping a
 /// Phoenix server for another kind means writing this, and nothing else.
 ///
 /// References are handed out by the channel and are unique for the life of a

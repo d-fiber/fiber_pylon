@@ -55,14 +55,14 @@ import 'store.dart';
 /// a test. It renews ahead of expiry rather than after a call has already
 /// failed, collapses simultaneous attempts into one exchange so a screen firing
 /// six requests does not burn six refresh tokens, keeps a failed attempt pending
-/// instead of dropping it, and revokes on the signals it was told mean the
+/// instead of dropping it, and revokes on the statuses it was told mean the
 /// credential is dead.
 ///
 /// `C` is whatever the project calls its credential, and pylon never looks
 /// inside it. Everything this needs to know is asked for explicitly:
 /// [expiresAt] says where the expiry lives, [isRenewable] whether an exchange is
-/// even possible, and [fatalSignals] which of the adapter's signals mean the
-/// credential is gone. Nothing is read by convention, no shape is imposed on
+/// even possible, and [fatalStatuses] which statuses mean the credential is
+/// gone. Nothing is read by convention, no shape is imposed on
 /// `C`, and no failure is interpreted here.
 ///
 /// A project with no notion of a credential never builds one of these. Nothing
@@ -72,12 +72,12 @@ import 'store.dart';
 /// issues. When it is not, this renews at half of what a credential has left
 /// rather than immediately, which keeps a misconfiguration slow instead of
 /// turning it into a loop.
-class CredentialManager<C extends Object, S extends Object> extends Observable<C?> {
+class CredentialManager<C extends Object> extends Observable<C?> {
   final CredentialStore<C> _store;
   final CredentialRefresher<C> _refresher;
   final DateTime Function(C credential) _expiresAt;
   final bool Function(C credential) _isRenewable;
-  final Set<S> _fatalSignals;
+  final Set<int> _fatalStatuses;
   final Duration _buffer;
   final Duration _retryDelay;
   final Reporter _reporter;
@@ -106,11 +106,11 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   /// future, which is how it says so out loud rather than leaving it to be
   /// guessed.
   ///
-  /// [fatalSignals] lists the signals that mean the credential is dead. One of
+  /// [fatalStatuses] lists the statuses that mean the credential is dead. One of
   /// them revokes it, which is what sends a holder back to a sign-in screen;
   /// anything else keeps it and schedules another attempt. It is required and
-  /// has no default: pylon cannot know which of an adapter's signals means the
-  /// credential was rejected rather than that the backend was unreachable, and
+  /// has no default: which refusal means the credential was rejected rather than
+  /// that the backend was unreachable depends on the backend, and
   /// getting it wrong is expensive in both directions. Too wide a set signs
   /// people out during an outage; too narrow a one leaves them retrying a
   /// credential that is gone.
@@ -125,7 +125,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
     required CredentialStore<C> store,
     required CredentialRefresher<C> refresher,
     required DateTime Function(C credential) expiresAt,
-    required Set<S> fatalSignals,
+    required Set<int> fatalStatuses,
     bool Function(C credential)? isRenewable,
     Duration buffer = const Duration(minutes: 10),
     Duration retryDelay = const Duration(seconds: 5),
@@ -133,7 +133,7 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
   }) : _store = store,
        _refresher = refresher,
        _expiresAt = expiresAt,
-       _fatalSignals = fatalSignals,
+       _fatalStatuses = fatalStatuses,
        _isRenewable = isRenewable ?? _alwaysRenewable,
        _buffer = buffer,
        _retryDelay = retryDelay,
@@ -364,9 +364,9 @@ class CredentialManager<C extends Object, S extends Object> extends Observable<C
       _current = renewed;
       _publish(renewed);
       _schedule(renewed);
-    } on Fault<S> catch (fault) {
+    } on Fault catch (fault) {
       if (_disposed) return;
-      if (_fatalSignals.contains(fault.signal)) {
+      if (_fatalStatuses.contains(fault.status)) {
         _reporter.log('Credential refused, revoking: $fault');
         await revoke();
         return;

@@ -81,7 +81,7 @@ class Credentials {
   Credentials._(this._manager, this._exchange);
 
   /// The renewal policy and the credential it keeps.
-  final CredentialManager<Credential, Object> _manager;
+  final CredentialManager<Credential> _manager;
 
   /// What the backend supplies to renew, once [renewWith] has plugged it in.
   final _Exchange _exchange;
@@ -111,11 +111,11 @@ class Credentials {
     Reporter reporter = const SilentReporter(),
   }) async {
     final exchange = _Exchange();
-    final manager = CredentialManager<Credential, Object>(
+    final manager = CredentialManager<Credential>(
       store: store,
       refresher: exchange,
       expiresAt: _expiryOf,
-      fatalSignals: exchange.fatalSignals,
+      fatalStatuses: exchange.fatalStatuses,
       isRenewable: exchange.canRenew,
       reporter: reporter,
     );
@@ -176,23 +176,23 @@ class Credentials {
   /// again and giving up are all decided here. The REST calls it makes carry no
   /// credential, so the endpoint it calls needs no marking.
   ///
-  /// [fatalSignals] lists the signals that mean the credential is dead. One of
+  /// [fatalStatuses] lists the statuses that mean the credential is dead. One of
   /// them clears it, which is what sends a holder back to a sign-in screen;
   /// anything else keeps it and tries again. It is required and has no default:
-  /// pylon cannot know which of an adapter's signals means the credential was
-  /// rejected rather than that the backend was unreachable, and getting it wrong
-  /// is expensive in both directions. Too wide a set signs people out during an
+  /// which refusal means the credential was rejected rather than that the
+  /// backend was unreachable depends on the backend, and getting it wrong is
+  /// expensive in both directions. Too wide a set signs people out during an
   /// outage; too narrow a one leaves them retrying a credential that is gone.
   ///
   /// Calling it again replaces the exchange. Best called once, right after
   /// `configureSdk`, so that a credential restored from the vault is renewed at
   /// once when it went stale while the app was closed.
-  static void renewWith<S extends Object>({
+  static void renewWith({
     required Future<Credential> Function(Credential current) refresh,
-    required Set<S> fatalSignals,
+    required Set<int> fatalStatuses,
   }) {
     final instance = _instance;
-    instance._exchange.plug(refresh, fatalSignals);
+    instance._exchange.plug(refresh, fatalStatuses);
     instance._manager.rearm();
   }
 
@@ -222,20 +222,20 @@ class Credentials {
   Future<void> dispose() => _manager.dispose();
 }
 
-/// The backend's exchange and the signals that mean a credential is dead, filled
+/// The backend's exchange and the statuses that mean a credential is dead, filled
 /// in after the manager that reads them is built.
 final class _Exchange implements CredentialRefresher<Credential> {
   Future<Credential> Function(Credential current)? _refresh;
 
   /// Shared with the manager, which reads it at every failure.
-  final Set<Object> fatalSignals = <Object>{};
+  final Set<int> fatalStatuses = <int>{};
 
-  /// Replaces the exchange and the signals with [refresh] and [signals].
-  void plug(Future<Credential> Function(Credential current) refresh, Set<Object> signals) {
+  /// Replaces the exchange and the fatal statuses with [refresh] and [statuses].
+  void plug(Future<Credential> Function(Credential current) refresh, Set<int> statuses) {
     _refresh = refresh;
-    fatalSignals
+    fatalStatuses
       ..clear()
-      ..addAll(signals);
+      ..addAll(statuses);
   }
 
   /// Whether [credential] can be exchanged: the backend has said how, and the

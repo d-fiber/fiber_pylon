@@ -43,7 +43,6 @@ import '../../../../common/fault.dart';
 import '../../../../common/reporter.dart';
 import '../../../../common/unauthenticated_scope.dart';
 import 'call_guard.dart';
-import 'classifier.dart';
 import 'request.dart';
 import 'response.dart';
 
@@ -60,20 +59,22 @@ typedef RestHeaders = Future<Map<String, String>> Function(RestRequest request);
 
 /// Talks to one REST API.
 ///
-/// This is the whole of what makes a backend a REST backend: a base URL, a way
-/// to name failures, and the headers to carry. Swapping to another REST API
-/// means building another one of these, with another base URL and another
-/// classifier, and changing nothing above it.
+/// This is the whole of what makes a backend a REST backend: a base URL and the
+/// headers to carry. Swapping to another REST API means building another one of
+/// these, with another base URL, and changing nothing above it.
 ///
-/// What it does not do is decide anything. It does not know which statuses are
-/// failures, what an error body looks like, how a call is authenticated, or
-/// which failures deserve a renewal. Each of those is asked for: the
-/// [RestClassifier], the [RestHeaders], and the [CallGuard] the project built.
+/// A response outside `200` to `299` is a failure, and it throws a [Fault]
+/// carrying the status and the decoded body. A call that gets no answer throws
+/// one with no status and the exception it failed with as its cause, a
+/// `TimeoutException` when it waited too long. What each of those means is for
+/// the operation that made the call to say.
+///
+/// How a call is authenticated is asked for: the [RestHeaders], and the
+/// [CallGuard] the project built.
 ///
 /// ```dart
-/// final client = RestClient<AdminSignal>(
+/// final client = RestClient(
 ///   baseUrl: Uri.parse('https://admin.example.test/v1/admin/'),
-///   classifier: const AdminClassifier(),
 ///   guard: guard,
 ///   headers: (request) async => {
 ///     if (Credentials.value case final credential?)
@@ -86,10 +87,9 @@ typedef RestHeaders = Future<Map<String, String>> Function(RestRequest request);
 ///   RestRequest(path: 'brand/$id', dedupKey: 'brand/$id'),
 /// );
 /// ```
-class RestClient<S extends Object> {
+class RestClient {
   final Uri _baseUrl;
-  final RestClassifier<S> _classifier;
-  final CallGuard<S> _guard;
+  final CallGuard _guard;
   final RestHeaders? _headers;
   final http.Client _http;
   final bool _ownsHttp;
@@ -104,8 +104,8 @@ class RestClient<S extends Object> {
   /// is appended to it, so a base of `https://host/v1/admin/` and a path of
   /// `brand/7` reach `https://host/v1/admin/brand/7`.
   ///
-  /// [classifier] names failures, [guard] carries the deduplication and renewal
-  /// policy, and [headers] builds what every call carries.
+  /// [guard] carries the deduplication and renewal policy, and [headers] builds
+  /// what every call carries.
   ///
   /// [httpClient] is there so a test can answer without a network, and so an app
   /// that already has a configured client can share it. One passed in is not
@@ -114,14 +114,12 @@ class RestClient<S extends Object> {
   /// [timeout] applies to any request that does not carry its own.
   RestClient({
     required Uri baseUrl,
-    required RestClassifier<S> classifier,
-    required CallGuard<S> guard,
+    required CallGuard guard,
     RestHeaders? headers,
     http.Client? httpClient,
     Duration timeout = const Duration(seconds: 30),
     Reporter reporter = const SilentReporter(),
   }) : _baseUrl = baseUrl,
-       _classifier = classifier,
        _guard = guard,
        _headers = headers,
        _http = httpClient ?? http.Client(),
@@ -134,10 +132,9 @@ class RestClient<S extends Object> {
 
   /// Performs [request] and answers what the server said.
   ///
-  /// Throws a [Fault] carrying the signal the classifier gave, for a response it
-  /// called a failure and for a call that never reached the server. It throws
-  /// nothing else, which is what lets a port wrap this in a single
-  /// `FaultResolver.guard`.
+  /// Throws a [Fault] for a response outside `200` to `299` and for a call that
+  /// never reached the server. It throws nothing else, which is what lets a port
+  /// catch a single type.
   ///
   /// A request carrying a [RestRequest.shareKey] joins whatever is already in
   /// flight under that key instead of going out again, and one carrying a
@@ -166,12 +163,11 @@ class RestClient<S extends Object> {
     try {
       response = request.isMultipart ? await _sendMultipart(request) : await _sendPlain(request);
     } catch (error, stackTrace) {
-      throw Fault<S>(_classifier.ofTransport(error, stackTrace), cause: error, stackTrace: stackTrace);
+      throw Fault(cause: error, stackTrace: stackTrace);
     }
 
-    final signal = _classifier.ofResponse(response);
-    if (signal != null) throw Fault<S>(signal, details: response.body);
-    return response;
+    if (response.status >= 200 && response.status < 300) return response;
+    throw Fault(status: response.status, details: response.body);
   }
 
   Future<RestResponse> _sendPlain(RestRequest request) async {

@@ -142,7 +142,7 @@ print(token());
 print(SecureStorage.fingerprint.derive('purpose'));
 ''', compiles: true),
   _Program('a call that reads the cache and refreshes it', '''
-Repository<int, int, String, int>? call;
+Repository<int, int, String>? call;
 call?.status.stream.listen((status) => switch (status) {
   StatusIdle() => 0,
   StatusRunning() => 1,
@@ -163,21 +163,21 @@ Network.isReachable.stream.listen((reachable) => print(reachable));
   _Program('overriding the data a repository hands out', '''
 }
 
-abstract base class Overriding extends Repository<int, int, String, int> {
+abstract base class Overriding extends Repository<int, int, String> {
   @override
   Observable<int?> get data => throw UnimplementedError();
 ''', compiles: false),
   _Program('overriding the status a repository hands out', '''
 }
 
-abstract base class Overriding extends Repository<int, int, String, int> {
+abstract base class Overriding extends Repository<int, int, String> {
   @override
   Observable<Status<String>> get status => throw UnimplementedError();
 ''', compiles: false),
   _Program('a repository that overrides only what it is meant to', '''
 }
 
-abstract base class Reading extends Repository<int, int, String, int> {
+abstract base class Reading extends Repository<int, int, String> {
   @override
   bool get requiresConnection => false;
 
@@ -187,7 +187,7 @@ abstract base class Reading extends Repository<int, int, String, int> {
   _Program('reaching the client of a REST sdk from outside it', '''
 }
 
-final class Api extends RestSdk<int> {
+final class Api extends RestSdk {
   Api(super.client);
 }
 
@@ -197,19 +197,19 @@ void reaching(Api api) {
   _Program('a REST sdk that builds its nodes from its own client', '''
 }
 
-final class Api extends RestSdk<int> {
+final class Api extends RestSdk {
   Api(super.client);
 
-  late final RestNode<int> users = RestNode<int>(client);
+  late final RestNode users = RestNode(client);
 ''', compiles: true),
   _Program('overriding the client of a REST sdk', '''
 }
 
-final class Api extends RestSdk<int> {
+final class Api extends RestSdk {
   Api(super.client);
 
   @override
-  RestClient<int> get client => throw UnimplementedError();
+  RestClient get client => throw UnimplementedError();
 ''', compiles: false),
   _Program('the app credential through the singleton', '''
 await Credentials.set(const Credential(token: 'abc', refreshToken: 'again'));
@@ -217,7 +217,7 @@ print(Credentials.isHeld);
 print(Credentials.value?.token);
 Credentials.held.stream.listen((held) => print(held));
 Credentials.stream.listen((credential) => print(credential));
-Credentials.renewWith(refresh: (current) async => current, fatalSignals: {Object()});
+Credentials.renewWith(refresh: (current) async => current, fatalStatuses: {401});
 Tenant.follow();
 await Credentials.clear();
 ''', compiles: true),

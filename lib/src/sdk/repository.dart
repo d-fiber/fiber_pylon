@@ -79,7 +79,7 @@ import 'status.dart';
 /// is made, so [data] already holds the stored value by the time a screen asks:
 ///
 /// ```dart
-/// final class AdultsList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
+/// final class AdultsList extends Repository<List<User>, List<User>, UsersError> {
 ///   AdultsList(this._database, this._rest, {required this.minAge});
 ///
 ///   final OwnDatabase _database;
@@ -103,8 +103,9 @@ import 'status.dart';
 ///   Stream<List<User>> stream() => _adults.stream();
 ///
 ///   @override
-///   UsersError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
-///     RestSignal.unauthorized => UsersError.signedOut,
+///   UsersError resolve(Fault fault) => switch (fault.status) {
+///     401 || 403 => UsersError.signedOut,
+///     null => UsersError.network,
 ///     _ => UsersError.unknown,
 ///   };
 /// }
@@ -121,9 +122,9 @@ import 'status.dart';
 ///
 /// `R` is what [fetch] brings back, and it is the only thing that differs
 /// between a REST call and a vendor's: [response] receives it. `T` is what the
-/// screen reads, `E` the project's own error, and `S` the signal of the adapter
-/// [fetch] fails with.
-abstract base class Repository<R, T, E, S extends Object> {
+/// screen reads, and `E` the project's own error, an enum that lists every way this
+/// repository can fail, even those another repository lists too.
+abstract base class Repository<R, T, E> {
   /// A repository whose [data] is empty until the database has told what it holds,
   /// which it starts listening to right after it is made.
   Repository() {
@@ -192,7 +193,7 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// Turns the [Fault] a refresh failed with into the project's own error, which
   /// is where a project says that a request that never reached the server means
   /// the network.
-  E resolve(Fault<S> fault);
+  E resolve(Fault fault);
 
   /// What the database holds, read with `data.value` and followed with
   /// `data.stream`, which gives a new listener the current value first.
@@ -358,7 +359,7 @@ abstract base class Repository<R, T, E, S extends Object> {
     try {
       await response(await (requiresCredential ? fetch() : runUnauthenticated(fetch)));
       return StatusSucceeded<E>();
-    } on Fault<S> catch (fault) {
+    } on Fault catch (fault) {
       return StatusFailed<E>(resolve(fault));
     }
   }

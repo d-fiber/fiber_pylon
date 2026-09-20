@@ -36,9 +36,7 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 
-import 'classifier.dart';
 import 'configuration.dart';
-import 'signal.dart';
 import 'src/auth/auth.dart';
 import 'src/users/users.dart';
 
@@ -49,7 +47,7 @@ final class RestGroundSdk extends RestSdkClient {
 
   final RestConfiguration _configuration = RestConfiguration.fromEnvironment();
 
-  late final RestClient<RestSignal> _client;
+  late final RestClient _client;
   late final AuthGroundSdk auth;
   late final UsersGroundSdk users;
 
@@ -60,12 +58,11 @@ final class RestGroundSdk extends RestSdkClient {
   Future<void> initialize() async {
     if (isInitialized) return;
 
-    _client = RestClient<RestSignal>(
+    _client = RestClient(
       baseUrl: Uri.https(_configuration.url),
-      classifier: const RestGroundSdkClassifier(),
-      guard: CallGuard<RestSignal>(duplicateSignal: RestSignal.duplicateCall),
+      guard: CallGuard(),
     );
-    final node = RestNode<RestSignal>(_client);
+    final node = RestNode(_client);
     auth = AuthGroundSdk(node);
     users = UsersGroundSdk(node);
 

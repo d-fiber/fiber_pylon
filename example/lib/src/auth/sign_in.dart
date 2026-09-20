@@ -35,10 +35,11 @@
 // LICENSE file, the LICENSE file governs.
 
 
+import 'dart:async';
+
 import 'package:fiber_pylon/fiber_pylon.dart';
 
 import '../../clients/rest/rest.dart';
-import '../../clients/rest/signal.dart';
 
 final class Session {
   final String token;
@@ -46,14 +47,14 @@ final class Session {
   const Session({required this.token});
 }
 
-enum SignInError { invalidCredentials, networkError, unknown }
+enum SignInError { invalidCredentials, tooManyAttempts, serverDown, timedOut, offline, unknown }
 
 /// Signing in with an email and a password.
 ///
 /// Made for one attempt: `refresh()` sends it and `status` announces how it
 /// went, [StatusSucceeded] once the credential is held. `data` says whether one
 /// is.
-final class SignIn extends Repository<Session, bool, SignInError, RestSignal> {
+final class SignIn extends Repository<Session, bool, SignInError> {
   SignIn({required this.email, required this.password});
 
   final String email;
@@ -72,9 +73,11 @@ final class SignIn extends Repository<Session, bool, SignInError, RestSignal> {
   Stream<bool> stream() => Credentials.held.stream;
 
   @override
-  SignInError resolve(Fault<RestSignal> fault) => switch (fault.signal) {
-    RestSignal.unauthorized => SignInError.invalidCredentials,
-    RestSignal.noRoute => SignInError.networkError,
+  SignInError resolve(Fault fault) => switch (fault.status) {
+    401 => SignInError.invalidCredentials,
+    429 => SignInError.tooManyAttempts,
+    final int status when status >= 500 => SignInError.serverDown,
+    null => fault.cause is TimeoutException ? SignInError.timedOut : SignInError.offline,
     _ => SignInError.unknown,
   };
 }

@@ -39,8 +39,6 @@ import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
-enum HouseSignal { rejected }
-
 Credential credentialOf(String holder, {Duration lifetime = const Duration(hours: 1)}) =>
     Credential(token: 'token-$holder', refreshToken: 'again', expiresAt: DateTime.now().add(lifetime), holder: holder);
 
@@ -111,7 +109,7 @@ void main() {
           renewals++;
           return credentialOf('ada');
         },
-        fatalSignals: const {HouseSignal.rejected},
+        fatalStatuses: const {401},
       );
       final subscription = Tenant.follow();
       final seen = <String?>[];
@@ -130,8 +128,8 @@ void main() {
     test('leaves the tenant when the backend rejects the credential', () async {
       await hold(credentialOf('ada', lifetime: const Duration(minutes: 2)));
       Credentials.renewWith(
-        refresh: (current) async => throw const Fault<HouseSignal>(HouseSignal.rejected),
-        fatalSignals: const {HouseSignal.rejected},
+        refresh: (current) async => throw const Fault(status: 401),
+        fatalStatuses: const {401},
       );
       final subscription = Tenant.follow();
       expect(Tenant.current, 'ada');

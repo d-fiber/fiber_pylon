@@ -41,8 +41,6 @@ import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
-enum HouseSignal { stale, rejected, missing, duplicate }
-
 class CountingRefresher {
   final bool succeeds;
   int callCount = 0;
@@ -66,11 +64,10 @@ Future<void> holdCredentials(CountingRefresher refresher, {Duration lifetime = c
     await Credentials.forTesting(MemoryCredentialStore<Credential>(held)),
     dispose: (credentials) => credentials.dispose(),
   );
-  Credentials.renewWith(refresh: refresher.refresh, fatalSignals: const {HouseSignal.rejected});
+  Credentials.renewWith(refresh: refresher.refresh, fatalStatuses: const {403});
 }
 
-CallGuard<HouseSignal> guardFor() =>
-    CallGuard<HouseSignal>.renewing(duplicateSignal: HouseSignal.duplicate, renewOn: const {HouseSignal.stale});
+CallGuard guardFor() => CallGuard.renewing(renewOn: const {401});
 
 void main() {
   setUp(() => GetIt.instance.reset());
@@ -79,13 +76,13 @@ void main() {
 
   group('CallGuard', () {
     test('returns what the call produced', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
 
       expect(await guard.run(() async => 'answer'), 'answer');
     });
 
     test('refuses a second call sharing a key with one in flight', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
       final blocked = Completer<int>();
 
       final first = guard.run(() => blocked.future, dedupKey: 'read');
@@ -93,7 +90,7 @@ void main() {
 
       await expectLater(
         guard.run(() async => 2, dedupKey: 'read'),
-        throwsA(isA<Fault<HouseSignal>>().having((fault) => fault.signal, 'signal', HouseSignal.duplicate)),
+        throwsA(isA<Fault>().having((fault) => fault.cause, 'cause', isA<DuplicateCall>())),
       );
 
       blocked.complete(1);
@@ -101,7 +98,7 @@ void main() {
     });
 
     test('allows the key again once the call has finished', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
 
       await guard.run(() async => 1, dedupKey: 'read');
 
@@ -110,7 +107,7 @@ void main() {
     });
 
     test('lets calls without a key overlap', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
       final blocked = Completer<int>();
 
       final first = guard.run(() => blocked.future);
@@ -131,7 +128,7 @@ void main() {
       expect(refresher.callCount, 1);
     });
 
-    test('replays a call once after renewing on a signal it was given', () async {
+    test('replays a call once after renewing on a status it was given', () async {
       final refresher = CountingRefresher();
       await holdCredentials(refresher);
       final guard = guardFor();
@@ -139,7 +136,24 @@ void main() {
 
       final answer = await guard.run(() async {
         attempts++;
-        if (attempts == 1) throw const Fault(HouseSignal.stale);
+        if (attempts == 1) throw const Fault(status: 401);
+        return 'ok';
+      });
+
+      expect(answer, 'ok');
+      expect(attempts, 2);
+      expect(refresher.callCount, 1);
+    });
+
+    test('replays a call after renewing on a status added to the renewal set', () async {
+      final refresher = CountingRefresher();
+      await holdCredentials(refresher);
+      final guard = CallGuard.renewing(renewOn: const {401, 403});
+      var attempts = 0;
+
+      final answer = await guard.run(() async {
+        attempts++;
+        if (attempts == 1) throw const Fault(status: 403);
         return 'ok';
       });
 
@@ -156,21 +170,21 @@ void main() {
       await expectLater(
         guard.run(() async {
           attempts++;
-          throw const Fault(HouseSignal.stale);
+          throw const Fault(status: 401);
         }),
-        throwsA(isA<Fault<HouseSignal>>()),
+        throwsA(isA<Fault>()),
       );
 
       expect(attempts, 1);
     });
 
-    test('revokes when the replay fails on the same signal', () async {
+    test('revokes when the replay fails on the same status', () async {
       await holdCredentials(CountingRefresher());
       final guard = guardFor();
 
       await expectLater(
-        guard.run(() async => throw const Fault(HouseSignal.stale)),
-        throwsA(isA<Fault<HouseSignal>>()),
+        guard.run(() async => throw const Fault(status: 401)),
+        throwsA(isA<Fault>()),
       );
 
       expect(Credentials.isHeld, isFalse);
@@ -182,8 +196,8 @@ void main() {
       final guard = guardFor();
 
       await expectLater(
-        guard.run(() async => throw const Fault(HouseSignal.stale), authenticated: false),
-        throwsA(isA<Fault<HouseSignal>>()),
+        guard.run(() async => throw const Fault(status: 401), authenticated: false),
+        throwsA(isA<Fault>()),
       );
 
       expect(refresher.callCount, 0);
@@ -191,7 +205,7 @@ void main() {
     });
 
     test('hands a shared answer to every caller that joined', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
       final blocked = Completer<int>();
       var runs = 0;
 
@@ -217,7 +231,7 @@ void main() {
     });
 
     test('hands the same failure to every caller that joined', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
       final blocked = Completer<int>();
       var runs = 0;
 
@@ -226,10 +240,10 @@ void main() {
         return blocked.future;
       }, key: 'brand/7');
 
-      final first = expectLater(ask(), throwsA(isA<Fault<HouseSignal>>()));
-      final second = expectLater(ask(), throwsA(isA<Fault<HouseSignal>>()));
+      final first = expectLater(ask(), throwsA(isA<Fault>()));
+      final second = expectLater(ask(), throwsA(isA<Fault>()));
       await pumpEventQueue();
-      blocked.completeError(const Fault(HouseSignal.missing));
+      blocked.completeError(const Fault(status: 404));
 
       await first;
       await second;
@@ -237,7 +251,7 @@ void main() {
     });
 
     test('releases the key once the shared call has settled', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
       var runs = 0;
 
       Future<int> ask() => guard.share(() async {
@@ -251,7 +265,7 @@ void main() {
     });
 
     test('keeps two different keys apart', () async {
-      final guard = CallGuard<HouseSignal>(duplicateSignal: HouseSignal.duplicate);
+      final guard = CallGuard();
       var runs = 0;
 
       await Future.wait([
@@ -278,14 +292,14 @@ void main() {
       expect(refresher.callCount, 1);
     });
 
-    test('passes a signal outside the renewal set straight through', () async {
+    test('passes a status outside the renewal set straight through', () async {
       final refresher = CountingRefresher();
       await holdCredentials(refresher);
       final guard = guardFor();
 
       await expectLater(
-        guard.run(() async => throw const Fault(HouseSignal.missing)),
-        throwsA(isA<Fault<HouseSignal>>().having((fault) => fault.signal, 'signal', HouseSignal.missing)),
+        guard.run(() async => throw const Fault(status: 404)),
+        throwsA(isA<Fault>().having((fault) => fault.status, 'status', 404)),
       );
 
       expect(refresher.callCount, 0);
