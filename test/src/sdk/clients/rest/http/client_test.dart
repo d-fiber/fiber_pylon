@@ -42,6 +42,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/common/unauthenticated_scope.dart';
+import 'package:fiber_pylon/src/credential/store.dart';
+import 'package:get_it/get_it.dart';
 
 enum HouseSignal {
   unauthorized,
@@ -100,7 +103,91 @@ http.Response jsonOk(Object body) => http.Response(
   headers: {'content-type': 'application/json; charset=utf-8'},
 );
 
+int renewals = 0;
+
+Future<void> holdStaleCredential() async {
+  renewals = 0;
+  final held = Credential(
+    token: 'first',
+    refreshToken: 'again',
+    expiresAt: DateTime.now().add(const Duration(minutes: 1)),
+  );
+  GetIt.instance.registerSingleton<Credentials>(
+    await Credentials.forTesting(MemoryCredentialStore<Credential>(held)),
+    dispose: (credentials) => credentials.dispose(),
+  );
+  Credentials.renewWith(
+    refresh: (current) async {
+      renewals++;
+      return Credential(
+        token: 'renewed-$renewals',
+        refreshToken: 'again',
+        expiresAt: DateTime.now().add(const Duration(hours: 1)),
+      );
+    },
+    fatalSignals: const {HouseSignal.forbidden},
+  );
+}
+
+RestClient<HouseSignal> renewingClient(Future<http.Response> Function(http.Request request) handler) =>
+    RestClient<HouseSignal>(
+      baseUrl: houseBase,
+      classifier: const HouseClassifier(),
+      guard: CallGuard<HouseSignal>.renewing(
+        duplicateSignal: HouseSignal.duplicate,
+        renewOn: const {HouseSignal.unauthorized},
+      ),
+      httpClient: MockClient(handler),
+    );
+
 void main() {
+  group('RestClient credential', () {
+    setUp(() => GetIt.instance.reset());
+
+    tearDown(() => GetIt.instance.reset());
+
+    test('renews a stale credential before a call that carries it', () async {
+      await holdStaleCredential();
+      final client = renewingClient((request) async => jsonOk({'ok': true}));
+
+      await client.send(const RestRequest(path: 'brand'));
+
+      expect(renewals, 1);
+      await client.dispose();
+    });
+
+    test('leaves a stale credential alone for a call made in an unauthenticated scope', () async {
+      await holdStaleCredential();
+      final client = renewingClient((request) async => jsonOk({'ok': true}));
+
+      await runUnauthenticated(() async {
+        await Future<void>.delayed(Duration.zero);
+        await client.send(const RestRequest(path: 'brand'));
+      });
+
+      expect(renewals, 0);
+      await client.dispose();
+    });
+
+    test('does not replay a refused call made in an unauthenticated scope', () async {
+      await holdStaleCredential();
+      var requests = 0;
+      final client = renewingClient((request) async {
+        requests++;
+        return http.Response('{}', 401, headers: {'content-type': 'application/json'});
+      });
+
+      await expectLater(
+        runUnauthenticated(() => client.send(const RestRequest(path: 'brand'))),
+        throwsA(isA<Fault<HouseSignal>>().having((fault) => fault.signal, 'signal', HouseSignal.unauthorized)),
+      );
+
+      expect(requests, 1);
+      expect(renewals, 0);
+      await client.dispose();
+    });
+  });
+
   group('RestClient', () {
     test('appends the request path to the base path', () async {
       late Uri seen;

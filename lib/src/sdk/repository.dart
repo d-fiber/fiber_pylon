@@ -41,6 +41,7 @@ import 'package:meta/meta.dart';
 import '../common/fault.dart';
 import '../common/network.dart';
 import '../common/observable.dart';
+import '../common/unauthenticated_scope.dart';
 import '../credential/credentials.dart';
 import 'status.dart';
 
@@ -147,7 +148,9 @@ abstract base class Repository<R, T, E, S extends Object> {
   /// database: [data] is empty and [status] is [StatusIdle]. It listens once a
   /// credential is held, and when it is cleared it stops, empties [data] and
   /// ends any wait for the connection, without being disposed. A repository whose
-  /// request signs someone in says `false`, and listens whatever is held.
+  /// request signs someone in says `false`, and listens whatever is held. The REST
+  /// calls its [fetch] makes then carry no credential, with nothing to mark on
+  /// them.
   ///
   /// `true` unless a repository says otherwise, since what most of them read is an
   /// account's.
@@ -353,7 +356,7 @@ abstract base class Repository<R, T, E, S extends Object> {
     if (requiresConnection && _isOffline) return StatusOffline<E>();
 
     try {
-      await response(await fetch());
+      await response(await (requiresCredential ? fetch() : runUnauthenticated(fetch)));
       return StatusSucceeded<E>();
     } on Fault<S> catch (fault) {
       return StatusFailed<E>(resolve(fault));

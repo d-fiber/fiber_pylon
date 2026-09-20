@@ -38,6 +38,7 @@ import 'dart:io';
 
 import 'package:fiber_pylon/di/di.dart';
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/common/unauthenticated_scope.dart';
 import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -183,6 +184,23 @@ void main() {
 
       expect(asked.single.token, 'expired');
       expect(Credentials.value, same(renewed));
+    });
+
+    test('runs the exchange so that the calls it makes carry no credential', () async {
+      await hold(credentialLasting(const Duration(hours: 1), token: 'first'));
+      bool? unauthenticated;
+      Credentials.renewWith(
+        refresh: (current) async {
+          unauthenticated = isUnauthenticated;
+          return credentialLasting(const Duration(hours: 1), token: 'second');
+        },
+        fatalSignals: const {HouseSignal.rejected},
+      );
+
+      await Credentials.renew();
+
+      expect(unauthenticated, isTrue);
+      expect(isUnauthenticated, isFalse);
     });
 
     test('renews on demand and hands the exchange the credential in force', () async {

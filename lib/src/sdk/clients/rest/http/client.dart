@@ -41,6 +41,7 @@ import 'package:http_parser/http_parser.dart';
 
 import '../../../../common/fault.dart';
 import '../../../../common/reporter.dart';
+import '../../../../common/unauthenticated_scope.dart';
 import 'call_guard.dart';
 import 'classifier.dart';
 import 'request.dart';
@@ -143,11 +144,12 @@ class RestClient<S extends Object> {
   /// [RestRequest.dedupKey] refuses to.
   Future<RestResponse> send(RestRequest request) {
     final shareKey = request.shareKey;
+    final authenticated = request.authenticated && !isUnauthenticated;
     if (shareKey != null) {
-      return _guard.share(() => _perform(request), key: shareKey, authenticated: request.authenticated);
+      return _guard.share(() => _perform(request), key: shareKey, authenticated: authenticated);
     }
 
-    return _guard.run(() => _perform(request), dedupKey: request.dedupKey, authenticated: request.authenticated);
+    return _guard.run(() => _perform(request), dedupKey: request.dedupKey, authenticated: authenticated);
   }
 
   /// Closes the underlying HTTP client, when this created it.

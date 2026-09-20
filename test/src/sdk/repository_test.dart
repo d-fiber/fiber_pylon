@@ -37,6 +37,7 @@
 import 'dart:async';
 
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/common/unauthenticated_scope.dart';
 import 'package:fiber_pylon/src/credential/store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -66,6 +67,7 @@ final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSign
   Completer<List<int>>? gate;
   int fetches = 0;
   int watches = 0;
+  bool? fetchedUnauthenticated;
 
   @override
   bool get requiresCredential => credentialed;
@@ -90,6 +92,7 @@ final class Shelf extends Repository<List<int>, List<int>, HouseError, HouseSign
   @override
   Future<List<int>> fetch() async {
     fetches++;
+    fetchedUnauthenticated = isUnauthenticated;
     final held = gate;
     if (held != null) return held.future;
     final broken = failure;
@@ -373,7 +376,7 @@ void main() {
       await shelf.dispose();
     });
 
-    test('never asks the network state of a repository that does not observe it', () async {
+    test('never asks the network state of a repository that does not require it', () async {
       final shelf = Shelf();
 
       expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
@@ -389,6 +392,26 @@ void main() {
 
       await Credentials.set(const Credential(token: 'abc'));
       expect(await shelf.refresh(), const StatusSucceeded<HouseError>());
+      await shelf.dispose();
+    });
+
+    test('makes the calls of a repository that requires no credential without one', () async {
+      final shelf = Shelf();
+
+      await shelf.refresh();
+
+      expect(shelf.fetchedUnauthenticated, isTrue);
+      await shelf.dispose();
+    });
+
+    test('leaves the calls of a repository that requires a credential carrying it', () async {
+      await hold();
+      await Credentials.set(const Credential(token: 'abc'));
+      final shelf = Shelf(credentialed: true);
+
+      await shelf.refresh();
+
+      expect(shelf.fetchedUnauthenticated, isFalse);
       await shelf.dispose();
     });
 

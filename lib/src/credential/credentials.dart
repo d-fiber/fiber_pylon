@@ -43,6 +43,7 @@ import 'package:meta/meta.dart';
 import '../common/fault.dart';
 import '../common/observable.dart';
 import '../common/reporter.dart';
+import '../common/unauthenticated_scope.dart';
 import '../storage/secure_storage.dart';
 import 'credential.dart';
 import 'manager.dart';
@@ -172,7 +173,8 @@ class Credentials {
   /// [refresh] turns the credential in force into a fresh one. It throws a
   /// [Fault] naming what went wrong, and nothing else about renewal is left to
   /// it: when to renew, joining simultaneous attempts into one exchange, trying
-  /// again and giving up are all decided here.
+  /// again and giving up are all decided here. The REST calls it makes carry no
+  /// credential, so the endpoint it calls needs no marking.
   ///
   /// [fatalSignals] lists the signals that mean the credential is dead. One of
   /// them clears it, which is what sends a holder back to a sign-in screen;
@@ -241,5 +243,5 @@ final class _Exchange implements CredentialRefresher<Credential> {
   bool canRenew(Credential credential) => _refresh != null && credential.refreshToken != null;
 
   @override
-  Future<Credential> refresh(Credential current) => _refresh!(current);
+  Future<Credential> refresh(Credential current) => runUnauthenticated(() => _refresh!(current));
 }

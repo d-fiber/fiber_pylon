@@ -160,15 +160,16 @@ final class RestNode<S extends Object> {
   ///
   /// Before every call [get], [post] and the other verbs build, `CallGuard`
   /// would otherwise refresh the credential if it is stale, and retry once
-  /// more after renewing it if the server refuses the call for it. Call this
-  /// on the one or two nodes that must not go through that: the endpoint
-  /// that signs in, and the one the exchange given to `Credentials.renewWith` calls
-  /// to renew the credential — that one deadlocks waiting on itself if it is
-  /// left authenticated, since renewing is exactly what it is in the middle
-  /// of doing.
+  /// more after renewing it if the server refuses the call for it. A call that
+  /// carries none is never held back for that.
+  ///
+  /// A repository whose `requiresCredential` is `false` and the exchange given
+  /// to `Credentials.renewWith` already make their calls this way, whatever is
+  /// on the node. This is for a call made anywhere else that must not wait for a
+  /// credential, such as one that signs in outside a repository.
   ///
   /// ```dart
-  /// final refresh = api.path((p) => p.segment('auth/refresh')).unauthenticated();
+  /// final signIn = api.path((p) => p.segment('auth/sign_in')).unauthenticated();
   /// ```
   RestNode<S> unauthenticated() =>
       RestNode._(_client, _segments, _headers, false);
