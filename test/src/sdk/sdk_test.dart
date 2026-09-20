@@ -36,6 +36,8 @@
 
 import 'package:fiber_pylon/fiber_pylon.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 final class _RestSdk extends RestSdkClient {
   @override
@@ -88,6 +90,45 @@ final class _TestSdk extends Sdk {
 
 final class _NeverInitializedSdk extends Sdk {}
 
+enum _Signal { refused, unreachable }
+
+final class _Classifier implements RestClassifier<_Signal> {
+  const _Classifier();
+
+  @override
+  _Signal? ofResponse(RestResponse response) => response.status < 300 ? null : _Signal.refused;
+
+  @override
+  _Signal ofTransport(Object error, StackTrace stackTrace) => _Signal.unreachable;
+}
+
+final class _Api extends RestSdk<_Signal> {
+  _Api() : this._([]);
+
+  _Api._(this.reached)
+    : super(
+        RestClient<_Signal>(
+          baseUrl: Uri.parse('https://house.test/v1/'),
+          classifier: const _Classifier(),
+          guard: CallGuard<_Signal>(duplicateSignal: _Signal.refused),
+          httpClient: MockClient((request) async {
+            reached.add(request.url);
+            return http.Response('{}', 200, headers: {'content-type': 'application/json'});
+          }),
+        ),
+      );
+
+  final List<Uri> reached;
+
+  RestNode<_Signal> get users => RestNode<_Signal>(client).path((p) => p.segment('users'));
+
+  @override
+  Future<void> dispose() async {
+    await client.dispose();
+    await super.dispose();
+  }
+}
+
 void main() {
   group('Sdk.instance', () {
     test('throws when nothing has registered yet', () {
@@ -138,6 +179,27 @@ void main() {
         await second.dispose();
       },
     );
+  });
+
+  group('RestSdk', () {
+    test('sends the calls of a node made from its client through that client', () async {
+      final api = _Api();
+      await api.initialize();
+
+      await api.users.get().send();
+
+      expect(api.reached.single.toString(), 'https://house.test/v1/users');
+      await api.dispose();
+    });
+
+    test('is reachable by its own type like any other Sdk', () async {
+      final api = _Api();
+      await api.initialize();
+
+      expect(Sdk.instance<_Api>(), same(api));
+
+      await api.dispose();
+    });
   });
 
   group('RestSdkClient', () {

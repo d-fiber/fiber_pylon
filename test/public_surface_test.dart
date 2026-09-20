@@ -45,7 +45,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-const _refusedWarnings = {'INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER', 'INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER'};
+const _refusedWarnings = {
+  'INVALID_USE_OF_VISIBLE_FOR_TESTING_MEMBER',
+  'INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER',
+  'INVALID_USE_OF_PROTECTED_MEMBER',
+};
 
 const _prelude = '''
 import 'package:fiber_pylon/fiber_pylon.dart';
@@ -180,6 +184,33 @@ abstract base class Reading extends Repository<int, int, String, int> {
   @override
   Stream<int?> stream() => const Stream<int?>.empty();
 ''', compiles: true),
+  _Program('reaching the client of a REST sdk from outside it', '''
+}
+
+final class Api extends RestSdk<int> {
+  Api(super.client);
+}
+
+void reaching(Api api) {
+  print(api.client);
+''', compiles: false),
+  _Program('a REST sdk that builds its nodes from its own client', '''
+}
+
+final class Api extends RestSdk<int> {
+  Api(super.client);
+
+  late final RestNode<int> users = RestNode<int>(client);
+''', compiles: true),
+  _Program('overriding the client of a REST sdk', '''
+}
+
+final class Api extends RestSdk<int> {
+  Api(super.client);
+
+  @override
+  RestClient<int> get client => throw UnimplementedError();
+''', compiles: false),
   _Program('the app credential through the singleton', '''
 await Credentials.set(const Credential(token: 'abc', refreshToken: 'again'));
 print(Credentials.isHeld);

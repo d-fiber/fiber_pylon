@@ -36,6 +36,8 @@
 
 import 'package:meta/meta.dart';
 
+import 'clients/rest/http/client.dart';
+
 /// The plug.
 ///
 /// An [Sdk] is one implementation of everything a project's contract needs. It
@@ -126,3 +128,45 @@ abstract base class Sdk {
     }
   }
 }
+
+/// An [Sdk] that keeps everything on the device.
+///
+/// Extend it for an implementation with nothing to reach over the network.
+base class LocalSdk extends Sdk {}
+
+/// An [Sdk] that reaches a server over REST.
+///
+/// Extend it for an implementation that talks to an API, and hand it the client
+/// every call goes through. The nodes it builds for its ports are made from that
+/// client, so a project states where the server is once.
+///
+/// [S] is the signal the classifier of that client gives to a failure.
+///
+/// ```dart
+/// final class MySdk extends RestSdk<MySignal> {
+///   MySdk() : super(RestClient<MySignal>(...));
+///
+///   late final Users users = Users(RestNode<MySignal>(client));
+/// }
+/// ```
+abstract base class RestSdk<S extends Object> extends Sdk {
+  /// Makes an implementation that sends every call through [client].
+  RestSdk(RestClient<S> client) : _client = client;
+
+  final RestClient<S> _client;
+
+  /// The client every REST call of this implementation goes through.
+  ///
+  /// For the implementation to build its nodes from, and not reachable from
+  /// anywhere else: what the rest of the app gets are the ports. It cannot be
+  /// overridden, since the one given to the constructor is the one to use.
+  @protected
+  @nonVirtual
+  RestClient<S> get client => _client;
+}
+
+/// An [Sdk] that reaches an external service through a vendor's own package.
+///
+/// Extend it for an implementation that wraps Firebase, Supabase or a company's
+/// own client rather than pylon's own `RestClient`.
+base class VendorSdk extends Sdk {}
