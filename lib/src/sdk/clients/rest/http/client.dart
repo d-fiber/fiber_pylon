@@ -144,7 +144,7 @@ class RestClient<S extends Object> {
   /// [RestRequest.dedupKey] refuses to.
   Future<RestResponse> send(RestRequest request) {
     final shareKey = request.shareKey;
-    final authenticated = request.authenticated && !isUnauthenticated;
+    final authenticated = !isUnauthenticated;
     if (shareKey != null) {
       return _guard.share(() => _perform(request), key: shareKey, authenticated: authenticated);
     }

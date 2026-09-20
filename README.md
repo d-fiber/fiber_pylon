@@ -285,6 +285,11 @@ Every authenticated call renews ahead of expiry, replays once after a renewal, a
 the credential when the replay is refused too. `RestClient`'s `headers` reads
 `Credentials.value`, so the token it sends is the one just renewed.
 
+The calls a `Repository` makes carry the credential unless its `requiresCredential` is `false`, and
+the ones the exchange given to `Credentials.renewWith` makes never do. Nothing is marked on the
+node: the call that signs in is a repository like any other, with `requiresCredential` set to
+`false`.
+
 A project with no notion of a credential never sets one. Nothing else requires it.
 
 ## Calls that collide
@@ -313,7 +318,8 @@ time and caches nothing.
 
 A `RestCall`, composed through a `RestNode`, always derives one of the two, for every verb,
 with no way to opt out. The key folds in the path, the sorted query parameters, the sorted
-headers, whether it is authenticated, the canonicalised JSON body, the form fields and the
+headers, whether it is sent for a repository that requires no credential, the canonicalised JSON
+body, the form fields and the
 files — whichever of those a given call actually set, since every verb accepts all of them.
 Two creations with different content never block each other, while a double submission of
 the same one always does, however many times it is fired. A `RestNode.get` or `RestNode.head`

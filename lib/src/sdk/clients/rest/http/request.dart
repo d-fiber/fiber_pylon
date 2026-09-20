@@ -140,13 +140,6 @@ class RestRequest extends Equatable {
   /// rather than a JSON one.
   final List<RestUpload> files;
 
-  /// Whether this call carries the credential.
-  ///
-  /// Passed on to the guard, which is what decides to renew beforehand and to
-  /// replay afterwards. A sign-in call, which establishes the credential rather
-  /// than using it, sets this to `false`.
-  final bool authenticated;
-
   /// What would make another call a duplicate of this one, or `null` when this
   /// call may overlap with itself.
   ///
@@ -180,7 +173,6 @@ class RestRequest extends Equatable {
     this.body,
     this.fields = const {},
     this.files = const [],
-    this.authenticated = true,
     this.dedupKey,
     this.shareKey,
     this.timeout,
@@ -204,7 +196,6 @@ class RestRequest extends Equatable {
     body,
     fields,
     files,
-    authenticated,
     dedupKey,
     shareKey,
     timeout,

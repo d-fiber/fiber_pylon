@@ -36,6 +36,7 @@
 
 import 'dart:convert';
 
+import '../../../../common/unauthenticated_scope.dart';
 import '../segment.dart';
 import 'client.dart';
 import 'request.dart';
@@ -50,14 +51,13 @@ import 'response.dart';
 /// by [parameters] first.
 final class RestNode<S extends Object> {
   /// The root of [client]'s resource tree.
-  RestNode(RestClient<S> client) : this._(client, const [], const {}, true);
+  RestNode(RestClient<S> client) : this._(client, const [], const {});
 
-  RestNode._(this._client, this._segments, this._headers, this._authenticated);
+  RestNode._(this._client, this._segments, this._headers);
 
   final RestClient<S> _client;
   final List<_PathPart> _segments;
   final Map<String, String> _headers;
-  final bool _authenticated;
 
   /// The resolved path this node addresses, relative to the client's base
   /// URL.
@@ -94,7 +94,6 @@ final class RestNode<S extends Object> {
     _client,
     [..._segments, ...build(const RestPath._([]))._parts],
     _headers,
-    _authenticated,
   );
 
   /// Resolves every parameter [path] left behind, replacing each with the
@@ -130,7 +129,7 @@ final class RestNode<S extends Object> {
         'parameters for $unused were given but nothing needs them',
       );
     }
-    return RestNode._(_client, resolved, _headers, _authenticated);
+    return RestNode._(_client, resolved, _headers);
   }
 
   /// Sets headers every call built from this node carries, merged over
@@ -153,26 +152,7 @@ final class RestNode<S extends Object> {
         _client,
         _segments,
         build(RestCallHeaders._(_headers))._values,
-        _authenticated,
       );
-
-  /// Marks every call built from this node as not carrying the credential.
-  ///
-  /// Before every call [get], [post] and the other verbs build, `CallGuard`
-  /// would otherwise refresh the credential if it is stale, and retry once
-  /// more after renewing it if the server refuses the call for it. A call that
-  /// carries none is never held back for that.
-  ///
-  /// A repository whose `requiresCredential` is `false` and the exchange given
-  /// to `Credentials.renewWith` already make their calls this way, whatever is
-  /// on the node. This is for a call made anywhere else that must not wait for a
-  /// credential, such as one that signs in outside a repository.
-  ///
-  /// ```dart
-  /// final signIn = api.path((p) => p.segment('auth/sign_in')).unauthenticated();
-  /// ```
-  RestNode<S> unauthenticated() =>
-      RestNode._(_client, _segments, _headers, false);
 
   /// Reads this resource. See [RestCall] for what it can carry.
   RestCall<S> get() => RestCall._(
@@ -180,7 +160,6 @@ final class RestNode<S extends Object> {
     resolvedPath,
     RestMethod.get,
     _headers,
-    _authenticated,
   );
 
   /// Reads this resource's headers, without its body. See [RestCall] for
@@ -190,7 +169,6 @@ final class RestNode<S extends Object> {
     resolvedPath,
     RestMethod.head,
     _headers,
-    _authenticated,
   );
 
   /// Creates this resource, or submits something that is not a replacement.
@@ -200,7 +178,6 @@ final class RestNode<S extends Object> {
     resolvedPath,
     RestMethod.post,
     _headers,
-    _authenticated,
   );
 
   /// Replaces this resource whole. See [RestCall] for what it can carry.
@@ -209,7 +186,6 @@ final class RestNode<S extends Object> {
     resolvedPath,
     RestMethod.put,
     _headers,
-    _authenticated,
   );
 
   /// Changes part of this resource. See [RestCall] for what it can carry.
@@ -218,7 +194,6 @@ final class RestNode<S extends Object> {
     resolvedPath,
     RestMethod.patch,
     _headers,
-    _authenticated,
   );
 
   /// Removes this resource. See [RestCall] for what it can carry.
@@ -227,7 +202,6 @@ final class RestNode<S extends Object> {
     resolvedPath,
     RestMethod.delete,
     _headers,
-    _authenticated,
   );
 }
 
@@ -283,8 +257,7 @@ final class _Parameter extends _PathPart {
 ///
 /// Built only by [RestNode.get], [RestNode.head], [RestNode.post],
 /// [RestNode.put], [RestNode.patch] or [RestNode.delete], which is also
-/// where it gets the headers [RestNode.headers] set and whether
-/// [RestNode.unauthenticated] was called. Every verb accepts every one of
+/// where it gets the headers [RestNode.headers] set. Every verb accepts every one of
 /// [body], [multipart], [queryParameters] and [timeout]: pylon does not
 /// guess which combination a server actually needs, and refuses none of
 /// them, including a body on a GET or a query parameter on a DELETE.
@@ -302,14 +275,12 @@ final class RestCall<S extends Object> {
     this._path,
     this._method,
     this._headers,
-    this._authenticated,
   );
 
   final RestClient<S> _client;
   final String _path;
   final RestMethod _method;
   final Map<String, String> _headers;
-  final bool _authenticated;
 
   Map<String, dynamic>? _body;
   Map<String, String> _fields = const {};
@@ -372,8 +343,8 @@ final class RestCall<S extends Object> {
   /// refuses a second call configured the same way while this one is in
   /// flight, rather than sending it. Either way, what makes two calls "the
   /// same" is the path, the sorted [queryParameters], the sorted headers and
-  /// the [RestNode.unauthenticated] status the node this call was built from
-  /// carries, [body] and [multipart] together — two otherwise identical
+  /// whether a repository that requires no credential sends it, [body] and
+  /// [multipart] together — two otherwise identical
   /// calls asking for a different `Accept-Language` are not the same call.
   Future<RestResponse> send() {
     final key = _key(
@@ -384,7 +355,7 @@ final class RestCall<S extends Object> {
       _fields,
       _files,
       _body,
-      _authenticated,
+      !isUnauthenticated,
     );
     final shares = _method == RestMethod.get || _method == RestMethod.head;
     return _client.send(
@@ -396,7 +367,6 @@ final class RestCall<S extends Object> {
         files: _files,
         queryParameters: _queryParameters,
         headers: _headers,
-        authenticated: _authenticated,
         shareKey: shares ? key : null,
         dedupKey: shares ? null : key,
         timeout: _timeout,

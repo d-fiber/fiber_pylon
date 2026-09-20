@@ -38,6 +38,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fiber_pylon/fiber_pylon.dart';
+import 'package:fiber_pylon/src/common/unauthenticated_scope.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -312,8 +313,8 @@ void main() {
     });
   });
 
-  group('RestNode.unauthenticated', () {
-    test('two otherwise identical GETs, one authenticated and one not, do '
+  group('RestNode.get in an unauthenticated scope', () {
+    test('two otherwise identical GETs, one sent with the credential and one not, do '
         'not coalesce', () async {
       var calls = 0;
       final client = _client(
@@ -326,7 +327,7 @@ void main() {
       final node = RestNode<_Signal>(client).path((p) => p.segment('store'));
 
       final first = node.get().send();
-      final second = node.unauthenticated().get().send();
+      final second = runUnauthenticated(() => node.get().send());
       await Future.wait([first, second]);
 
       expect(calls, 2);
