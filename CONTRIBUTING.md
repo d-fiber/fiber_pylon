@@ -31,7 +31,7 @@ which wraps the `shared_preferences` plugin; everything else is plain Dart.
 ```
 lib/fiber_pylon.dart          the barrel, and the only thing a consumer imports
 lib/fiber_pylon_io.dart       the one piece that needs dart:io, kept apart on purpose
-lib/src/barrier/               what a port touches: Result, Fault, FaultResolver, Sdk,
+lib/src/barrier/               what a port touches: Result, Fault, Sdk,
                                 SdkType, BackendSdk, RestBackendSdk, LocalBackendSdk,
                                 VendorBackendSdk, Singleton, Configuration, RestNode, RestPath,
                                 RestParameters, RestCall, RealtimeNode, RealtimePath,
@@ -62,8 +62,8 @@ Two questions catch most of it:
   until a project spells one differently, and then it wires the wrong thing silently.
 
 Where pylon has to act on something only the project knows, it takes it as a required
-argument. `fatalSignals`, `renewOn`, `duplicateSignal` and `fallback` all have
-no default for this reason, and adding one would be a regression.
+argument. `fatalStatuses` and `renewOn` have no default for this reason, and adding
+one would be a regression.
 
 ## Before you push
 
@@ -139,4 +139,4 @@ with this paragraph rather than a discussion:
 - a code generator.
 
 If one of those would genuinely help you, the shape to propose is the seam that lets you
-supply it, as `RestClassifier` and `SocketProtocol` already do.
+supply it, as `SocketProtocol` already does.

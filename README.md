@@ -16,7 +16,7 @@ be right most of the time.
 
 **The barrier**, which a port touches: `RestNode`, `RestPath`, `RestParameters` and
 `RestCall` for a REST call, `RealtimeNode`, `RealtimePath`, `RealtimeParameters` and
-`RealtimeTopic` for a live one, `Result`, `Fault`, `FaultResolver`, `Sdk`, `SdkType`,
+`RealtimeTopic` for a live one, `Result`, `Fault`, `Sdk`, `SdkType`,
 `BackendSdk`, `RestBackendSdk`, `LocalBackendSdk`, `VendorBackendSdk`,
 `Configuration`. This is
 what a service layer sees, and it does not change when the backend does.
@@ -37,7 +37,7 @@ A port never builds a `RestRequest` or a path string by hand. It composes a `Res
 rooted once on the `Sdk` implementation's own `RestClient`:
 
 ```dart
-final api = RestNode<AdminSignal>(client).path((p) => p.segment('v1'));
+final api = RestNode(client).path((p) => p.segment('v1'));
 final brand = api.path((p) => p.segment('brand'));
 
 Future<Result<Brand, ReadBrandError>> read(String id) async {
@@ -48,8 +48,8 @@ Future<Result<Brand, ReadBrandError>> read(String id) async {
         .get()
         .send();
     return OK(Brand.fromResponse(response));
-  } on Fault<AdminSignal> catch (fault) {
-    return Failure(readBrand.call(fault));
+  } on Fault catch (fault) {
+    return Failure(readBrandError(fault));
   }
 }
 ```
@@ -96,69 +96,65 @@ one join on the wire, and the topic is left only once both have stopped listenin
 That both ends of the swap are REST. `RestClient` speaks HTTP and `RestMethod` is a closed
 list, because those are a protocol's own words rather than a guess about a project.
 
-What stays outside is every judgement the protocol does not make: which statuses are
-failures, what an error body looks like, how a call is authenticated, which failure
-deserves a renewal. Each of those is asked for.
+What stays outside is every judgement the protocol does not make: what an error body looks
+like and how a call is authenticated. Each of those is asked for, or read from the fault by
+the operation that wants it.
 
 ## Where the boundary actually is
 
-It is `Fault`, and what makes it work is that pylon never reads it. A fault carries a
-signal from the adapter's own vocabulary, an enum the adapter declares.
+It is `Fault`, and what makes it work is that pylon never names a failure. A fault carries the
+status the server answered and the body it sent, or, when a call got no answer, the exception
+it failed with.
 
 ```dart
-enum AdminSignal {
-  unauthorized, forbidden, vpnRequired, notFound,
-  tooManyRequests, noRoute, timedOut, nameEmpty, duplicateCall, unknown,
+throw const Fault(status: 404);                          // the server answered
+throw Fault(cause: TimeoutException('waited too long')); // no answer: no status, the cause says why
+```
+
+`RestClient` throws one for any response outside `200` to `299`, with the `status` and the
+decoded body in `fault.details`, and one with the exception the http stack threw when nothing
+came back. What a `401` or a `TimeoutException` means is for the operation to say.
+
+Each operation declares its own error enum, complete, and writes the `switch` that turns a fault
+into one of its members. Both sides are typed, so a member that does not exist does not compile
+and a rename is caught rather than discovered at runtime. Two operations that fail the same way
+list it twice, on purpose: neither depends on the other.
+
+```dart
+enum CreateBrandError {
+  unauthorized, notPermitted, vpnRequired, tooManyRequests, nameEmpty, serverDown, timedOut, offline, unknown,
 }
 
-throw const Fault(AdminSignal.nameEmpty);
-```
-
-Pylon offers no list of failure kinds, because any list would be a guess about the projects
-it has not met. `unauthorized` does not mean the same thing everywhere, and in a system
-with no authentication it means nothing at all.
-
-A `FaultResolver` turns that signal into the error one operation declares. Both sides of the
-switch are typed, so a member that does not exist does not compile and a rename is caught
-rather than discovered at runtime.
-
-```dart
-final createBrand = FaultResolver<AdminSignal, CreateBrandError>(
-  (signal) => switch (signal) {
-    AdminSignal.unauthorized => CreateBrandError.unauthorized,
-    AdminSignal.forbidden => CreateBrandError.notPermitted,
-    AdminSignal.vpnRequired => CreateBrandError.vpnRequired,
-    AdminSignal.tooManyRequests => CreateBrandError.tooManyRequests,
-    AdminSignal.noRoute => CreateBrandError.networkError,
-    AdminSignal.nameEmpty => CreateBrandError.nameEmpty,
+CreateBrandError resolve(Fault fault) {
+  final code = fault.details is Map ? (fault.details as Map)['code'] : null;
+  return switch (fault.status) {
+    401 => CreateBrandError.unauthorized,
+    403 when code == 'vpn_required' => CreateBrandError.vpnRequired,
+    403 => CreateBrandError.notPermitted,
+    429 => CreateBrandError.tooManyRequests,
+    400 when code == 'name_empty' => CreateBrandError.nameEmpty,
+    final int status when status >= 500 => CreateBrandError.serverDown,
+    null => fault.cause is TimeoutException ? CreateBrandError.timedOut : CreateBrandError.offline,
     _ => CreateBrandError.unknown,
-  },
-);
+  };
+}
 ```
 
-The resolver belongs next to the adapter, not to the contract, because it is the translation
-of one server's vocabulary. Swapping servers means writing new resolvers beside the new
-adapter; the contract, and everything above it, does not move.
+A port calls it itself, from its own `catch`, as `read` does above: `RestNode` never sees it
+and never decides which failures a port distinguishes. A raw exception is a bug and is left to
+propagate rather than quietly becoming an error nobody named.
 
-A port calls it itself, from its own `catch`, as `read` does above: `RestNode` never sees the
-resolver and never decides which failures a port distinguishes. A raw exception, or a
-`Fault` carrying another adapter's signal, is a bug and is left to propagate rather than
-quietly becoming `readBrand.fallback` — nothing here decides that for the caller either.
-
-Wherever pylon has to act on a failure it is handed a set of signals rather than left to
-interpret one. `Credentials.renewWith` is told which signals mean the credential is dead,
-`CallGuard` which are worth renewing for, and even the refusal `CallGuard` issues for a
-duplicate call is named by you.
+Wherever pylon has to act on a failure it is handed a set of statuses. `Credentials.renewWith`
+is told which mean the credential is dead, and `CallGuard` which are worth renewing for.
 
 ## The REST client
 
-`RestClient` is the whole of what makes a backend a REST backend: a base URL, a way to name
-failures, and the headers to carry.
+`RestClient` is the whole of what makes a backend a REST backend: a base URL and the headers
+to carry.
 
 ```dart
-final client = RestClient<AdminSignal>(
+final client = RestClient(
   baseUrl: Uri.parse('https://admin.example.test/v1/admin/'),
-  classifier: const AdminClassifier(),
   guard: guard,
   headers: (request) async => {
     if (Credentials.value case final credential?)
@@ -177,37 +173,9 @@ The body is not unwrapped. An envelope like `{"data": ...}` belongs to one serve
 conventions, so an adapter reads `response.map['data']` itself rather than pylon deciding
 that every server has an envelope.
 
-The classifier is the only place in a REST adapter that reads a status code.
-
-```dart
-class AdminClassifier implements RestClassifier<AdminSignal> {
-  const AdminClassifier();
-
-  @override
-  AdminSignal? ofResponse(RestResponse response) {
-    if (response.status >= 200 && response.status < 300) return null;
-
-    final body = response.body;
-    final code = body is Map<String, dynamic> ? body['code'] : null;
-    if (code == 'vpn_required') return AdminSignal.vpnRequired;
-
-    return switch (response.status) {
-      401 => AdminSignal.unauthorized,
-      403 => AdminSignal.forbidden,
-      429 => AdminSignal.tooManyRequests,
-      _ => AdminSignal.unknown,
-    };
-  }
-
-  @override
-  AdminSignal ofTransport(Object error, StackTrace stackTrace) =>
-      error is TimeoutException ? AdminSignal.timedOut : AdminSignal.noRoute;
-}
-```
-
-Even `status >= 400` is not supplied. It looks universal until it meets the API that
-answers `200` with an error payload, or the one where `404` is an ordinary answer meaning
-the resource does not exist yet. Both exist, and both are entitled to say so here.
+A response outside `200` to `299` throws a `Fault` named by its status, as above, and a call
+that never reached the server throws one too. Nothing else is thrown, so a port catches a
+single type.
 
 ## Credentials
 
@@ -244,20 +212,20 @@ The backend writes one function, the exchange, and plugs it in once, right after
 ```dart
 Credentials.renewWith(
   refresh: (current) => api.exchange(current.refreshToken!),
-  fatalSignals: {AdminSignal.unauthorized, AdminSignal.forbidden},
+  fatalStatuses: {401, 403},
 );
 ```
 
 The rest is policy, and it is the same everywhere: renew ahead of expiry rather than after
 a call has already failed, collapse simultaneous attempts into one exchange so a screen
 firing six requests does not burn six refresh tokens, keep a failed attempt pending instead
-of dropping it, and clear the credential on the signals it was told mean it is dead. The
+of dropping it, and clear the credential on the statuses it was told mean it is dead. The
 exchange throws a `Fault` naming what went wrong. A credential without a `refreshToken` is
 held and never renewed.
 
-`fatalSignals` has no default on purpose. Pylon cannot know which of an adapter's signals
-means the credential was rejected rather than that the server was unreachable, and getting
-it wrong is expensive in both directions: too wide a set signs people out during an outage,
+`fatalStatuses` has no default on purpose. Which refusal means the credential was rejected
+rather than that the server was unreachable depends on the backend, and getting it wrong is
+expensive in both directions: too wide a set signs people out during an outage,
 too narrow a one leaves them retrying a credential that is gone.
 
 ### The local database
@@ -275,10 +243,7 @@ right one.
 ### The REST client
 
 ```dart
-final guard = CallGuard<AdminSignal>.renewing(
-  renewOn: {AdminSignal.unauthorized},
-  duplicateSignal: AdminSignal.duplicateCall,
-);
+final guard = CallGuard.renewing(renewOn: {401});
 ```
 
 Every authenticated call renews ahead of expiry, replays once after a renewal, and clears
@@ -328,7 +293,7 @@ call shares that key; every other verb refuses a second call under it instead of
 ## Realtime
 
 `SocketChannel` carries the policy, `SocketProtocol` carries the frames. The split is the
-same one as between `RestClient` and `RestClassifier`: moving to another server means
+same one as between `RestClient` and its headers: moving to another server means
 writing the protocol, and nothing else.
 
 ```dart
@@ -566,11 +531,11 @@ database up to date. `Repository` is where it reads: a small class a project wri
 piece of data it shows, with its parameters in its own fields.
 
 ```dart
-final class UsersList extends Repository<List<User>, List<User>, UsersError, RestSignal> {
+final class UsersList extends Repository<List<User>, List<User>, UsersError> {
   @override Future<List<User>> fetch() => RestGroundSdk.I.users.list();            // the network
   @override Future<void> response(List<User> users) => ...;                        // the database
   @override Stream<List<User>> stream() => db.from(db.users).stream();              // the only local read: what it holds, then every change
-  @override UsersError resolve(Fault<RestSignal> fault) => ...;
+  @override UsersError resolve(Fault fault) => ...;   // a switch over fault.status and fault.cause
 }
 
 final users = GroundSdk.I.users.list();   // a repository, made where the screen needs it
@@ -634,16 +599,16 @@ overrides it to `false`, since the request is worth trying and its own failure i
 answer, and so does a call to a vendor's package over bluetooth or a local network, which needs no
 internet at all. A request that signs someone in overrides `requiresCredential` to `false`.
 
-Everything else is the project's own error `E`, which
-`resolve` produces from the fault, as a `FaultResolver` does: that is where a project says that a
-request which never reached the server means the network.
+Everything else is the project's own error `E`, an enum that lists every way this repository
+can fail. `resolve` produces it from the fault with a `switch` over `fault.status` and `fault.cause`: that is where
+a project says that a request which never reached the server means the network.
 
 Six screens asking at once make one request: a `refresh` under way is joined. An error that is
 not a `Fault` is a bug and propagates.
 
 ## What is deliberately absent
 
-No token format, no notion of a session, no list of error kinds, no envelope around a
+No token format, no notion of a session, no envelope around a
 response body, no rule about which status means what, no frame format, no environment
 reading, no code generation. Every one of those belongs to one server rather than to REST,
 and a wall that took a side would stop being a wall.
